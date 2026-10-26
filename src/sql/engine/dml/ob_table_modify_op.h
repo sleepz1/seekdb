@@ -309,6 +309,7 @@ public:
   bool iter_end_;
   ObDMLRtCtx dml_rtctx_;
   bool execute_single_row_;
+  void *ai_column_capture_;
   ObSEArray<ObExpr *, 4> trigger_clear_exprs_;
   ObDMLModifyRowsList dml_modify_rows_;
   ObSEArray<ObForeignKeyChecker *, 4> fk_checkers_;

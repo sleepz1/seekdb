@@ -20,6 +20,7 @@
 #include "lib/stat/ob_diagnostic_info_guard.h"
 #include "share/ob_server_struct.h"
 #include "sql/engine/cmd/ob_table_executor.h"
+#include "sql/engine/ai_column/ob_ai_column_service.h"
 #include "query/command/ob_root_command_service.h"
 #include "query/command/ob_root_service_serialization.h"
 #include "query/runtime/ob_query_runtime_environment.h"
@@ -506,6 +507,10 @@ int ObCreateTableExecutor::execute(ObExecContext &ctx, ObCreateTableStmt &stmt)
       query::request_query_ctas_cleanup(
           ctx.get_query_runtime_environment());
     }
+    if (OB_SUCC(ret) && OB_INVALID_ID != res.table_id_ && !table_schema.is_view_table()) {
+      if (OB_FAIL(ObAIColumnService::register_after_ddl(res.table_id_, res.schema_version_))) {
+      }
+    }
   }
   return ret;
 }
@@ -754,6 +759,9 @@ int ObAlterTableExecutor::alter_table_exchange_partition_rpc(obcall::ObExchangeP
 int ObAlterTableExecutor::execute(ObExecContext &ctx, ObAlterTableStmt &stmt)
 {
   int ret = OB_SUCCESS;
+  if (stmt.is_ai_column_retry()) {
+    return ObAIColumnService::execute_retry(ctx, stmt);
+  }
   ObSqlExecutorCtx *task_exec_ctx = NULL;
   obcall::ObAlterTableArg &alter_table_arg = stmt.get_alter_table_arg();
   obcall::ObExchangePartitionArg &exchange_partition_arg = stmt.get_exchange_partition_arg();
@@ -878,6 +886,17 @@ int ObAlterTableExecutor::execute(ObExecContext &ctx, ObAlterTableStmt &stmt)
       "table_info", table_info_buffer,
       "schema_version", res.schema_version_);
     SQL_ENG_LOG(INFO, "finish alter table execute.", K(ret), "ddl_event_info", ObDDLEventInfo(GCTX.self_addr()), K(first_stmt));
+    if (OB_SUCC(ret)) {
+      // ObAlterTableArg::table_id_ stays invalid for ordinary ALTER. The resolved
+      // table id lives on alter_table_schema_.
+      uint64_t table_id = alter_table_arg.table_id_;
+      if (OB_INVALID_ID == table_id) {
+        table_id = alter_table_arg.alter_table_schema_.get_table_id();
+      }
+      if (OB_INVALID_ID != table_id &&
+          OB_FAIL(ObAIColumnService::register_after_ddl(table_id, res.schema_version_))) {
+      }
+    }
   }
   return ret;
 }

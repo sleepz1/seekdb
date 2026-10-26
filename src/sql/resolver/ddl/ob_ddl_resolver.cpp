@@ -32,6 +32,7 @@
 #include "share/rc/ob_server_runtime.h"
 #include "share/schema/ob_table_schema.h"
 #include "sql/engine/expr/ob_obj_cast_runtime.h"
+#include "sql/engine/ai_column/ob_ai_column_service.h"
 
 namespace oceanbase
 {
@@ -1964,6 +1965,10 @@ int ObDDLResolver::resolve_column_definition(ObColumnSchemaV2 &column,
           }
         }
       }
+    }
+  }
+  if (OB_SUCC(ret) && nullptr != node && 6 == node->num_child_ && 1 == node->value_) {
+    if (OB_FAIL(ObAIColumnService::define_column(column, node))) {
     }
   }
   return ret;
