@@ -28,6 +28,8 @@
 #include "sql/engine/expr/ob_expr_regexp_context.h"
 #include "sql/engine/expr/ob_json_param_type.h"
 #include "sql/parser/ob_parser_utils.h"
+#include "sql/parser/ob_parser.h"
+#include <string>
 
 #include "sql/executor/ob_memory_tracker.h"
 namespace oceanbase
@@ -4668,6 +4670,225 @@ int ObSelectResolver::resolve_values_table_from_union(const ObIArray<int64_t> &l
                                                            table_def->access_exprs_,
                                                            &table_def->column_types_))) {
     } else if (OB_FAIL(estimate_values_table_stats(*table_def))) {
+    }
+  }
+  return ret;
+}
+
+namespace {
+
+int append_quoted_ident(ObSqlString &sql, const ObString &ident)
+{
+  int ret = OB_SUCCESS;
+  if (OB_FAIL(sql.append("`"))) {
+  }
+  for (int32_t i = 0; OB_SUCC(ret) && i < ident.length(); ++i) {
+    char c = ident.ptr()[i];
+    if ('`' == c) {
+      if (OB_FAIL(sql.append("``"))) {
+      }
+    } else if (OB_FAIL(sql.append(&c, 1))) {
+    }
+  }
+  if (OB_SUCC(ret)) {
+    ret = sql.append("`");
+  }
+  return ret;
+}
+
+void append_u32_le(std::string &out, uint32_t value)
+{
+  char buf[4];
+  buf[0] = static_cast<char>(value & 0xff);
+  buf[1] = static_cast<char>((value >> 8) & 0xff);
+  buf[2] = static_cast<char>((value >> 16) & 0xff);
+  buf[3] = static_cast<char>((value >> 24) & 0xff);
+  out.append(buf, 4);
+}
+
+} // namespace
+
+int ObSelectResolver::resolve_copy_file(const ParseNode &parse_tree)
+{
+  int ret = OB_SUCCESS;
+  bool enabled = false;
+  const ParseNode *select_node = NULL;
+  ParseResult parse_result;
+  if (OB_ISNULL(allocator_) || OB_ISNULL(session_info_) || OB_ISNULL(params_.query_ctx_)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_UNLIKELY(T_COPY_FILE != parse_tree.type_ || 3 != parse_tree.num_child_ ||
+                         OB_ISNULL(parse_tree.children_) || OB_ISNULL(parse_tree.children_[0]) ||
+                         OB_ISNULL(parse_tree.children_[1]))) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_FAIL(session_info_->get_bool_sys_var(share::SYS_VAR_ENABLE_FILE_SQL, enabled))) {
+  } else if (!enabled) {
+    ret = OB_NOT_SUPPORTED;
+    LOG_USER_ERROR(OB_NOT_SUPPORTED, "file sql");
+  } else if (0 == parse_tree.value_) {
+    select_node = parse_tree.children_[0];
+  } else if (1 == parse_tree.value_) {
+    const ParseNode *rel = parse_tree.children_[0];
+    ObString db_name;
+    ObString table_name;
+    if (OB_ISNULL(rel) || T_RELATION_FACTOR != rel->type_ || OB_ISNULL(rel->children_) ||
+        rel->num_child_ < 2 || OB_ISNULL(rel->children_[1])) {
+      ret = OB_ERR_UNEXPECTED;
+    } else {
+      table_name.assign_ptr(rel->children_[1]->str_value_,
+                            static_cast<int32_t>(rel->children_[1]->str_len_));
+      if (NULL != rel->children_[0]) {
+        db_name.assign_ptr(rel->children_[0]->str_value_,
+                           static_cast<int32_t>(rel->children_[0]->str_len_));
+      }
+      ObSqlString sql;
+      ObString query;
+      if (table_name.empty()) {
+        ret = OB_ERR_UNEXPECTED;
+      } else if (OB_FAIL(sql.append("select * from "))) {
+      } else if (!db_name.empty() && OB_FAIL(append_quoted_ident(sql, db_name))) {
+      } else if (!db_name.empty() && OB_FAIL(sql.append("."))) {
+      } else if (OB_FAIL(append_quoted_ident(sql, table_name))) {
+      } else if (OB_FAIL(ob_write_string(*allocator_, ObString(sql.length(), sql.ptr()), query))) {
+      } else {
+        ObParser parser(*allocator_, session_info_->get_sql_mode(), session_info_->get_charsets4parser());
+        if (OB_FAIL(parser.parse(query, parse_result))) {
+        } else if (OB_ISNULL(parse_result.result_tree_) ||
+                   parse_result.result_tree_->num_child_ < 1 ||
+                   OB_ISNULL(parse_result.result_tree_->children_[0])) {
+          ret = OB_ERR_UNEXPECTED;
+        } else {
+          select_node = parse_result.result_tree_->children_[0];
+        }
+      }
+    }
+  } else {
+    ret = OB_ERR_UNEXPECTED;
+  }
+  if (OB_FAIL(ret)) {
+  } else if (OB_ISNULL(select_node)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_FAIL(resolve(*select_node))) {
+  } else if (OB_ISNULL(get_select_stmt())) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (get_select_stmt()->has_select_into()) {
+    ret = OB_NOT_SUPPORTED;
+    LOG_USER_ERROR(OB_NOT_SUPPORTED, "COPY with INTO");
+  } else {
+    ObString path;
+    ObString secure;
+    bool header = true;
+    std::string nullstr;
+    ParseNode *opt_list = parse_tree.children_[2];
+    if (OB_FAIL(resolve_str_const(*parse_tree.children_[1], path))) {
+    } else if (path.empty()) {
+      ret = OB_ERR_UNEXPECTED;
+      LOG_USER_ERROR(OB_ERR_UNEXPECTED, "empty file path");
+    } else if (OB_FAIL(session_info_->get_secure_file_priv(secure))) {
+    } else if (OB_FAIL(ObResolverUtils::check_secure_path(secure, path))) {
+      LOG_USER_ERROR(OB_ERR_NO_PRIVILEGE, "FILE");
+    }
+    for (int64_t i = 0; OB_SUCC(ret) && NULL != opt_list && i < opt_list->num_child_; ++i) {
+      ParseNode *opt_node = opt_list->children_[i];
+      ParseNode *name_node = NULL;
+      ParseNode *val_node = NULL;
+      if (OB_ISNULL(opt_node) || 2 != opt_node->num_child_ || OB_ISNULL(opt_node->children_) ||
+          OB_ISNULL(name_node = opt_node->children_[0]) ||
+          OB_ISNULL(val_node = opt_node->children_[1]) ||
+          OB_ISNULL(name_node->str_value_)) {
+        ret = OB_ERR_UNEXPECTED;
+      } else {
+        ObString name(static_cast<int32_t>(name_node->str_len_), name_node->str_value_);
+        if (0 == name.case_compare("format")) {
+          ObString fmt;
+          if (NULL != val_node->str_value_) {
+            fmt.assign_ptr(val_node->str_value_, static_cast<int32_t>(val_node->str_len_));
+          }
+          if (0 != fmt.case_compare("csv")) {
+            ret = OB_NOT_SUPPORTED;
+            LOG_USER_ERROR(OB_NOT_SUPPORTED, "COPY format");
+          }
+        } else if (0 == name.case_compare("header")) {
+          if (T_BOOL == val_node->type_ || T_INT == val_node->type_) {
+            header = 0 != val_node->value_;
+          } else if (NULL != val_node->str_value_) {
+            ObString text(static_cast<int32_t>(val_node->str_len_), val_node->str_value_);
+            if (0 == text.case_compare("true") || 0 == text.case_compare("1")) {
+              header = true;
+            } else if (0 == text.case_compare("false") || 0 == text.case_compare("0")) {
+              header = false;
+            } else {
+              ret = OB_NOT_SUPPORTED;
+              LOG_USER_ERROR(OB_NOT_SUPPORTED, "COPY header");
+            }
+          } else {
+            ret = OB_NOT_SUPPORTED;
+            LOG_USER_ERROR(OB_NOT_SUPPORTED, "COPY header");
+          }
+        } else if (0 == name.case_compare("nullstr")) {
+          nullstr.clear();
+          if (val_node->str_len_ > 0 && NULL != val_node->str_value_) {
+            nullstr.assign(val_node->str_value_, static_cast<size_t>(val_node->str_len_));
+          }
+        } else {
+          ret = OB_NOT_SUPPORTED;
+          LOG_USER_ERROR(OB_NOT_SUPPORTED, "COPY option");
+        }
+      }
+    }
+    ObSelectIntoItem *into_item = NULL;
+    if (OB_FAIL(ret)) {
+    } else if (OB_ISNULL(into_item = static_cast<ObSelectIntoItem *>(
+                             allocator_->alloc(sizeof(ObSelectIntoItem))))) {
+      ret = OB_ALLOCATE_MEMORY_FAILED;
+    } else {
+      new (into_item) ObSelectIntoItem();
+      into_item->into_type_ = T_INTO_OUTFILE;
+      into_item->is_single_ = true;
+      ObString path_copy;
+      ObCollationType cs_type = CS_TYPE_UTF8MB4_BIN;
+      session_info_->get_collation_connection(cs_type);
+      std::string marker = "OBFILESQL1\n";
+      marker.push_back(header ? '1' : '0');
+      marker.push_back('\n');
+      append_u32_le(marker, static_cast<uint32_t>(nullstr.size()));
+      marker.append(nullstr);
+      marker.push_back('\n');
+      const int64_t col_cnt = get_select_stmt()->get_select_item_size();
+      append_u32_le(marker, static_cast<uint32_t>(col_cnt));
+      marker.push_back('\n');
+      for (int64_t i = 0; OB_SUCC(ret) && i < col_cnt; ++i) {
+        const SelectItem &item = get_select_stmt()->get_select_item(i);
+        ObString col_name = item.alias_name_;
+        if (col_name.empty() && OB_NOT_NULL(item.expr_) && T_REF_COLUMN == item.expr_->get_expr_type()) {
+          col_name = static_cast<const ObColumnRefRawExpr *>(item.expr_)->get_column_name();
+        }
+        std::string fallback;
+        if (col_name.empty()) {
+          fallback = "column" + std::to_string(i + 1);
+          col_name.assign_ptr(fallback.data(), static_cast<int32_t>(fallback.size()));
+        }
+        {
+          append_u32_le(marker, static_cast<uint32_t>(col_name.length()));
+          if (col_name.length() > 0 && NULL != col_name.ptr()) {
+            marker.append(col_name.ptr(), static_cast<size_t>(col_name.length()));
+          }
+          marker.push_back('\n');
+        }
+      }
+      ObString marker_copy;
+      if (OB_FAIL(ret)) {
+      } else if (OB_FAIL(ob_write_string(*allocator_, path, path_copy))) {
+      } else if (OB_FAIL(ob_write_string(*allocator_,
+                                         ObString(static_cast<int32_t>(marker.size()), marker.data()),
+                                         marker_copy))) {
+      } else {
+        into_item->outfile_name_.set_varchar(path_copy);
+        into_item->outfile_name_.set_collation_type(cs_type);
+        into_item->external_properties_ = marker_copy;
+        into_item->cs_type_ = cs_type;
+        get_select_stmt()->set_select_into(into_item);
+        params_.query_ctx_->has_file_sql_ = true;
+      }
     }
   }
   return ret;

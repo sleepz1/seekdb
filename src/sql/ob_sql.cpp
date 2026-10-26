@@ -25,6 +25,7 @@
 #include "sql/plan_cache/ob_pcv_set.h"
 #include "sql/ob_sql_init.h"
 #include "sql/resolver/ob_resolver.h"
+#include "sql/resolver/ddl/ob_explain_stmt.h"
 #include "sql/resolver/cmd/ob_variable_set_stmt.h"
 #include "sql/resolver/cmd/ob_call_procedure_stmt.h"
 #include "sql/resolver/cmd/ob_anonymous_block_stmt.h"
@@ -270,19 +271,41 @@ int ObSql::fill_result_set(ObResultSet &result_set,
       break;
     }
     case stmt::T_EXPLAIN: {
+      ObExplainStmt &explain_stmt = static_cast<ObExplainStmt &>(basic_stmt);
       ObString tname = ObString::make_string("explain_table");
-      ObString cname = ObString::make_string("Query Plan");
-      field.tname_ = tname;
-      field.org_tname_ = tname;
-      field.cname_ = cname;
-      field.org_cname_ = cname;
-      field.type_.set_type(ObVarcharType);
-      field.charsetnr_ = CS_TYPE_UTF8MB4_GENERAL_CI;
-      field.type_.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
-      field.type_.set_collation_level(CS_LEVEL_IMPLICIT);
-      field.type_.set_varchar(type_name);
-      if (OB_FAIL(result_set.reserve_field_columns(1))) {
-      } else if (OB_FAIL(result_set.add_field_column(field))) {
+      if (explain_stmt.is_file_schema_describe()) {
+        const char *names[] = {"column_name", "column_type", "null", "key", "default", "extra"};
+        if (OB_FAIL(result_set.reserve_field_columns(6))) {
+        }
+        for (int64_t i = 0; OB_SUCC(ret) && i < 6; ++i) {
+          ObField col_field;
+          ObString cname = ObString::make_string(names[i]);
+          col_field.tname_ = tname;
+          col_field.org_tname_ = tname;
+          col_field.cname_ = cname;
+          col_field.org_cname_ = cname;
+          col_field.type_.set_type(ObVarcharType);
+          col_field.charsetnr_ = CS_TYPE_UTF8MB4_GENERAL_CI;
+          col_field.type_.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
+          col_field.type_.set_collation_level(CS_LEVEL_IMPLICIT);
+          col_field.type_.set_varchar(type_name);
+          if (OB_FAIL(result_set.add_field_column(col_field))) {
+          }
+        }
+      } else {
+        ObString cname = ObString::make_string("Query Plan");
+        field.tname_ = tname;
+        field.org_tname_ = tname;
+        field.cname_ = cname;
+        field.org_cname_ = cname;
+        field.type_.set_type(ObVarcharType);
+        field.charsetnr_ = CS_TYPE_UTF8MB4_GENERAL_CI;
+        field.type_.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
+        field.type_.set_collation_level(CS_LEVEL_IMPLICIT);
+        field.type_.set_varchar(type_name);
+        if (OB_FAIL(result_set.reserve_field_columns(1))) {
+        } else if (OB_FAIL(result_set.add_field_column(field))) {
+        }
       }
       break;
     }
@@ -3528,7 +3551,8 @@ int ObSql::need_add_plan(const ObPlanCacheCtx &pc_ctx,
   } else if (OB_ISNULL(result.get_exec_context().get_stmt_factory())
              || OB_ISNULL(result.get_exec_context().get_stmt_factory()->get_query_ctx())) {
     ret = OB_ERR_UNEXPECTED;
-  } else if (result.get_exec_context().get_stmt_factory()->get_query_ctx()->has_hybrid_search()) {
+  } else if (result.get_exec_context().get_stmt_factory()->get_query_ctx()->has_hybrid_search()
+             || result.get_exec_context().get_stmt_factory()->get_query_ctx()->has_file_sql()) {
     need_add_plan = false;
   }
   return ret;

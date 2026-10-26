@@ -17,7 +17,16 @@
 #define USING_LOG_PREFIX SQL_ENG
 
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <memory>
+#include <string>
+#include <vector>
+#include <climits>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "ob_select_into_op.h"
 #include "sql/engine/cmd/ob_variable_set_executor.h"
@@ -27,6 +36,14 @@
 #include "common/udt/ob_collection_type.h"
 #include "share/config/ob_server_config.h"
 #include "share/ob_lob_access_utils.h"
+#include "sql/resolver/ob_resolver_utils.h"
+#include "sql/ob_sql_utils.h"
+#include "common/timezone/ob_time_convert.h"
+#include "lib/ob_name_def.h"
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 namespace oceanbase
 {
@@ -40,6 +57,411 @@ OB_SERIALIZE_MEMBER((ObSelectIntoSpec, ObOpSpec), into_type_, user_vars_, outfil
     escaped_cht_, cs_type_, parallel_, buffer_size_, is_overwrite_,
     external_properties_);
 
+namespace {
+
+const char FILE_SQL_COPY_MAGIC[] = "OBFILESQL1\n";
+const uint64_t FILE_SQL_COPY_MAX_BYTES = 1024ULL * 1024ULL * 1024ULL;
+
+bool is_file_sql_copy_marker(const ObString &marker)
+{
+  return marker.length() >= 11 && NULL != marker.ptr() &&
+         0 == MEMCMP(marker.ptr(), FILE_SQL_COPY_MAGIC, 11);
+}
+
+bool path_has_dotdot(const std::string &path)
+{
+  if (path == ".." || (path.size() >= 3 && path.compare(0, 3, "../") == 0)) {
+    return true;
+  }
+  if (path.size() >= 3 && path.compare(path.size() - 3, 3, "/..") == 0) {
+    return true;
+  }
+  return path.find("/../") != std::string::npos;
+}
+
+int read_u32_le(const char *p, int64_t n, int64_t &i, uint32_t &value)
+{
+  int ret = OB_SUCCESS;
+  if (i < 0 || i + 4 > n) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    const unsigned char *b = reinterpret_cast<const unsigned char *>(p + i);
+    value = static_cast<uint32_t>(b[0]) |
+            (static_cast<uint32_t>(b[1]) << 8) |
+            (static_cast<uint32_t>(b[2]) << 16) |
+            (static_cast<uint32_t>(b[3]) << 24);
+    i += 4;
+  }
+  return ret;
+}
+
+struct FileSqlCopyMarker {
+  bool header;
+  ObString nullstr;
+  std::vector<ObString> names;
+  FileSqlCopyMarker() : header(true), nullstr(), names() {}
+};
+
+int parse_file_sql_copy_marker(const ObString &marker, FileSqlCopyMarker &out)
+{
+  int ret = OB_SUCCESS;
+  const char *p = marker.ptr();
+  const int64_t n = marker.length();
+  int64_t i = 0;
+  out.header = true;
+  out.nullstr.reset();
+  out.names.clear();
+  if (!is_file_sql_copy_marker(marker)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    i = 11;
+  }
+  if (OB_FAIL(ret)) {
+  } else if (i >= n || ('0' != p[i] && '1' != p[i])) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    out.header = ('1' == p[i]);
+    ++i;
+    if (i >= n || '\n' != p[i]) {
+      ret = OB_ERR_UNEXPECTED;
+    } else {
+      ++i;
+    }
+  }
+  uint32_t null_len = 0;
+  uint32_t col_cnt = 0;
+  if (OB_FAIL(ret)) {
+  } else if (OB_FAIL(read_u32_le(p, n, i, null_len))) {
+  } else if (null_len > static_cast<uint32_t>(n - i)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    out.nullstr.assign_ptr(p + i, static_cast<int32_t>(null_len));
+    i += null_len;
+    if (i >= n || '\n' != p[i]) {
+      ret = OB_ERR_UNEXPECTED;
+    } else {
+      ++i;
+    }
+  }
+  if (OB_FAIL(ret)) {
+  } else if (OB_FAIL(read_u32_le(p, n, i, col_cnt))) {
+  } else if (i >= n || '\n' != p[i]) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (col_cnt > 4096) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    ++i;
+    out.names.reserve(col_cnt);
+    for (uint32_t c = 0; OB_SUCC(ret) && c < col_cnt; ++c) {
+      uint32_t name_len = 0;
+      if (OB_FAIL(read_u32_le(p, n, i, name_len))) {
+      } else if (name_len > static_cast<uint32_t>(INT32_MAX) || name_len > static_cast<uint32_t>(n - i)) {
+        ret = OB_ERR_UNEXPECTED;
+      } else {
+        ObString name;
+        name.assign_ptr(p + i, static_cast<int32_t>(name_len));
+        i += name_len;
+        if (i >= n || '\n' != p[i]) {
+          ret = OB_ERR_UNEXPECTED;
+        } else {
+          ++i;
+          out.names.push_back(name);
+        }
+      }
+    }
+  }
+  if (OB_FAIL(ret)) {
+    LOG_USER_ERROR(OB_ERR_UNEXPECTED, "COPY file sql");
+  }
+  return ret;
+}
+
+int write_all_fd(int fd, const char *data, size_t len)
+{
+  int ret = OB_SUCCESS;
+  while (OB_SUCC(ret) && len > 0) {
+    ssize_t wrote = ::write(fd, data, len);
+    if (wrote < 0) {
+      if (EINTR == errno) {
+      } else {
+        ret = OB_IO_ERROR;
+      }
+    } else if (0 == wrote) {
+      ret = OB_IO_ERROR;
+    } else {
+      data += wrote;
+      len -= static_cast<size_t>(wrote);
+    }
+  }
+  return ret;
+}
+
+void append_csv_text(std::string &out, const char *data, size_t len, const ObString &nullstr)
+{
+  bool quote = (0 == len);
+  if (!quote && nullstr.length() == static_cast<int32_t>(len) &&
+      (0 == len || (NULL != nullstr.ptr() && 0 == MEMCMP(data, nullstr.ptr(), len)))) {
+    quote = true;
+  }
+  for (size_t i = 0; !quote && i < len; ++i) {
+    const char c = data[i];
+    if (',' == c || '"' == c || '\n' == c || '\r' == c) {
+      quote = true;
+    }
+  }
+  if (!quote) {
+    out.append(data, len);
+  } else {
+    out.push_back('"');
+    for (size_t i = 0; i < len; ++i) {
+      if ('"' == data[i]) {
+        out.push_back('"');
+      }
+      out.push_back(data[i]);
+    }
+    out.push_back('"');
+  }
+}
+
+int append_copy_datum(std::string &out,
+                      const ObExpr *expr,
+                      const ObDatum *datum,
+                      const ObTimeZoneInfo *tz,
+                      const ObString &nullstr)
+{
+  int ret = OB_SUCCESS;
+  if (OB_ISNULL(expr) || OB_ISNULL(datum)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (datum->is_null()) {
+    if (nullstr.length() > 0 && NULL != nullstr.ptr()) {
+      out.append(nullstr.ptr(), static_cast<size_t>(nullstr.length()));
+    }
+  } else {
+    const ObObjType type = expr->datum_meta_.type_;
+    char buf[128];
+    int n = 0;
+    if (ObTinyIntType == type) {
+      const int64_t v = datum->get_int();
+      if (0 == v) {
+        append_csv_text(out, "false", 5, nullstr);
+      } else if (1 == v) {
+        append_csv_text(out, "true", 4, nullstr);
+      } else {
+        n = snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(v));
+        if (n < 0 || n >= static_cast<int>(sizeof(buf))) {
+          ret = OB_ERR_UNEXPECTED;
+        } else {
+          append_csv_text(out, buf, static_cast<size_t>(n), nullstr);
+        }
+      }
+    } else if (ob_is_int_tc(type)) {
+      n = snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(datum->get_int()));
+      if (n < 0 || n >= static_cast<int>(sizeof(buf))) {
+        ret = OB_ERR_UNEXPECTED;
+      } else {
+        append_csv_text(out, buf, static_cast<size_t>(n), nullstr);
+      }
+    } else if (ob_is_uint_tc(type)) {
+      n = snprintf(buf, sizeof(buf), "%llu", static_cast<unsigned long long>(datum->get_uint()));
+      if (n < 0 || n >= static_cast<int>(sizeof(buf))) {
+        ret = OB_ERR_UNEXPECTED;
+      } else {
+        append_csv_text(out, buf, static_cast<size_t>(n), nullstr);
+      }
+    } else if (ob_is_double_tc(type) || ob_is_float_tc(type)) {
+      const double v = ob_is_float_tc(type) ? static_cast<double>(datum->get_float()) : datum->get_double();
+      n = snprintf(buf, sizeof(buf), ob_is_float_tc(type) ? "%.9g" : "%.15g", v);
+      if (n < 0 || n >= static_cast<int>(sizeof(buf))) {
+        ret = OB_ERR_UNEXPECTED;
+      } else {
+        append_csv_text(out, buf, static_cast<size_t>(n), nullstr);
+      }
+    } else if (ObDateType == type) {
+      int64_t pos = 0;
+      if (OB_FAIL(ObTimeConverter::date_to_str(datum->get_date(), buf, sizeof(buf), pos))) {
+      } else {
+        append_csv_text(out, buf, static_cast<size_t>(pos), nullstr);
+      }
+    } else if (ObMySQLDateType == type) {
+      int64_t pos = 0;
+      if (OB_FAIL(ObTimeConverter::mdate_to_str(datum->get_mysql_date(), buf, sizeof(buf), pos))) {
+      } else {
+        append_csv_text(out, buf, static_cast<size_t>(pos), nullstr);
+      }
+    } else if (ObDateTimeType == type || ObTimestampType == type) {
+      int64_t pos = 0;
+      int16_t scale = expr->datum_meta_.scale_;
+      if (scale < 0) {
+        scale = 0;
+      }
+      if (OB_FAIL(ObTimeConverter::datetime_to_str(datum->get_datetime(), tz, scale, buf, sizeof(buf), pos, true))) {
+      } else {
+        append_csv_text(out, buf, static_cast<size_t>(pos), nullstr);
+      }
+    } else if (ObMySQLDateTimeType == type) {
+      int64_t pos = 0;
+      int16_t scale = expr->datum_meta_.scale_;
+      if (scale < 0) {
+        scale = 0;
+      }
+      if (OB_FAIL(ObTimeConverter::mdatetime_to_str(datum->get_mysql_datetime(), tz, scale,
+                                                   buf, sizeof(buf), pos, true))) {
+      } else {
+        append_csv_text(out, buf, static_cast<size_t>(pos), nullstr);
+      }
+    } else if (ob_is_string_type(type)) {
+      const ObString text = datum->get_string();
+      append_csv_text(out,
+                      NULL == text.ptr() ? "" : text.ptr(),
+                      NULL == text.ptr() ? 0 : static_cast<size_t>(text.length()),
+                      nullstr);
+    } else {
+      ObObj obj;
+      char plain[256];
+      int64_t pos = 0;
+      if (OB_FAIL(datum->to_obj(obj, expr->obj_meta_, expr->obj_datum_map_))) {
+      } else if (OB_FAIL(obj.print_plain_str_literal(plain, sizeof(plain), pos))) {
+        if (OB_SIZE_OVERFLOW == ret) {
+          std::vector<char> big(4096);
+          pos = 0;
+          if (OB_FAIL(obj.print_plain_str_literal(big.data(), static_cast<int64_t>(big.size()), pos))) {
+          } else {
+            append_csv_text(out, big.data(), static_cast<size_t>(pos), nullstr);
+          }
+        }
+      } else {
+        append_csv_text(out, plain, static_cast<size_t>(pos), nullstr);
+      }
+    }
+  }
+  return ret;
+}
+
+int resolve_copy_target(ObSQLSessionInfo *session, const ObString &path, std::string &final_path)
+{
+  int ret = OB_SUCCESS;
+  final_path.clear();
+  if (OB_ISNULL(session) || path.empty() || NULL == path.ptr()) {
+    ret = OB_ERR_UNEXPECTED;
+    LOG_USER_ERROR(OB_ERR_UNEXPECTED, "empty file path");
+  } else if (NULL != memchr(path.ptr(), '\0', static_cast<size_t>(path.length()))) {
+    ret = OB_ERR_NO_PRIVILEGE;
+    LOG_USER_ERROR(OB_ERR_NO_PRIVILEGE, "FILE");
+  } else {
+    std::string raw(path.ptr(), static_cast<size_t>(path.length()));
+    ObString secure;
+    if (path_has_dotdot(raw)) {
+      ret = OB_ERR_NO_PRIVILEGE;
+      LOG_USER_ERROR(OB_ERR_NO_PRIVILEGE, "FILE");
+    } else if (OB_FAIL(session->get_secure_file_priv(secure))) {
+    } else if (secure.empty() || 0 == secure.case_compare(N_NULL)) {
+      ret = OB_ERR_NO_PRIVILEGE;
+      LOG_USER_ERROR(OB_ERR_NO_PRIVILEGE, "FILE");
+    } else if (OB_FAIL(ObResolverUtils::check_secure_path(secure, path))) {
+      LOG_USER_ERROR(OB_ERR_NO_PRIVILEGE, "FILE");
+    } else {
+      const size_t slash = raw.rfind('/');
+      std::string parent;
+      std::string base;
+      if (std::string::npos == slash) {
+        parent = ".";
+        base = raw;
+      } else {
+        parent = (0 == slash) ? std::string("/") : raw.substr(0, slash);
+        base = raw.substr(slash + 1);
+      }
+      char real_buf[PATH_MAX];
+      if (base.empty() || "." == base || ".." == base) {
+        ret = OB_ERR_UNEXPECTED;
+        LOG_USER_ERROR(OB_ERR_UNEXPECTED, "empty file path");
+      } else if (NULL == ::realpath(parent.c_str(), real_buf)) {
+        ret = OB_FILE_NOT_EXIST;
+      } else {
+        ObString real_parent(real_buf);
+        if (OB_FAIL(ObResolverUtils::check_secure_path(secure, real_parent))) {
+          LOG_USER_ERROR(OB_ERR_NO_PRIVILEGE, "FILE");
+        } else {
+          final_path.assign(real_buf);
+          if (final_path.empty() || '/' != final_path.back()) {
+            final_path.push_back('/');
+          }
+          final_path.append(base);
+          struct stat st;
+          if (0 == ::lstat(final_path.c_str(), &st)) {
+            ret = OB_FILE_ALREADY_EXIST;
+            LOG_USER_ERROR(OB_FILE_ALREADY_EXIST);
+          } else if (ENOENT != errno) {
+            ret = OB_IO_ERROR;
+          }
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+class CopyTempFile {
+public:
+  CopyTempFile() : fd_(-1), path_() {}
+  ~CopyTempFile()
+  {
+    if (fd_ >= 0) {
+      ::close(fd_);
+      fd_ = -1;
+    }
+    if (!path_.empty()) {
+      ::unlink(path_.c_str());
+    }
+  }
+  int open_in(const std::string &dir)
+  {
+    int ret = OB_SUCCESS;
+    std::string pattern = dir;
+    if (pattern.empty() || '/' != pattern.back()) {
+      pattern.push_back('/');
+    }
+    pattern.append(".obfilesql_XXXXXX");
+    std::vector<char> tmpl(pattern.begin(), pattern.end());
+    tmpl.push_back('\0');
+    fd_ = ::mkstemp(tmpl.data());
+    if (fd_ < 0) {
+      ret = OB_IO_ERROR;
+    } else {
+      path_.assign(tmpl.data());
+      if (0 != ::fchmod(fd_, 0644)) {
+        ret = OB_IO_ERROR;
+      }
+    }
+    return ret;
+  }
+  int write(const char *data, size_t len) { return write_all_fd(fd_, data, len); }
+  int finish_link(const std::string &final_path)
+  {
+    int ret = OB_SUCCESS;
+    if (fd_ < 0) {
+      ret = OB_ERR_UNEXPECTED;
+    } else if (0 != ::fsync(fd_)) {
+      ret = OB_IO_ERROR;
+    } else {
+      ::close(fd_);
+      fd_ = -1;
+      if (0 != ::link(path_.c_str(), final_path.c_str())) {
+        if (EEXIST == errno) {
+          ret = OB_FILE_ALREADY_EXIST;
+          LOG_USER_ERROR(OB_FILE_ALREADY_EXIST);
+        } else {
+          ret = OB_IO_ERROR;
+        }
+      }
+    }
+    return ret;
+  }
+private:
+  int fd_;
+  std::string path_;
+};
+
+} // namespace
 
 int ObSelectIntoOp::inner_open()
 {
@@ -53,14 +475,33 @@ int ObSelectIntoOp::inner_open()
     if (OB_FAIL(session->get_sql_select_limit(top_limit_cnt_))) {
     }
   }
-  if (OB_SUCC(ret) && !MY_SPEC.external_properties_.str_.empty()) {
+  if (OB_SUCC(ret) && is_file_sql_copy_marker(MY_SPEC.external_properties_.str_)) {
+    file_sql_copy_ = true;
+    FileSqlCopyMarker marker;
+    std::string final_path;
+    ObObj file_name = MY_SPEC.outfile_name_;
+    bool need_check = false;
+    ObPhysicalPlanCtx *phy_plan_ctx = ctx_.get_physical_plan_ctx();
+    if (OB_ISNULL(phy_plan_ctx)) {
+      ret = OB_ERR_UNEXPECTED;
+    } else if (OB_FAIL(parse_file_sql_copy_marker(MY_SPEC.external_properties_.str_, marker))) {
+    } else if (marker.names.size() != static_cast<size_t>(MY_SPEC.select_exprs_.count())) {
+      ret = OB_ERR_UNEXPECTED;
+      LOG_USER_ERROR(OB_ERR_UNEXPECTED, "COPY file sql");
+    } else if (OB_FAIL(ObSQLUtils::get_param_value(MY_SPEC.outfile_name_,
+                                                   phy_plan_ctx->get_param_store(),
+                                                   file_name,
+                                                   need_check))) {
+    } else if (OB_FAIL(resolve_copy_target(session, file_name.get_varchar().trim(), final_path))) {
+    }
+  } else if (OB_SUCC(ret) && !MY_SPEC.external_properties_.str_.empty()) {
     if (OB_FAIL(external_properties_.load_from_string(MY_SPEC.external_properties_.str_,
                                                       ctx_.get_allocator()))) {
     } else {
       format_type_ = external_properties_.format_type_;
     }
   }
-  if (OB_SUCC(ret)) {
+  if (OB_SUCC(ret) && !file_sql_copy_) {
     switch (format_type_)
     {
       case ObExternalFileFormat::FormatType::CSV_FORMAT:
@@ -188,6 +629,17 @@ int ObSelectIntoOp::calc_outfile_path()
 }
 int ObSelectIntoOp::inner_get_next_row()
 {
+  if (file_sql_copy_) {
+    int ret = OB_SUCCESS;
+    if (OB_FAIL(write_file_sql_copy())) {
+    } else {
+      ret = OB_ITER_END;
+    }
+    if (OB_FAIL(ret) && OB_ITER_END != ret) {
+      need_commit_ = false;
+    }
+    return ret;
+  }
   int ret = 0 == top_limit_cnt_ ? OB_ITER_END : OB_SUCCESS;
   int64_t row_count = 0;
   const ObItemType into_type = MY_SPEC.into_type_;
@@ -236,6 +688,15 @@ int ObSelectIntoOp::inner_get_next_row()
 
 int ObSelectIntoOp::inner_get_next_batch(const int64_t max_row_cnt)
 {
+  if (file_sql_copy_) {
+    int ret = write_file_sql_copy();
+    brs_.size_ = 0;
+    brs_.end_ = true;
+    if (OB_FAIL(ret)) {
+      need_commit_ = false;
+    }
+    return ret;
+  }
   int ret = OB_SUCCESS;
   const ObBatchRows *child_brs = NULL;
   int64_t batch_size = min(max_row_cnt, MY_SPEC.max_batch_size_);
@@ -312,6 +773,111 @@ int ObSelectIntoOp::inner_get_next_batch(const int64_t max_row_cnt)
   }
   if (OB_FAIL(ret)) {
     need_commit_ = false;
+  }
+  return ret;
+}
+
+int ObSelectIntoOp::write_file_sql_copy()
+{
+  int ret = OB_SUCCESS;
+  if (file_sql_copy_done_) {
+  } else if (file_sql_copy_started_) {
+    ret = OB_ERR_UNEXPECTED;
+    LOG_USER_ERROR(OB_ERR_UNEXPECTED, "COPY file sql");
+  } else {
+    file_sql_copy_started_ = true;
+    FileSqlCopyMarker marker;
+    std::string final_path;
+    ObSQLSessionInfo *session = ctx_.get_my_session();
+    ObPhysicalPlanCtx *phy_plan_ctx = ctx_.get_physical_plan_ctx();
+    ObObj file_name = MY_SPEC.outfile_name_;
+    bool need_check = false;
+    if (OB_ISNULL(session) || OB_ISNULL(phy_plan_ctx) || OB_ISNULL(child_)) {
+      ret = OB_ERR_UNEXPECTED;
+    } else if (OB_FAIL(parse_file_sql_copy_marker(MY_SPEC.external_properties_.str_, marker))) {
+    } else if (marker.names.size() != static_cast<size_t>(MY_SPEC.select_exprs_.count())) {
+      ret = OB_ERR_UNEXPECTED;
+      LOG_USER_ERROR(OB_ERR_UNEXPECTED, "COPY file sql");
+    } else if (OB_FAIL(ObSQLUtils::get_param_value(MY_SPEC.outfile_name_,
+                                                   phy_plan_ctx->get_param_store(),
+                                                   file_name,
+                                                   need_check))) {
+    } else if (OB_FAIL(resolve_copy_target(session, file_name.get_varchar().trim(), final_path))) {
+    } else {
+      const size_t slash = final_path.rfind('/');
+      const std::string dir = (std::string::npos == slash) ? std::string(".")
+                             : final_path.substr(0, 0 == slash ? 1 : slash);
+      CopyTempFile tmp;
+      std::string buf;
+      uint64_t total = 0;
+      buf.reserve(1 << 20);
+      if (OB_FAIL(tmp.open_in(dir))) {
+      }
+      auto flush_buf = [&]() -> int {
+        int flush_ret = OB_SUCCESS;
+        if (!buf.empty() && total + buf.size() > FILE_SQL_COPY_MAX_BYTES) {
+          flush_ret = OB_ERR_UNEXPECTED;
+          LOG_USER_ERROR(OB_ERR_UNEXPECTED, "file exceeds size limit");
+        } else if (!buf.empty()) {
+          total += buf.size();
+          flush_ret = tmp.write(buf.data(), buf.size());
+          buf.clear();
+        }
+        return flush_ret;
+      };
+      if (OB_SUCC(ret) && marker.header) {
+        for (size_t i = 0; OB_SUCC(ret) && i < marker.names.size(); ++i) {
+          if (i > 0) {
+            buf.push_back(',');
+          }
+          const ObString &name = marker.names[i];
+          append_csv_text(buf,
+                          NULL == name.ptr() ? "" : name.ptr(),
+                          NULL == name.ptr() ? 0 : static_cast<size_t>(name.length()),
+                          marker.nullstr);
+        }
+        buf.push_back('\n');
+        if (buf.size() >= (1 << 20) && OB_FAIL(flush_buf())) {
+        }
+      }
+      int64_t row_count = 0;
+      const ObTimeZoneInfo *tz = session->get_timezone_info();
+      while (OB_SUCC(ret) && row_count < top_limit_cnt_) {
+        clear_evaluated_flag();
+        if (OB_FAIL(child_->get_next_row())) {
+          if (OB_ITER_END == ret) {
+            ret = OB_SUCCESS;
+          }
+          break;
+        } else {
+          for (int64_t i = 0; OB_SUCC(ret) && i < MY_SPEC.select_exprs_.count(); ++i) {
+            ObExpr *expr = MY_SPEC.select_exprs_.at(i);
+            ObDatum *datum = NULL;
+            if (i > 0) {
+              buf.push_back(',');
+            }
+            if (OB_ISNULL(expr)) {
+              ret = OB_ERR_UNEXPECTED;
+            } else if (OB_FAIL(expr->eval(eval_ctx_, datum))) {
+            } else if (OB_FAIL(append_copy_datum(buf, expr, datum, tz, marker.nullstr))) {
+            }
+          }
+          if (OB_SUCC(ret)) {
+            buf.push_back('\n');
+            ++row_count;
+            if (buf.size() >= (1 << 20) && OB_FAIL(flush_buf())) {
+            } else if (OB_FAIL(try_check_status())) {
+            }
+          }
+        }
+      }
+      if (OB_SUCC(ret) && OB_FAIL(flush_buf())) {
+      } else if (OB_SUCC(ret) && OB_FAIL(tmp.finish_link(final_path))) {
+      } else if (OB_SUCC(ret)) {
+        phy_plan_ctx->set_affected_rows(row_count);
+        file_sql_copy_done_ = true;
+      }
+    }
   }
   return ret;
 }

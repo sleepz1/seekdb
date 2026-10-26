@@ -17,8 +17,11 @@
 #define USING_LOG_PREFIX SQL_ENG
 
 #include "sql/engine/basic/ob_values_table_access_op.h"
+#include "sql/engine/basic/file_sql_scan.h"
 #include "sql/engine/ob_exec_context.h"
 #include "sql/engine/expr/ob_obj_cast_runtime.h"
+#include "sql/resolver/ob_resolver_utils.h"
+#include "common/timezone/ob_time_convert.h"
 
 namespace oceanbase
 {
@@ -38,7 +41,7 @@ ObValuesTableAccessOp::ObValuesTableAccessOp(ObExecContext &exec_ctx,
                                              const ObOpSpec &spec,
                                              ObOpInput *input)
   : ObOperator(exec_ctx, spec, input), datum_caster_(), cm_(CM_NONE),
-    row_idx_(0), row_cnt_(0) {}
+    row_idx_(0), row_cnt_(0), file_reader_(NULL) {}
 
 int ObValuesTableAccessOp::inner_open()
 {
@@ -55,7 +58,12 @@ int ObValuesTableAccessOp::inner_open()
   } else {
     cm_ = cm_ | CM_COLUMN_CONVERT;
     if (OB_SUCC(ret)) {
-      if (ObValuesTableDef::FOLD_ACCESS_EXPR == MY_SPEC.access_type_) {
+      if (ObValuesTableDef::ACCESS_FILE == MY_SPEC.access_type_) {
+        if (OB_FAIL(open_file_reader())) {
+        } else {
+          row_cnt_ = INT64_MAX;
+        }
+      } else if (ObValuesTableDef::FOLD_ACCESS_EXPR == MY_SPEC.access_type_) {
         if (OB_UNLIKELY(MY_SPEC.start_param_idx_ < 0 ||
                         MY_SPEC.start_param_idx_ > MY_SPEC.end_param_idx_ ||
                         MY_SPEC.end_param_idx_ >= plan_ctx->get_param_store().count())) {
@@ -86,6 +94,8 @@ int ObValuesTableAccessOp::inner_rescan()
   if (OB_FAIL(ObOperator::inner_rescan())) {
   } else {
     row_idx_ = 0;
+    if (ObValuesTableDef::ACCESS_FILE == MY_SPEC.access_type_ && OB_FAIL(rewind_file_reader())) {
+    }
   }
   return ret;
 }
@@ -96,6 +106,8 @@ int ObValuesTableAccessOp::switch_iterator()
   if (OB_FAIL(ObOperator::inner_switch_iterator())) {
   } else {
     row_idx_ = 0;
+    if (ObValuesTableDef::ACCESS_FILE == MY_SPEC.access_type_ && OB_FAIL(rewind_file_reader())) {
+    }
   }
   return ret;
 }
@@ -263,6 +275,9 @@ int ObValuesTableAccessOp::calc_datum_from_param(const ObObj &src_obj, ObExpr *d
 OB_INLINE int ObValuesTableAccessOp::calc_next_row()
 {
   int ret = OB_SUCCESS;
+  if (ObValuesTableDef::ACCESS_FILE == MY_SPEC.access_type_) {
+    return calc_next_file_row();
+  }
   int64_t col_num = MY_SPEC.column_exprs_.count();
   int64_t col_idx = 0;
   ObPhysicalPlanCtx *plan_ctx = GET_PHY_PLAN_CTX(ctx_);
@@ -304,6 +319,10 @@ OB_INLINE int ObValuesTableAccessOp::calc_next_row()
           }
           break;
         }
+        case ObValuesTableDef::ACCESS_FILE: {
+          ret = OB_ERR_UNEXPECTED;
+          break;
+        }
       };
       col_idx++;
     } // while end
@@ -324,11 +343,329 @@ OB_INLINE int ObValuesTableAccessOp::calc_next_row()
   return ret;
 }
 
+static int file_sql_status_to_ret(const filesql::Status &st)
+{
+  int ret = OB_SUCCESS;
+  if (st.ok()) {
+  } else if (filesql::ST_UNSUPPORTED == st.code) {
+    ret = OB_NOT_SUPPORTED;
+    LOG_USER_ERROR(OB_NOT_SUPPORTED, st.message.empty() ? "file sql" : st.message.c_str());
+  } else if (filesql::ST_CHANGED == st.code || st.message == "FILE_CHANGED") {
+    ret = OB_ERR_UNEXPECTED;
+    LOG_USER_ERROR(OB_ERR_UNEXPECTED, "FILE_CHANGED");
+  } else if (st.message.find("secure_file_priv") != std::string::npos ||
+             st.message.find("..") != std::string::npos) {
+    ret = OB_ERR_NO_PRIVILEGE;
+    LOG_USER_ERROR(OB_ERR_NO_PRIVILEGE, "FILE");
+  } else if (filesql::ST_IO == st.code &&
+             st.message.find("not a regular") == std::string::npos &&
+             st.message.find("not a directory") == std::string::npos) {
+    ret = OB_FILE_NOT_EXIST;
+  } else {
+    ret = OB_ERR_UNEXPECTED;
+    LOG_USER_ERROR(OB_ERR_UNEXPECTED, st.message.empty() ? "file sql" : st.message.c_str());
+  }
+  return ret;
+}
+
 int ObValuesTableAccessOp::inner_close()
 {
   int ret = OB_SUCCESS;
   row_idx_ = 0;
-  if (OB_FAIL(datum_caster_.destroy())) {
+  if (NULL != file_reader_) {
+    filesql::Status st = file_reader_->check_unchanged();
+    delete file_reader_;
+    file_reader_ = NULL;
+    if (!st.ok()) {
+      ret = file_sql_status_to_ret(st);
+    }
+  }
+  int caster_ret = datum_caster_.destroy();
+  if (OB_SUCC(ret)) {
+    ret = caster_ret;
+  }
+  return ret;
+}
+
+void ObValuesTableAccessOp::destroy()
+{
+  if (NULL != file_reader_) {
+    delete file_reader_;
+    file_reader_ = NULL;
+  }
+  ObOperator::destroy();
+}
+
+int ObValuesTableAccessOp::column_is_needed(const ObExpr *col, bool &needed)
+{
+  int ret = OB_SUCCESS;
+  needed = false;
+  if (OB_ISNULL(col)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    const ExprFixedArray *lists[] = {
+      &MY_SPEC.output_, &MY_SPEC.filters_, &MY_SPEC.startup_filters_, &MY_SPEC.calc_exprs_
+    };
+    for (int64_t li = 0; OB_SUCC(ret) && !needed && li < 4; ++li) {
+      const ExprFixedArray &list = *lists[li];
+      for (int64_t i = 0; OB_SUCC(ret) && !needed && i < list.count(); ++i) {
+        bool found = false;
+        if (OB_ISNULL(list.at(i))) {
+        } else if (OB_FAIL(list.at(i)->contain_expr(col, found))) {
+        } else {
+          needed = found;
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+int ObValuesTableAccessOp::open_file_reader()
+{
+  int ret = OB_SUCCESS;
+  if (NULL != file_reader_) {
+    delete file_reader_;
+    file_reader_ = NULL;
+  }
+  ObSQLSessionInfo *session = GET_MY_SESSION(ctx_);
+  if (MY_SPEC.obj_params_.count() < filesql::META_SLOTS) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_ISNULL(session)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    const ObObj &path_obj = MY_SPEC.obj_params_.at(filesql::META_PATH);
+    ObString path = path_obj.get_varchar();
+    filesql::Kind kind = static_cast<filesql::Kind>(MY_SPEC.obj_params_.at(filesql::META_KIND).get_int());
+    filesql::Options opt;
+    opt.header = 0 != MY_SPEC.obj_params_.at(filesql::META_HEADER).get_int();
+    opt.sample_size = MY_SPEC.obj_params_.at(filesql::META_SAMPLE_SIZE).get_int();
+    opt.all_varchar = 0 != MY_SPEC.obj_params_.at(filesql::META_ALL_VARCHAR).get_int();
+    ObString delim = MY_SPEC.obj_params_.at(filesql::META_DELIM).get_varchar();
+    ObString nullstr = MY_SPEC.obj_params_.at(filesql::META_NULLSTR).get_varchar();
+    ObString quote = MY_SPEC.obj_params_.at(filesql::META_QUOTE).get_varchar();
+    ObString format = MY_SPEC.obj_params_.at(filesql::META_FORMAT).get_varchar();
+    if (1 == delim.length() && NULL != delim.ptr()) {
+      opt.delim = delim.ptr()[0];
+    }
+    if (1 == quote.length() && NULL != quote.ptr()) {
+      opt.quote = quote.ptr()[0];
+    }
+    if (nullstr.length() > 0 && NULL != nullstr.ptr()) {
+      opt.nullstr.assign(nullstr.ptr(), static_cast<size_t>(nullstr.length()));
+    }
+    if (format.length() > 0 && NULL != format.ptr()) {
+      opt.format.assign(format.ptr(), static_cast<size_t>(format.length()));
+    }
+    ObString secure;
+    if (OB_FAIL(session->get_secure_file_priv(secure))) {
+    } else if (secure.empty() || 0 == secure.case_compare("NULL")) {
+      ret = OB_ERR_NO_PRIVILEGE;
+      LOG_USER_ERROR(OB_ERR_NO_PRIVILEGE, "FILE");
+    } else if (OB_FAIL(ObResolverUtils::check_secure_path(secure, path))) {
+      LOG_USER_ERROR(OB_ERR_NO_PRIVILEGE, "FILE");
+    } else if (path.empty() || NULL == path.ptr()) {
+      ret = OB_ERR_UNEXPECTED;
+    } else {
+      opt.secure_root.assign(secure.ptr(), static_cast<size_t>(secure.length()));
+      std::string path_s(path.ptr(), static_cast<size_t>(path.length()));
+      file_reader_ = new (std::nothrow) filesql::FileSqlReader();
+      if (NULL == file_reader_) {
+        ret = OB_ALLOCATE_MEMORY_FAILED;
+      } else {
+        filesql::Status st = file_reader_->open(kind, path_s, opt);
+        if (!st.ok()) {
+          ret = file_sql_status_to_ret(st);
+        } else {
+          const filesql::Fingerprint &fp = file_reader_->schema().fp;
+          uint64_t dev = static_cast<uint64_t>(MY_SPEC.obj_params_.at(filesql::META_DEV).get_int());
+          uint64_t ino = static_cast<uint64_t>(MY_SPEC.obj_params_.at(filesql::META_INO).get_int());
+          uint64_t size = static_cast<uint64_t>(MY_SPEC.obj_params_.at(filesql::META_SIZE).get_int());
+          int64_t mtime = MY_SPEC.obj_params_.at(filesql::META_MTIME_NS).get_int();
+          if (fp.dev != dev || fp.ino != ino || fp.size != size || fp.mtime_ns != mtime) {
+            ret = OB_ERR_UNEXPECTED;
+            LOG_USER_ERROR(OB_ERR_UNEXPECTED, "FILE_CHANGED");
+          }
+        }
+      }
+    }
+    if (OB_SUCC(ret)) {
+      std::vector<char> needed(static_cast<size_t>(MY_SPEC.column_exprs_.count()), 0);
+      for (int64_t i = 0; OB_SUCC(ret) && i < MY_SPEC.column_exprs_.count(); ++i) {
+        bool use = false;
+        if (OB_FAIL(column_is_needed(MY_SPEC.column_exprs_.at(i), use))) {
+        } else {
+          needed[static_cast<size_t>(i)] = use ? 1 : 0;
+        }
+      }
+      if (OB_SUCC(ret) && NULL != file_reader_) {
+        file_reader_->set_needed(needed);
+      }
+    }
+    if (OB_FAIL(ret) && NULL != file_reader_) {
+      delete file_reader_;
+      file_reader_ = NULL;
+    }
+  }
+  return ret;
+}
+
+int ObValuesTableAccessOp::rewind_file_reader()
+{
+  int ret = OB_SUCCESS;
+  if (NULL == file_reader_) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    filesql::Status st = file_reader_->check_unchanged();
+    if (!st.ok()) {
+      ret = file_sql_status_to_ret(st);
+    } else {
+      st = file_reader_->rewind();
+      if (!st.ok()) {
+        ret = file_sql_status_to_ret(st);
+      }
+    }
+  }
+  return ret;
+}
+
+static int fill_file_cell(ObEvalCtx &eval_ctx,
+                          ObSQLSessionInfo *session,
+                          const filesql::Cell &cell,
+                          ObExpr *expr)
+{
+  int ret = OB_SUCCESS;
+  if (OB_ISNULL(expr) || OB_ISNULL(session)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    ObDatum &datum = expr->locate_datum_for_write(eval_ctx);
+    if (cell.is_null) {
+      datum.set_null();
+    } else {
+      switch (expr->datum_meta_.type_) {
+        case ObIntType: {
+          datum.set_int(cell.i64);
+          break;
+        }
+        case ObTinyIntType: {
+          datum.set_bool(0 != cell.i64);
+          break;
+        }
+        case ObDoubleType: {
+          datum.set_double(cell.f64);
+          break;
+        }
+        case ObFloatType: {
+          datum.set_float(static_cast<float>(cell.f64));
+          break;
+        }
+        case ObDateType: {
+          int32_t value = 0;
+          ObString text(static_cast<int32_t>(cell.text.size()), cell.text.data());
+          if (OB_FAIL(ObTimeConverter::str_to_date(text, value))) {
+          } else {
+            datum.set_date(value);
+          }
+          break;
+        }
+        case ObMySQLDateType: {
+          ObMySQLDate value;
+          ObString text(static_cast<int32_t>(cell.text.size()), cell.text.data());
+          if (OB_FAIL(ObTimeConverter::str_to_mdate(text, value))) {
+          } else {
+            datum.set_mysql_date(value);
+          }
+          break;
+        }
+        case ObDateTimeType: {
+          int64_t value = 0;
+          ObString text(static_cast<int32_t>(cell.text.size()), cell.text.data());
+          ObTimeConvertCtx cvrt_ctx(session->get_timezone_info(), false);
+          if (OB_FAIL(ObTimeConverter::str_to_datetime(text, cvrt_ctx, value))) {
+          } else {
+            datum.set_datetime(value);
+          }
+          break;
+        }
+        case ObMySQLDateTimeType: {
+          ObMySQLDateTime value;
+          ObString text(static_cast<int32_t>(cell.text.size()), cell.text.data());
+          ObTimeConvertCtx cvrt_ctx(session->get_timezone_info(), false);
+          if (OB_FAIL(ObTimeConverter::str_to_mdatetime(text, cvrt_ctx, value))) {
+          } else {
+            datum.set_mysql_datetime(value);
+          }
+          break;
+        }
+        default: {
+          int64_t len = static_cast<int64_t>(cell.text.size());
+          char *buf = expr->get_str_res_mem(eval_ctx, len);
+          if (len > 0 && OB_ISNULL(buf)) {
+            ret = OB_ALLOCATE_MEMORY_FAILED;
+          } else {
+            if (len > 0) {
+              MEMCPY(buf, cell.text.data(), static_cast<size_t>(len));
+            }
+            datum.set_string(buf, static_cast<uint32_t>(len));
+          }
+          break;
+        }
+      }
+    }
+    if (OB_SUCC(ret)) {
+      expr->set_evaluated_projected(eval_ctx);
+    }
+  }
+  return ret;
+}
+
+int ObValuesTableAccessOp::calc_next_file_row()
+{
+  int ret = OB_SUCCESS;
+  if (NULL == file_reader_) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    filesql::Status st = file_reader_->check_unchanged();
+    std::vector<filesql::Cell> row;
+    if (!st.ok()) {
+      ret = file_sql_status_to_ret(st);
+    } else {
+      st = file_reader_->next(row);
+      if (st.end()) {
+        filesql::Status tail = file_reader_->check_unchanged();
+        ret = tail.ok() ? OB_ITER_END : file_sql_status_to_ret(tail);
+      } else if (!st.ok()) {
+        ret = file_sql_status_to_ret(st);
+      } else if (row.size() != static_cast<size_t>(MY_SPEC.column_exprs_.count())) {
+        ret = OB_ERR_UNEXPECTED;
+        LOG_USER_ERROR(OB_ERR_UNEXPECTED, "file sql column count mismatch");
+      } else {
+        ObSQLSessionInfo *session = GET_MY_SESSION(ctx_);
+        for (int64_t col_idx = 0; OB_SUCC(ret) && col_idx < MY_SPEC.column_exprs_.count(); ++col_idx) {
+          if (OB_FAIL(fill_file_cell(eval_ctx_, session, row.at(static_cast<size_t>(col_idx)),
+                                     MY_SPEC.column_exprs_.at(col_idx)))) {
+          }
+        }
+        for (int64_t i = 0; OB_SUCC(ret) && i < MY_SPEC.output_.count(); ++i) {
+          ObExpr *output = MY_SPEC.output_.at(i);
+          bool is_column = false;
+          for (int64_t c = 0; c < MY_SPEC.column_exprs_.count(); ++c) {
+            if (output == MY_SPEC.column_exprs_.at(c)) {
+              is_column = true;
+              break;
+            }
+          }
+          if (!is_column) {
+            ObDatum *dst_datum = NULL;
+            if (OB_FAIL(output->eval(eval_ctx_, dst_datum))) {
+            }
+          }
+        }
+        if (OB_SUCC(ret)) {
+          ++row_idx_;
+        }
+      }
+    }
   }
   return ret;
 }
