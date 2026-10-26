@@ -1,0 +1,55 @@
+--disable_query_log
+set @@session.explicit_defaults_for_timestamp=off;
+--enable_query_log
+# Regression for https://github.com/oceanbase/seekdb/issues/1477
+# Eliminating an even NOT chain must keep the NOT result type so IFNULL
+# does not stack a second implicit cast on a scalar subquery.
+--disable_info
+--disable_metadata
+--disable_warnings
+drop table if exists t_ifnull_double_not;
+--enable_warnings
+
+# Minimal reproducer. The scalar subquery is non-NULL FALSE, so no row is returned.
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(!(1 LIKE "x")));
+
+# Control: one negation instead of two.
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(1 LIKE "x"));
+
+# Control: a boolean literal instead of a scalar subquery.
+SELECT 1 FROM dual WHERE IFNULL(FALSE, !(!(1 LIKE "x")));
+
+# The first IFNULL argument is chosen when the scalar subquery is TRUE.
+SELECT 1 FROM dual WHERE IFNULL((SELECT TRUE), !(!(1 LIKE "x")));
+
+# NULL scalar subquery falls through to the simplified predicate.
+SELECT 1 FROM dual WHERE IFNULL((SELECT NULL), !(!(1 LIKE "x")));
+SELECT 1 FROM dual WHERE IFNULL((SELECT NULL), !(!(1 LIKE "1")));
+SELECT IFNULL((SELECT NULL), !(!(NULL LIKE "x"))) AS value;
+SELECT IFNULL((SELECT FALSE), !(!(1 LIKE "x"))) AS value;
+
+# Longer NOT chains and a non-boolean operand.
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(!(!(!(1 LIKE "x")))));
+SELECT 1 FROM dual WHERE IFNULL((SELECT NULL), !(!(!(1 LIKE "x"))));
+SELECT IFNULL((SELECT FALSE), !(!(2))) AS value;
+SELECT IFNULL((SELECT NULL), !(!(2))) AS value;
+SELECT 1 FROM dual WHERE IFNULL((SELECT NULL), !(!(CAST('1' AS CHAR) LIKE "1")));
+
+# Empty scalar subquery is NULL and uses the second argument.
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE FROM dual WHERE FALSE), !(!(1 LIKE "1")));
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE FROM dual WHERE FALSE), !(!(1 LIKE "x")));
+
+# IFNULL's first argument has its own NOT-pair removal path.
+SELECT IFNULL(!(!(1 LIKE "1")), (SELECT FALSE)) AS value;
+SELECT IFNULL(!(!(NULL LIKE "x")), (SELECT TRUE)) AS value;
+
+# Non-constant LIKE operands, including a scalar subquery of a column.
+create table t_ifnull_double_not (id int primary key, n tinyint, s varchar(10));
+insert into t_ifnull_double_not values (1, 0, 'x'), (2, 1, 'y'), (3, NULL, 'x'), (4, NULL, 'y'), (5, NULL, NULL);
+SELECT id FROM t_ifnull_double_not WHERE IFNULL((SELECT FALSE), !(!(s LIKE 'x'))) ORDER BY id;
+SELECT id FROM t_ifnull_double_not WHERE IFNULL((SELECT NULL FROM dual), !(!(s LIKE 'x'))) ORDER BY id;
+SELECT id FROM t_ifnull_double_not WHERE IFNULL((SELECT NULL FROM dual), !(s LIKE 'x')) ORDER BY id;
+SELECT id FROM t_ifnull_double_not WHERE IFNULL(n, !(!(s LIKE 'x'))) ORDER BY id;
+SELECT id FROM t_ifnull_double_not WHERE IFNULL((SELECT n FROM dual), !(!(s LIKE 'x'))) ORDER BY id;
+SELECT id FROM t_ifnull_double_not WHERE IFNULL((SELECT n FROM dual), !(s LIKE 'x')) ORDER BY id;
+drop table t_ifnull_double_not;

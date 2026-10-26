@@ -1279,7 +1279,15 @@ int ObTransformSimplifyExpr::inner_remove_dummy_nvl(ObDMLStmt *stmt,
           ret = OB_ERR_UNEXPECTED;
           LOG_WARN("unexpected null bool expr", K(ret));
         } else if (OB_FAIL(new_child->formalize(ctx_->session_info_))) {
+        } else if (OB_FAIL(ObTransformUtils::add_cast_for_replace_if_need(
+                              *ctx_->expr_factory_, child_0, new_child, ctx_->session_info_))) {
+        } else if (OB_ISNULL(new_child)) {
+          ret = OB_ERR_UNEXPECTED;
+          LOG_WARN("unexpected null bool expr", K(ret));
         } else {
+          // NOT returns INT32. A predicate such as LIKE returns BIGINT.
+          // Keep the removed NOT's result type so formalizing IFNULL/NVL does
+          // not add another implicit cast above an existing one.
           op_expr->get_param_expr(0) = new_child;
           if (OB_FAIL(expr->formalize(ctx_->session_info_))) {
           } else {
@@ -2382,7 +2390,14 @@ int ObTransformSimplifyExpr::do_push_not(ObRawExpr *&expr,
       } else if (OB_ISNULL(temp)) {
         ret = OB_ERR_UNEXPECTED;
       } else if (OB_FAIL(temp->formalize(ctx_->session_info_))) {
+      } else if (OB_FAIL(ObTransformUtils::add_cast_for_replace_if_need(
+                            *expr_factory, expr, temp, ctx_->session_info_))) {
+      } else if (OB_ISNULL(temp)) {
+        ret = OB_ERR_UNEXPECTED;
       } else {
+        // NOT returns INT32. A predicate such as LIKE returns BIGINT.
+        // Keep the removed NOT's result type so re-formalizing an already
+        // typed parent does not add another implicit cast on its other operands.
         expr = temp;
         is_valid = false;
         trans_happened = true;
