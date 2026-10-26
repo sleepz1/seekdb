@@ -1542,11 +1542,24 @@ int ObAIFuncModel::call_dense_embedding_vector(ObArray<ObString> &contents, ObJs
   } else {
     for (int i = 0; OB_SUCC(ret) && i < response_array.count(); i++) {
       ObJsonObject *response = response_array[i];
-      ObStringBuffer result_buf(allocator_);
       if (OB_FAIL(embed_provider->parse_output(*allocator_, response, result_base))) {
-      } else if (OB_FAIL(result_base->print(result_buf, 0))) {
+      } else if (OB_ISNULL(result_base) || result_base->json_type() != ObJsonNodeType::J_ARRAY) {
+        ret = OB_INVALID_DATA;
       } else {
-        results.push_back(result_buf.string());
+        // One HTTP call carries one input. parse_output still returns the
+        // embeddings array, so publish the vector itself rather than [[...]].
+        ObJsonArray *embeddings = static_cast<ObJsonArray *>(result_base);
+        ObIJsonBase *embedding = nullptr;
+        ObString result_str;
+        if (embeddings->element_count() == 1) {
+          embedding = embeddings->get_value(0);
+        }
+        if (OB_ISNULL(embedding)) {
+          ret = OB_INVALID_DATA;
+        } else if (OB_FAIL(check_embedding_vector(embedding, 0))) {
+        } else if (OB_FAIL(ObAIFuncJsonUtils::print_json_to_str(*allocator_, embedding, result_str))) {
+        } else if (OB_FAIL(results.push_back(result_str))) {
+        }
       }
     }
   }

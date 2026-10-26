@@ -88,6 +88,15 @@ struct AIRerankRankItem {
   int64_t index;
 };
 
+void invalidate_json_size_cache(ObJsonNode *node)
+{
+  // Changing an integer can change its varint width. Cached container sizes
+  // would then be too small and the next binary conversion can run off the buffer.
+  for (ObJsonNode *cur = node; OB_NOT_NULL(cur); cur = cur->get_parent()) {
+    cur->set_serialize_size(0);
+  }
+}
+
 int sort_ai_rerank_results(ObIAllocator &allocator, ObJsonArray *&array)
 {
   int ret = OB_SUCCESS;
@@ -96,18 +105,31 @@ int sort_ai_rerank_results(ObIAllocator &allocator, ObJsonArray *&array)
   } else {
     const int64_t count = static_cast<int64_t>(array->element_count());
     ObArray<AIRerankRankItem> items;
+    int64_t scored = 0;
     for (int64_t i = 0; OB_SUCC(ret) && i < count; ++i) {
       ObJsonNode *node = array->get_value(i);
       AIRerankRankItem item;
       item.node = node;
       item.score = 0;
-      item.index = 0;
+      item.index = i;
       if (OB_ISNULL(node) || node->json_type() != ObJsonNodeType::J_OBJECT) {
         ret = OB_INVALID_DATA;
-      } else if (OB_FAIL(rerank_json_to_double(node->get_value("relevance_score"), item.score))) {
       } else if (OB_FAIL(rerank_json_to_int64(node->get_value("index"), item.index))) {
-      } else if (OB_FAIL(items.push_back(item))) {
+      } else if (OB_NOT_NULL(node->get_value("relevance_score"))) {
+        if (OB_FAIL(rerank_json_to_double(node->get_value("relevance_score"), item.score))) {
+        } else {
+          ++scored;
+        }
       }
+      if (OB_SUCC(ret) && OB_FAIL(items.push_back(item))) {
+      }
+    }
+    if (OB_SUCC(ret) && scored != 0 && scored != count) {
+      ret = OB_INVALID_DATA;
+    } else if (OB_SUCC(ret) && scored == 0) {
+      // A single batch with no scores is already the model order. Sorting by
+      // index would throw that order away.
+      return ret;
     }
     if (OB_SUCC(ret)) {
       // Insertion sort keeps equal scores in their original relative order and
@@ -505,6 +527,7 @@ int ObExprAIRerank::inner_eval_ai_rerank(ObIAllocator &allocator,
 
 int ObExprAIRerank::batch_result_add_base(ObIAllocator &allocator, ObJsonArray *array, int64_t start_idx, int64_t batch_count)
 {
+  UNUSED(allocator);
   INIT_SUCC(ret);
   ObString index_key(INDEX_KEY);
   char *seen = nullptr;
@@ -523,15 +546,25 @@ int ObExprAIRerank::batch_result_add_base(ObIAllocator &allocator, ObJsonArray *
     } else {
       ObJsonObject *obj = static_cast<ObJsonObject *>(node);
       int64_t local_index = 0;
-      if (OB_FAIL(rerank_json_to_int64(obj->get_value(index_key), local_index))) {
+      ObJsonNode *index_node = obj->get_value(index_key);
+      if (OB_FAIL(rerank_json_to_int64(index_node, local_index))) {
       } else if (local_index < 0 || local_index >= batch_count || seen[local_index] != 0) {
         ret = OB_INVALID_DATA;
         LOG_WARN("rerank batch index is invalid or duplicated", K(ret), K(local_index), K(batch_count));
       } else {
+        // Update the existing number. Replacing it with add() inflates the
+        // cached binary size and the later raw conversion can overrun.
         seen[local_index] = 1;
-        ObJsonInt *global_index = nullptr;
-        if (OB_FAIL(ObAIFuncJsonUtils::get_json_int(allocator, local_index + start_idx, global_index))) {
-        } else if (OB_FAIL(obj->add(index_key, global_index))) {
+        const int64_t global_index = local_index + start_idx;
+        if (index_node->json_type() == ObJsonNodeType::J_INT) {
+          static_cast<ObJsonInt *>(index_node)->set_value(global_index);
+        } else if (global_index < 0) {
+          ret = OB_INVALID_DATA;
+        } else {
+          static_cast<ObJsonUint *>(index_node)->set_value(static_cast<uint64_t>(global_index));
+        }
+        if (OB_SUCC(ret)) {
+          invalidate_json_size_cache(obj);
         }
       }
     }
