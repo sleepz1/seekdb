@@ -20,6 +20,7 @@
 #include "ob_ai_func.h"
 #include "lib/utility/utility.h"
 #include "common/json_type/ob_json_common.h"
+#include "ob_expr_json_func_helper.h"
 
 
 using namespace oceanbase::common;
@@ -52,8 +53,15 @@ int ObExprAIPrompt::calc_result_typeN(ObExprResType &type,
   int ret = OB_SUCCESS;
   bool is_null_res = false;
   ObExprResType template_type = types_stack[0];
-  if (!ob_is_string_tc(template_type.get_type())) {
+  if (!ob_is_string_type(template_type.get_type())) {
     ret = OB_ERR_INVALID_TYPE_FOR_OP;
+  } else if (ob_is_text_tc(template_type.get_type())) {
+    // Keep the source collation so binary BLOBs are not charset-converted.
+    // LONGTEXT avoids truncating TEXT/BLOB templates to VARCHAR.
+    const ObCollationType cs_type = template_type.get_collation_type();
+    types_stack[0].set_calc_type(ObLongTextType);
+    types_stack[0].set_calc_collation_type(cs_type);
+    types_stack[0].set_calc_accuracy(ObAccuracy::DDL_DEFAULT_ACCURACY[ObLongTextType]);
   } else {
     types_stack[0].set_calc_type(ObVarcharType);
     types_stack[0].set_calc_collation_type(CS_TYPE_UTF8MB4_BIN);
@@ -63,9 +71,13 @@ int ObExprAIPrompt::calc_result_typeN(ObExprResType &type,
     if (ob_is_string_tc(types_stack[i].get_type())) {
       types_stack[i].set_calc_type(ObVarcharType);
       types_stack[i].set_calc_collation_type(CS_TYPE_UTF8MB4_BIN);
+    } else if (ob_is_text_tc(types_stack[i].get_type())) {
+      const ObCollationType cs_type = types_stack[i].get_collation_type();
+      types_stack[i].set_calc_type(ObLongTextType);
+      types_stack[i].set_calc_collation_type(cs_type);
+      types_stack[i].set_calc_accuracy(ObAccuracy::DDL_DEFAULT_ACCURACY[ObLongTextType]);
     } else if (ob_is_json(types_stack[i].get_type())) {
-      ret = OB_NOT_SUPPORTED;
-      LOG_USER_ERROR(OB_NOT_SUPPORTED, "json type is not supported");
+      // JSON array/object arguments are stored as JSON, not cast to strings.
     } else {
       ret = OB_ERR_INVALID_TYPE_FOR_OP;
     }
@@ -94,8 +106,9 @@ int ObExprAIPrompt::eval_ai_prompt(const ObExpr &expr, ObEvalCtx &ctx, ObDatum &
   if (OB_FAIL(tmp_allocator.eval_arg(arg0, ctx, template_datum))) {
   } else if (template_datum->is_null()) {
     ret = OB_INVALID_ARGUMENT;
-  } else {
-    template_str = template_datum->get_string();
+  } else if (OB_FAIL(ObTextStringHelper::read_real_string_data(
+                 ctx.exec_ctx_, tmp_allocator, *template_datum, arg0->datum_meta_,
+                 arg0->obj_meta_.has_lob_header(), template_str))) {
   }
 
   if (OB_FAIL(ret)) {
@@ -107,15 +120,33 @@ int ObExprAIPrompt::eval_ai_prompt(const ObExpr &expr, ObEvalCtx &ctx, ObDatum &
       ObString arg_str;
       ObJsonString *arg_json_str = NULL;
       if (OB_FAIL(tmp_allocator.eval_arg(arg, ctx, datum))) {
-      } else if (ob_is_string_tc(arg->datum_meta_.type_)) {
-        arg_str = datum->get_string();
-        if (OB_FAIL(ObAIFuncJsonUtils::get_json_string(tmp_allocator, arg_str, arg_json_str))) {
+      } else if (datum->is_null()) {
+        ret = OB_ERR_INVALID_TYPE_FOR_OP;
+      } else if (ob_is_string_type(arg->datum_meta_.type_)) {
+        if (OB_FAIL(ObTextStringHelper::read_real_string_data(
+                ctx.exec_ctx_, tmp_allocator, *datum, arg->datum_meta_,
+                arg->obj_meta_.has_lob_header(), arg_str))) {
+        } else if (OB_FAIL(ObAIFuncJsonUtils::get_json_string(tmp_allocator, arg_str, arg_json_str))) {
         } else if (OB_FAIL(args_array->append(arg_json_str))) {
         }
       } else if (ob_is_json(arg->datum_meta_.type_)) {
-        ret = OB_NOT_SUPPORTED;
-        LOG_USER_ERROR(OB_NOT_SUPPORTED, "json type is not supported");
-      } else if (datum->is_null()) {
+        ObIJsonBase *j_base = NULL;
+        bool is_null_json = false;
+        if (OB_FAIL(ObJsonExprHelper::get_json_doc(expr, ctx, tmp_allocator,
+                                                   static_cast<uint16_t>(i), j_base, is_null_json))) {
+        } else if (is_null_json || OB_ISNULL(j_base)) {
+          ret = OB_ERR_INVALID_TYPE_FOR_OP;
+        } else if (j_base->json_type() != ObJsonNodeType::J_ARRAY
+                   && j_base->json_type() != ObJsonNodeType::J_OBJECT) {
+          ret = OB_ERR_INVALID_TYPE_FOR_OP;
+        } else {
+          ObJsonNode *copied = static_cast<ObJsonNode *>(j_base)->clone(&tmp_allocator, true);
+          if (OB_ISNULL(copied)) {
+            ret = OB_ALLOCATE_MEMORY_FAILED;
+          } else if (OB_FAIL(args_array->append(copied))) {
+          }
+        }
+      } else {
         ret = OB_ERR_INVALID_TYPE_FOR_OP;
       }
     }
