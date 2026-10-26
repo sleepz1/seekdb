@@ -25,6 +25,7 @@
 #include "sql/optimizer/ob_optimizer_util.h"
 #include "query/vector/ob_vector_index_util.h"
 #include "sql/resolver/ddl/ob_vec_index_builder_util.h"
+#include "sql/engine/ai_column/ob_ai_column_service.h"
 
 namespace oceanbase
 {
@@ -633,6 +634,7 @@ int ObCreateTableResolver::resolve_table_elements(const ParseNode *node,
     // Store the column schema after resolve_column_definition in resolved_cols
     // To support generating columns in any order, all column_schema are generated first and then uniformly stored in table_schema
     ObSEArray<ObColumnSchemaV2, SEARRAY_INIT_NUM> resolved_cols;
+    ObSEArray<ObColumnSchemaV2, 4> ai_hidden_cols;
     // Resolve column names with the runtime name-case mode.
     //RESOLVE_NON_COL needs to add the columns in the query to stats in order to resolve PK constraint information etc.
     if (OB_FAIL(ret)) {
@@ -842,6 +844,20 @@ int ObCreateTableResolver::resolve_table_elements(const ParseNode *node,
             if (OB_FAIL(stats.push_back(stat))) {
             }
           }
+          if (OB_SUCC(ret) && ObAIColumnService::is_ai_column(column)) {
+            const char *prefixes[3] = {"__ai_st_", "__ai_rq_", "__ai_sp_"};
+            const int32_t lengths[3] = {16, 64, 16384};
+            for (int h = 0; OB_SUCC(ret) && h < 3; ++h) {
+              ObColumnSchemaV2 hidden;
+              if (OB_FAIL(ObAIColumnService::fill_hidden_column(
+                      hidden, column.get_column_name_str(), prefixes[h], lengths[h]))) {
+              } else {
+                hidden.set_column_id(gen_column_id());
+                if (OB_FAIL(ai_hidden_cols.push_back(hidden))) {
+                }
+              }
+            }
+          }
         }
       } else if (T_PRIMARY_KEY == element->type_) {
         if (primary_key_set_in_heap_table) {
@@ -884,6 +900,14 @@ int ObCreateTableResolver::resolve_table_elements(const ParseNode *node,
       }
     }
 
+    if (OB_SUCC(ret)) {
+      if (OB_FAIL(ObAIColumnService::check_create_dependencies(resolved_cols))) {
+      }
+    }
+    for (int64_t i = 0; OB_SUCC(ret) && i < ai_hidden_cols.count(); ++i) {
+      if (OB_FAIL(resolved_cols.push_back(ai_hidden_cols.at(i)))) {
+      }
+    }
     if (OB_SUCC(ret)) {
       for (int32_t i = resolved_cols_count; i < resolved_cols.count() && OB_SUCC(ret); i++) {
         ObColumnSchemaV2 &hidden_col = resolved_cols.at(i);

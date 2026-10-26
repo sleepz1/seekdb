@@ -30,13 +30,14 @@ namespace sql
 ObAlterTableStmt::ObAlterTableStmt(common::ObIAllocator *name_pool)
     : ObTableStmt(name_pool, stmt::T_ALTER_TABLE), is_comment_table_(false),
       is_alter_system_(false), fts_arg_allocator_(nullptr), is_alter_triggers_(false),
-      alter_table_action_count_(0)
+      alter_table_action_count_(0), is_ai_column_retry_(false)
 {
 }
 
 ObAlterTableStmt::ObAlterTableStmt()
     : ObTableStmt(stmt::T_ALTER_TABLE), is_comment_table_(false), is_alter_system_(false),
-      fts_arg_allocator_(nullptr), is_alter_triggers_(false), alter_table_action_count_(0)
+      fts_arg_allocator_(nullptr), is_alter_triggers_(false), alter_table_action_count_(0),
+      is_ai_column_retry_(false)
 {
 }
 
@@ -50,6 +51,17 @@ ObAlterTableStmt::~ObAlterTableStmt()
   }
   index_arg_list_.reset();
   fts_arg_allocator_ = nullptr;
+}
+
+int ObAlterTableStmt::set_ai_column_retry(const ObString &column_name, const ObString &where_sql)
+{
+  int ret = OB_SUCCESS;
+  if (OB_FAIL(ob_write_string(allocator_, column_name, ai_retry_column_name_))) {
+  } else if (OB_FAIL(ob_write_string(allocator_, where_sql, ai_retry_where_))) {
+  } else {
+    is_ai_column_retry_ = true;
+  }
+  return ret;
 }
 
 int ObAlterTableStmt::add_column(const share::schema::AlterColumnSchema &column_schema)

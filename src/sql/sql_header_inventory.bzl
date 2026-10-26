@@ -454,6 +454,7 @@ SQL_PRIVATE_HEADERS = [
     "dtl/ob_dtl_channel_group.h",
     "dtl/ob_dtl_memory_manager.h",
     "dtl/ob_dtl_utils.h",
+    "engine/ai_column/ob_ai_column_service.h",
     "engine/aggregate/ob_aggregate_processor.h",
     "engine/aggregate/ob_aggregate_util.h",
     "engine/aggregate/ob_distinct_op.h",

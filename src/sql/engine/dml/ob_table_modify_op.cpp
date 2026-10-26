@@ -17,6 +17,7 @@
 #define USING_LOG_PREFIX SQL_ENG
 
 #include "ob_table_modify_op.h"
+#include "sql/engine/ai_column/ob_ai_column_service.h"
 #include "share/ob_autoincrement_service.h"
 #include "query/session/ob_inner_sql_connection_access.h"
 #include "sql/engine/ob_physical_plan.h"
@@ -621,6 +622,7 @@ ObTableModifyOp::ObTableModifyOp(ObExecContext &ctx,
     iter_end_(false),
     dml_rtctx_(eval_ctx_, ctx, *this),
     execute_single_row_(false),
+    ai_column_capture_(NULL),
     dml_modify_rows_(ctx.get_allocator()),
     last_store_row_(),
     saved_session_(NULL)
@@ -636,6 +638,7 @@ ObTableModifyOp::ObTableModifyOp(ObExecContext &ctx,
 int ObTableModifyOp::inner_open()
 {
   int ret = OB_SUCCESS;
+  ai_column_capture_ = NULL;
   ObSQLSessionInfo *my_session = GET_MY_SESSION(ctx_);
   if (OB_FAIL(init_foreign_key_operation())) {
   } else if (MY_SPEC.plan_->has_nested_sql() && OB_FAIL(open_inner_conn())) {
@@ -1114,6 +1117,7 @@ int ObTableModifyOp::inner_get_next_row()
           break;
         }
       } else if (OB_FAIL(write_row_to_das_buffer())) {
+      } else if (OB_FAIL(ObAIColumnService::capture_row(*this))) {
       } else if (OB_FAIL(discharge_das_write_buffer())) {
       } else if (MY_SPEC.is_returning_) {
         break;
@@ -1125,10 +1129,11 @@ int ObTableModifyOp::inner_get_next_row()
       record_err_for_load_data(ret, row_count);
     }
 
-    if (OB_SUCC(ret) && iter_end_ && dml_rtctx_.das_ref_.has_task()) {
-      //DML operator reach iter end,
-      //now submit the remaining rows in the DAS Write Buffer to the storage
-      if (OB_FAIL(submit_all_dml_task())) {
+    if (OB_SUCC(ret) && iter_end_) {
+      // DML operator reached iter end. Submit any rows still buffered, then
+      // maintain AI columns even when the buffer was already flushed.
+      if (dml_rtctx_.das_ref_.has_task() && OB_FAIL(submit_all_dml_task())) {
+      } else if (OB_FAIL(ObAIColumnService::finish_dml(*this))) {
       }
     }
     //to post process the DML info after writing all data to the storage or returning one row
