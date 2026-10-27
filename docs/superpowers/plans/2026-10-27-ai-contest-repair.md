@@ -63,3 +63,7 @@ Header-path repair and genuine production-Unity compile probe are committed at `
 Run40442385585/job121985512738 compiled the genuine production AI Unity source and reported seven invalid string-key get_value overloads. Under existing J_OBJECT guards, those seven accesses now cast to ObJsonObject at 456edfe70a36f4042eeaa321b033c6079061e0d1. Source-preparation run40463717855 succeeded. Also restored required license comments on two inherited C++ files without changing test behavior. Native recompilation, full binary and real SQL regressions remain pending.
 
 The active branch is contest/sdb04-ai-repair and review continues in PR5. The previous draft PR4 is closed with a link to PR5. The official test wrapper uses unchanged fixtures/results; official SQL tests still execute after a failing runtime regression if instance startup succeeded.
+
+## File SQL compiler regression checkpoint
+
+Full Release run40463906663 reached96% and natively failed at ob_dml_resolver.cpp:11165 and ob_select_resolver.cpp:4723: get_bool_sys_var is private. The existing public bool overload get_sys_variable(ObSysVarClassType,bool&) is declared in ObBasicSessionInfo. Source commit bb2ccd2e826c6cc4b92ef4e1ddce9e9437c5ef28 changes only those two calls to the public interface. Both resolver files belong to the same original production Unity action, now included in the early native syntax gate. Prior AI production Unity passed; runtime remains unexecuted until a complete link succeeds. Initialized dependencies and compiler cache were saved by the real failed run.
