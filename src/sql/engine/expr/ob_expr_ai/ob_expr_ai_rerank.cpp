@@ -533,6 +533,9 @@ int ObExprAIRerank::batch_result_add_base(ObIAllocator &allocator, ObJsonArray *
   char *seen = nullptr;
   if (OB_ISNULL(array) || batch_count < 0 || start_idx < 0) {
     ret = OB_INVALID_ARGUMENT;
+  } else if (static_cast<int64_t>(array->element_count()) != batch_count) {
+    ret = OB_INVALID_DATA;
+    LOG_WARN("rerank batch result count does not match documents", K(ret), K(batch_count), K(array->element_count()));
   } else if (batch_count > 0 && OB_ISNULL(seen = static_cast<char *>(allocator.alloc(batch_count)))) {
     ret = OB_ALLOCATE_MEMORY_FAILED;
   } else if (batch_count > 0) {
@@ -597,6 +600,13 @@ int ObExprAIRerank::compact_json_array_by_key(ObIAllocator &allocator, ObJsonArr
           || node1->json_type() != ObJsonNodeType::J_OBJECT
           || node2->json_type() != ObJsonNodeType::J_OBJECT) {
         ret = OB_INVALID_DATA;
+      } else if (OB_ISNULL(static_cast<ObJsonObject *>(node1)->get_value(score_key))
+                 && OB_ISNULL(static_cast<ObJsonObject *>(node2)->get_value(score_key))) {
+        // Unscored batches retain model order; concatenate them in input batch order.
+        if (OB_FAIL(result_array->append(node1))) {
+        } else {
+          ++i;
+        }
       } else if (OB_FAIL(rerank_json_to_double(static_cast<ObJsonObject *>(node1)->get_value(score_key), score1))) {
       } else if (OB_FAIL(rerank_json_to_double(static_cast<ObJsonObject *>(node2)->get_value(score_key), score2))) {
       } else if (OB_FAIL(rerank_json_to_int64(static_cast<ObJsonObject *>(node1)->get_value(INDEX_KEY), index1))) {

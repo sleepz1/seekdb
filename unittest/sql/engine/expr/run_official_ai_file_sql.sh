@@ -95,13 +95,13 @@ AuthenticationMethods publickey
 PubkeyAuthentication yes
 PasswordAuthentication no
 KbdInteractiveAuthentication no
-UsePAM no
+UsePAM yes
 PermitRootLogin no
 AllowAgentForwarding no
 AllowTcpForwarding no
 X11Forwarding no
 PermitTTY no
-LogLevel ERROR
+LogLevel VERBOSE
 Subsystem sftp internal-sftp
 EOF
 [[ $fixture_host == 127.0.0.1 ]] || printf 'ListenAddress %s\n' "$fixture_host" >> "$scratch/sshd_config"

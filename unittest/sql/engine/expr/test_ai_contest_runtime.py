@@ -144,6 +144,12 @@ class MockState:
             results = [{"index": i, "relevance_score": relevance(docs[i])} for i in indices]
             if scenario == "rerank_unscored":
                 results = [{"index": i} for i in reversed(range(len(docs)))]
+            elif scenario == "rerank_mixed":
+                results[0].pop("relevance_score")
+            elif scenario == "rerank_mixed_batches" and len(docs) < 20:
+                results = [{"index": i} for i in indices]
+            elif scenario == "rerank_unscored_then_scored" and len(docs) == 20:
+                results = [{"index": i} for i in indices]
             elif scenario == "rerank_empty":
                 results = []
             elif scenario == "rerank_partial":
@@ -250,7 +256,9 @@ class AIContestRuntime(unittest.TestCase):
             self.assertGreater(len(self.requests()), before, "failure happened before model response")
 
     def check_complete(self, statement, args=None):
-        result = decode_json(self.scalar(statement, args))
+        result = self.scalar(statement, args)
+        if isinstance(result, bytes):
+            result = result.decode("utf-8")
         request = self.requests()[-1]
         body = request["body"]
         prompt = body["prompt"] if request["path"] == "/api/generate" else next(
@@ -444,7 +452,8 @@ class AIContestRuntime(unittest.TestCase):
 
     def test_rerank_incomplete_empty_partial_rejected(self):
         """FINDING: baseline silently accepts empty/partial full-ranking results."""
-        for scenario in ("rerank_empty", "rerank_partial", "rerank_duplicate", "rerank_out_of_range"):
+        for scenario in ("rerank_empty", "rerank_partial", "rerank_duplicate", "rerank_out_of_range",
+                         "rerank_mixed", "rerank_mixed_batches", "rerank_unscored_then_scored"):
             for objects in (False, True):
                 with self.subTest(scenario=scenario, objects=objects):
                     MOCK.reset(scenario)
