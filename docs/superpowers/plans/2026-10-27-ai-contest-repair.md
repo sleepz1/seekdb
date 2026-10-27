@@ -14,8 +14,8 @@
 
 - [x] Read repo AGENTS.md, upstream build documentation, PR2 and Notion handoff.
 - [x] Create isolated branch from exact submitted SHA.
-- [ ] Add .github/workflows/contest-sdb04.yml, trigger only this branch and itself, contents:read, no service credentials.
-- [ ] Run bash build.sh release --init then cmake --build build_release --target seekdb -j2. Save configure/build logs and real exit code.
+- [x] Add read-only contest build workflow; isolated trusted source-preparation job commits the reviewed patch without executing repository code with its write token.
+- [x] Baseline full Release build reproduced missing expression header at ob_expr_ai_embed.cpp:21; actual exit2 and logs retained in run40436271197.
 - [ ] Confirm rerank ObJsonNode keyed get_value failures before changing production source.
 
 ## Task 2: Fix compile boundary
@@ -44,7 +44,7 @@ Files: unittest/sql/engine/expr/test_ai_contest_runtime.py and existing AI imple
 - [ ] Verify login and current 600071 records before any submission.
 - [ ] Submit existing actual UUID bf6e6fc4-1e23-8686-85e2-93ed3f89ad06 once after successful previous raw POST and overnight indexing interval; do not repeat blindly.
 - [ ] Only if failed, use findings to test one real official-image deployment in controllable cloud environment, retain generated identity and native transport evidence; never edit payload identity/reporter to claim success.
-- [ ] Record official subscore10 and cumulative30 only upon observed result.
+- [x] 2026-10-27 10:07 official verification: original UUID accepted; 600071 scores30.000, succeeds3/fails0, attempts9. Deployment10/10 resolved.
 
 ## Task 5: Review and submission
 
@@ -53,3 +53,7 @@ Files: unittest/sql/engine/expr/test_ai_contest_runtime.py and existing AI imple
 - [ ] Submit green exact branch/SHA to official600069 UI once; read receipt before any retries.
 - [ ] Read official results and repair material failures within authorized scope.
 - [ ] Update Notion task/subtask rows, submission channel and index with observed official status, scores and timestamps. No guessed score increments.
+
+## Verified checkpoint — 2026-10-27 Asia/Shanghai
+
+Header-path repair and genuine production-Unity compile probe are committed at `9d01cff86525bcdc3144b6b300a392bb279ddf0c`. Now compile that revision and run actual SQL regressions; runtime and official600069 results are still pending. No score claimed for AI repair.
