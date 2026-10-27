@@ -114,9 +114,9 @@ int sort_ai_rerank_results(ObIAllocator &allocator, ObJsonArray *&array)
       item.index = i;
       if (OB_ISNULL(node) || node->json_type() != ObJsonNodeType::J_OBJECT) {
         ret = OB_INVALID_DATA;
-      } else if (OB_FAIL(rerank_json_to_int64(node->get_value("index"), item.index))) {
-      } else if (OB_NOT_NULL(node->get_value("relevance_score"))) {
-        if (OB_FAIL(rerank_json_to_double(node->get_value("relevance_score"), item.score))) {
+      } else if (OB_FAIL(rerank_json_to_int64(static_cast<ObJsonObject *>(node)->get_value("index"), item.index))) {
+      } else if (OB_NOT_NULL(static_cast<ObJsonObject *>(node)->get_value("relevance_score"))) {
+        if (OB_FAIL(rerank_json_to_double(static_cast<ObJsonObject *>(node)->get_value("relevance_score"), item.score))) {
         } else {
           ++scored;
         }
@@ -597,10 +597,10 @@ int ObExprAIRerank::compact_json_array_by_key(ObIAllocator &allocator, ObJsonArr
           || node1->json_type() != ObJsonNodeType::J_OBJECT
           || node2->json_type() != ObJsonNodeType::J_OBJECT) {
         ret = OB_INVALID_DATA;
-      } else if (OB_FAIL(rerank_json_to_double(node1->get_value(score_key), score1))) {
-      } else if (OB_FAIL(rerank_json_to_double(node2->get_value(score_key), score2))) {
-      } else if (OB_FAIL(rerank_json_to_int64(node1->get_value(INDEX_KEY), index1))) {
-      } else if (OB_FAIL(rerank_json_to_int64(node2->get_value(INDEX_KEY), index2))) {
+      } else if (OB_FAIL(rerank_json_to_double(static_cast<ObJsonObject *>(node1)->get_value(score_key), score1))) {
+      } else if (OB_FAIL(rerank_json_to_double(static_cast<ObJsonObject *>(node2)->get_value(score_key), score2))) {
+      } else if (OB_FAIL(rerank_json_to_int64(static_cast<ObJsonObject *>(node1)->get_value(INDEX_KEY), index1))) {
+      } else if (OB_FAIL(rerank_json_to_int64(static_cast<ObJsonObject *>(node2)->get_value(INDEX_KEY), index2))) {
       } else {
         const bool take_left = (score1 > score2) || (score1 == score2 && index1 <= index2);
         if (OB_FAIL(result_array->append(take_left ? node1 : node2))) {
