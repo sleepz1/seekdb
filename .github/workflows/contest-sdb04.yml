@@ -114,8 +114,14 @@ jobs:
           set -o pipefail
           "$RUNNER_TEMP/sdb04-venv/bin/python" unittest/sql/engine/expr/test_ai_contest_runtime.py --host 127.0.0.1 --port 2881 --ai-port 8000 --database test 2>&1 | tee runtime-ai.log
       - name: Unchanged official AI and file SQL mysqltests
+        id: official_mysqltests
         if: always() && steps.start_instance.outcome == 'success'
         run: bash unittest/sql/engine/expr/run_official_ai_file_sql.sh
+      - name: Diagnose unchanged mysqltest failure before stopping the instance
+        if: always() && steps.start_instance.outcome == 'success' && steps.official_mysqltests.outcome == 'failure'
+        run: |
+          set -o pipefail
+          "$RUNNER_TEMP/sdb04-venv/bin/python" unittest/sql/engine/expr/diagnose_file_sql_runtime.py 2>&1 | tee file-sql-diagnostics.log
       - name: Stop this disposable test instance
         if: always()
         run: |
@@ -148,6 +154,7 @@ jobs:
             existing-ai-check.log
             standalone-file-check.log
             runtime-ai.log
+            file-sql-diagnostics.log
             ai-syntax-probe-logs/
             ai-preflight.log
             official-mysqltest-evidence/
