@@ -46,7 +46,7 @@ jobs:
           def add(path, raw):
               blob = api('POST', 'git/blobs', {'content': base64.b64encode(raw).decode(), 'encoding': 'base64'})
               entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
-          edits = [{"path":"src/sql/engine/expr/ob_expr_ai/ob_expr_ai_rerank.cpp","expected":"c3423b3232847bef17463e463f84d2375749aa3d","replacements":[["node->get_value(\"index\")","static_cast<ObJsonObject *>(node)->get_value(\"index\")",1],["node->get_value(\"relevance_score\")","static_cast<ObJsonObject *>(node)->get_value(\"relevance_score\")",2],["node1->get_value(score_key)","static_cast<ObJsonObject *>(node1)->get_value(score_key)",1],["node2->get_value(score_key)","static_cast<ObJsonObject *>(node2)->get_value(score_key)",1],["node1->get_value(INDEX_KEY)","static_cast<ObJsonObject *>(node1)->get_value(INDEX_KEY)",1],["node2->get_value(INDEX_KEY)","static_cast<ObJsonObject *>(node2)->get_value(INDEX_KEY)",1]]}]
+          edits = [{"path":"src/sql/resolver/dml/ob_dml_resolver.cpp","expected":"ce71b502c60fa038c7f3abc702c82cb2b01da80e","replacements":[["session_info_->get_bool_sys_var(share::SYS_VAR_ENABLE_FILE_SQL, enabled)","session_info_->get_sys_variable(share::SYS_VAR_ENABLE_FILE_SQL, enabled)",1]]},{"path":"src/sql/resolver/dml/ob_select_resolver.cpp","expected":"27a028a1cc97e161f97f8d443c958f2bb28be704","replacements":[["session_info_->get_bool_sys_var(share::SYS_VAR_ENABLE_FILE_SQL, enabled)","session_info_->get_sys_variable(share::SYS_VAR_ENABLE_FILE_SQL, enabled)",1]]}]
           for item in edits:
               path = item['path']
               raw = pathlib.Path(path).read_bytes()
@@ -56,26 +56,9 @@ jobs:
                   assert text.count(old) == expected_count, (path, old)
                   text = text.replace(old, new)
               add(path, text.encode())
-          prefixes = [{"path":"src/sql/engine/basic/file_sql_scan.h","expected":"4968c4920725ebcfef0e9718e93e40206a6e05ce"},{"path":"unittest/sql/engine/basic/test_file_scan_utils.cpp","expected":"dd23aeb2f0abd632d725181a401a099ba0e5444d"}]
-          header = "/*\n * Copyright (c) 2026 OceanBase.\n *\n * Licensed under the Apache License, Version 2.0 (the \"License\");\n * you may not use this file except in compliance with the License.\n * You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an \"AS IS\" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n\n"
-          for item in prefixes:
-              raw = pathlib.Path(item['path']).read_bytes()
-              assert hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == item['expected'], item['path']
-              assert b'Licensed under the Apache License' not in raw[:2000]
-              add(item['path'], header.encode() + raw)
-          manifest = [{"path":"unittest/sql/engine/expr/run_official_ai_file_sql.sh","chunks":["a9c4142799bd4abe893fc97579489927df1b206b","bb32904f7cb1d411d48ba69a42b88c39c51f0137"]},{"path":"unittest/sql/engine/expr/emit_ai_compile_diagnostics.py","chunks":["8d22d8f0c2efdb6e8077802434f6e19f46976b93"]}]
-          for item in manifest:
-              chunks = []
-              for sha in item['chunks']:
-                  blob = api('GET', 'git/blobs/' + sha)
-                  assert blob['sha'] == sha and blob['encoding'] == 'base64'
-                  raw = base64.b64decode(blob['content'])
-                  assert hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == sha
-                  chunks.append(raw)
-              add(item['path'], b''.join(chunks))
           base = api('GET', 'git/commits/' + parent)['tree']['sha']
           new_tree = api('POST', 'git/trees', {'base_tree': base, 'tree': entries})['sha']
-          commit = api('POST', 'git/commits', {'message': 'fix(ai): use guarded JSON object access after compiler regression', 'tree': new_tree, 'parents': [parent]})['sha']
+          commit = api('POST', 'git/commits', {'message': 'fix(file-sql): use public session boolean sysvar accessor', 'tree': new_tree, 'parents': [parent]})['sha']
           api('PATCH', 'git/refs/heads/contest/sdb04-ai-repair', {'sha': commit, 'force': False})
           print('Reviewed repair committed on isolated branch:', commit)
           PY

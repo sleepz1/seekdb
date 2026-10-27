@@ -72,11 +72,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: ${{ steps.deps.outputs.cache-primary-key }}
-      - name: Compile real production AI Unity source before full build
+      - name: Compile real production AI and resolver Unity sources before full build
         run: |
           set +e
           set -o pipefail
-          python3 unittest/sql/engine/expr/check_ai_translation_units.py --repo "$GITHUB_WORKSPACE" --build-dir build_release --source src/sql/engine/expr/ob_expr_ai/ob_expr_ai_rerank.cpp --mode unity --prepare auto --jobs 2 --timeout 600 --log-dir ai-syntax-probe-logs 2>&1 | tee ai-preflight.log
+          python3 unittest/sql/engine/expr/check_ai_translation_units.py --repo "$GITHUB_WORKSPACE" --build-dir build_release --source src/sql/engine/expr/ob_expr_ai/ob_expr_ai_rerank.cpp --source src/sql/resolver/dml/ob_dml_resolver.cpp --mode unity --prepare auto --jobs 2 --timeout 600 --log-dir ai-syntax-probe-logs 2>&1 | tee ai-preflight.log
           native_status=${PIPESTATUS[0]}
           python3 unittest/sql/engine/expr/emit_ai_compile_diagnostics.py ai-preflight.log
           exit "$native_status"
@@ -146,4 +146,5 @@ jobs:
             ai-preflight.log
             official-mysqltest-evidence/
             build_release/compile_commands.json
+            ${{ runner.temp }}/sdb04-instance/log/
           retention-days: 3
