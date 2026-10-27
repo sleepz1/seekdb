@@ -78,7 +78,9 @@ jobs:
           set -o pipefail
           python3 unittest/sql/engine/expr/check_ai_translation_units.py --repo "$GITHUB_WORKSPACE" --build-dir build_release --source src/sql/engine/expr/ob_expr_ai/ob_expr_ai_rerank.cpp --source src/sql/resolver/dml/ob_dml_resolver.cpp --mode unity --prepare auto --jobs 2 --timeout 600 --log-dir ai-syntax-probe-logs 2>&1 | tee ai-preflight.log
           native_status=${PIPESTATUS[0]}
-          python3 unittest/sql/engine/expr/emit_ai_compile_diagnostics.py ai-preflight.log
+          if (( native_status != 0 )); then
+            python3 unittest/sql/engine/expr/emit_ai_compile_diagnostics.py ai-preflight.log
+          fi
           exit "$native_status"
       - name: Compile complete seekdb binary
         id: compile_binary
