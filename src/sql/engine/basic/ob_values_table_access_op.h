@@ -24,6 +24,10 @@ namespace oceanbase
 {
 namespace sql
 {
+namespace filesql
+{
+class FileSqlReader;
+}
 class ObPhyOpSeriCtx;
 
 class ObValuesTableAccessSpec : public ObOpSpec
@@ -53,9 +57,13 @@ public:
   virtual int switch_iterator() override;
   virtual int inner_get_next_row() override;
   virtual int inner_close() override;
-  virtual void destroy() override { ObOperator::destroy(); }
+  virtual void destroy() override;
 private:
   int calc_next_row();
+  int calc_next_file_row();
+  int open_file_reader();
+  int rewind_file_reader();
+  int column_is_needed(const ObExpr *col, bool &needed);
   int calc_datum_from_expr(const int64_t col_idx,
                            const int64_t row_idx,
                            ObExpr *src_expr,
@@ -76,6 +84,7 @@ private:
   common::ObCastMode cm_;
   int64_t row_idx_;
   int64_t row_cnt_;
+  filesql::FileSqlReader *file_reader_;
 };
 
 } // end namespace sql

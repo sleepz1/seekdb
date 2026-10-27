@@ -40,8 +40,7 @@
 #include "../../../src/sql/parser/sql_parser_mysql_mode_lex.h"
 #include "../../../src/sql/parser/sql_parser_base.h"
 
-#define GEN_EXPLAN_STMT(no_use, explain_stmt, explain_type, display_type, stmt, into_table, set_statement_id) \
-  (void)(no_use); \
+#define GEN_EXPLAN_STMT(explain_node, explain_stmt, explain_type, display_type, stmt, into_table, set_statement_id) \
   ParseNode *type_node = NULL; \
   ParseNode *display_node = NULL; \
   if (0 != explain_type) { \
@@ -51,7 +50,12 @@
     malloc_terminal_node(display_node, result->malloc_pool_, display_type); \
   } \
   malloc_non_terminal_node(explain_stmt, result->malloc_pool_, T_EXPLAIN, 5, \
-                           type_node, display_node, into_table, set_statement_id, stmt);
+                           type_node, display_node, into_table, set_statement_id, stmt); \
+  if (NULL != (explain_node)) { \
+    (explain_stmt)->value_ = (explain_node)->value_; \
+  } else { \
+    (explain_stmt)->value_ = 0; \
+  }
 %}
 
 %destructor {destroy_tree($$);}<node>
@@ -230,7 +234,7 @@ END_P SET_VAR DELIMITER
         DELETE DESC DESCRIBE DETERMINISTIC DISTINCT DISTINCTROW DIV DOUBLE DROP DUAL
         EACH ELSE ELSEIF ENCLOSED ESCAPED EXISTS EXIT EXPLAIN
         /*FALSE*/ FETCH FLOAT FLOAT4 FLOAT8 FOR FORCE FOREIGN FROM FULLTEXT
-        GENERATED GET GRANT GROUP
+        GENERATED GET GLOB GRANT GROUP
         HAVING HIGH_PRIORITY HOUR_MICROSECOND HOUR_MINUTE HOUR_SECOND
         IF IGNORE IN INDEX INFILE INNER INOUT INSENSITIVE INSERT INT INT1 INT2 INT3 INT4 INT8 INTEGER
         INTERVAL INTO IO_AFTER_GTIDS IO_BEFORE_GTIDS IS ITERATE
@@ -243,7 +247,7 @@ END_P SET_VAR DELIMITER
         NATURAL NOT NO_WRITE_TO_BINLOG /*NULL*/ NUMERIC
         ON OPTIMIZE /*OPTIMIZER_COSTS*/ OPTION OPTIONALLY OR ORDER OUT OUTER OUTFILE
         PARTITION PRECISION PRIMARY PROCEDURE PURGE
-        RANGE READ READS READ_WRITE REAL REFERENCES REGEXP RELEASE RENAME REPEAT REPLACE REQUIRE
+        RANGE READ READS READ_CSV READ_JSON READ_NDJSON READ_PARQUET READ_WRITE REAL REFERENCES REGEXP RELEASE RENAME REPEAT REPLACE REQUIRE
         RESIGNAL RESTRICT RETURN REVOKE RIGHT RLIKE
         SCHEMA SCHEMAS SECOND_MICROSECOND SELECT SENSITIVE SEPARATOR SET SHOW SIGNAL SMALLINT SPATIAL
         SPECIFIC SQL SQLEXCEPTION SQLSTATE SQLWARNING SQL_BIG_RESULT SQL_CALC_FOUND_ROWS
@@ -511,6 +515,8 @@ END_P SET_VAR DELIMITER
 %type <node> column_list_with_boost with_param_column_ref
 %type <node> es_sql_opt
 %type <node> hybrid_search_expr hybrid_search_param
+%type <node> file_sql_expr file_sql_path file_sql_option_list file_sql_option file_sql_option_name file_sql_literal
+%type <node> copy_stmt opt_copy_options copy_option_list copy_option
 %type <node> vector_similarity_expr vector_similarity_metric
 %type <node> algorithm_opt lock_opt
 %type <node> flush_privileges_stmt opt_flush_privileges_scope
@@ -556,6 +562,7 @@ opt_end_p:
 /* only preparable statement will set question mark size */
 stmt:
     select_stmt             { $$ = $1; question_mark_issue($$, result); }
+  | copy_stmt               { $$ = $1; }
   | insert_stmt             { $$ = $1; question_mark_issue($$, result); }
   | create_table_stmt       {
     $$ = $1;
@@ -10848,6 +10855,10 @@ tbl_name
 {
   $$ = $1;
 }
+| file_sql_expr
+{
+  $$ = $1;
+}
 ;
 
 tbl_name:
@@ -12305,9 +12316,21 @@ explain_or_desc relation_factor opt_desc_column_option
 ;
 
 explain_or_desc:
-EXPLAIN {$$ = NULL;}
-| DESCRIBE {$$ = NULL;}
-| DESC  {$$ = NULL;}
+EXPLAIN
+{
+  malloc_terminal_node($$, result->malloc_pool_, T_INT);
+  $$->value_ = 0;
+}
+| DESCRIBE
+{
+  malloc_terminal_node($$, result->malloc_pool_, T_INT);
+  $$->value_ = 1;
+}
+| DESC
+{
+  malloc_terminal_node($$, result->malloc_pool_, T_INT);
+  $$->value_ = 1;
+}
 ;
 
 explainable_stmt:
@@ -17476,6 +17499,283 @@ literal
 | USER_VARIABLE
 {
   $$ = $1;
+}
+;
+
+file_sql_expr:
+READ_CSV '(' file_sql_path ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, alias_node);
+  $$->value_ = 1;
+}
+| READ_CSV '(' file_sql_path ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, $5);
+  $$->value_ = 1;
+}
+| READ_CSV '(' file_sql_path ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, $6);
+  $$->value_ = 1;
+}
+| READ_CSV '(' file_sql_path ',' file_sql_option_list ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, alias_node);
+  $$->value_ = 1;
+}
+| READ_CSV '(' file_sql_path ',' file_sql_option_list ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, $7);
+  $$->value_ = 1;
+}
+| READ_CSV '(' file_sql_path ',' file_sql_option_list ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, $8);
+  $$->value_ = 1;
+}
+| READ_JSON '(' file_sql_path ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, alias_node);
+  $$->value_ = 2;
+}
+| READ_JSON '(' file_sql_path ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, $5);
+  $$->value_ = 2;
+}
+| READ_JSON '(' file_sql_path ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, $6);
+  $$->value_ = 2;
+}
+| READ_JSON '(' file_sql_path ',' file_sql_option_list ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, alias_node);
+  $$->value_ = 2;
+}
+| READ_JSON '(' file_sql_path ',' file_sql_option_list ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, $7);
+  $$->value_ = 2;
+}
+| READ_JSON '(' file_sql_path ',' file_sql_option_list ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, $8);
+  $$->value_ = 2;
+}
+| READ_NDJSON '(' file_sql_path ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, alias_node);
+  $$->value_ = 3;
+}
+| READ_NDJSON '(' file_sql_path ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, $5);
+  $$->value_ = 3;
+}
+| READ_NDJSON '(' file_sql_path ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, $6);
+  $$->value_ = 3;
+}
+| READ_NDJSON '(' file_sql_path ',' file_sql_option_list ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, alias_node);
+  $$->value_ = 3;
+}
+| READ_NDJSON '(' file_sql_path ',' file_sql_option_list ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, $7);
+  $$->value_ = 3;
+}
+| READ_NDJSON '(' file_sql_path ',' file_sql_option_list ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, $8);
+  $$->value_ = 3;
+}
+| READ_PARQUET '(' file_sql_path ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, alias_node);
+  $$->value_ = 4;
+}
+| READ_PARQUET '(' file_sql_path ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, $5);
+  $$->value_ = 4;
+}
+| READ_PARQUET '(' file_sql_path ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, $6);
+  $$->value_ = 4;
+}
+| READ_PARQUET '(' file_sql_path ',' file_sql_option_list ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, alias_node);
+  $$->value_ = 4;
+}
+| READ_PARQUET '(' file_sql_path ',' file_sql_option_list ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, $7);
+  $$->value_ = 4;
+}
+| READ_PARQUET '(' file_sql_path ',' file_sql_option_list ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, $5, $8);
+  $$->value_ = 4;
+}
+| GLOB '(' file_sql_path ')'
+{
+  ParseNode *alias_node = NULL;
+  make_name_node(alias_node, result->malloc_pool_, "");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, alias_node);
+  $$->value_ = 5;
+}
+| GLOB '(' file_sql_path ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, $5);
+  $$->value_ = 5;
+}
+| GLOB '(' file_sql_path ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_SQL_EXPRESSION, 3, $3, NULL, $6);
+  $$->value_ = 5;
+}
+;
+
+file_sql_path:
+STRING_VALUE { $$ = $1; }
+| QUESTIONMARK { $$ = $1; }
+;
+
+file_sql_option_list:
+file_sql_option
+{
+  malloc_list_node($$, result->malloc_pool_, T_EXPR_LIST, 2, 1, $1);
+}
+| file_sql_option_list ',' file_sql_option
+{
+  push_back_list(result->malloc_pool_, result, $$, $1, $3);
+}
+;
+
+file_sql_option:
+file_sql_option_name COMP_EQ file_sql_literal
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_LINK_NODE, 2, $1, $3);
+  $$->value_ = 1;
+}
+;
+
+file_sql_option_name:
+NAME_OB { $$ = $1; }
+| FORMAT
+{
+  get_non_reserved_node($$, result->malloc_pool_, @1.first_column, @1.last_column);
+}
+;
+
+file_sql_literal:
+STRING_VALUE { $$ = $1; }
+| INTNUM { $$ = $1; }
+| BOOL_VALUE { $$ = $1; }
+| APPROXNUM { $$ = $1; }
+| DECIMAL_VAL { $$ = $1; }
+| '-' INTNUM
+{
+  malloc_terminal_node($$, result->malloc_pool_, T_INT);
+  $$->value_ = -($2->value_);
+}
+| NEG_SIGN INTNUM
+{
+  malloc_terminal_node($$, result->malloc_pool_, T_INT);
+  $$->value_ = -($2->value_);
+}
+;
+
+copy_stmt:
+COPY select_with_parens TO STRING_VALUE opt_copy_options
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_COPY_FILE, 3, $2, $4, $5);
+  $$->value_ = 0;
+}
+| COPY relation_factor TO STRING_VALUE opt_copy_options
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_COPY_FILE, 3, $2, $4, $5);
+  $$->value_ = 1;
+}
+;
+
+opt_copy_options:
+/* empty */ { $$ = NULL; }
+| '(' copy_option_list ')' { $$ = $2; }
+;
+
+copy_option_list:
+copy_option
+{
+  malloc_list_node($$, result->malloc_pool_, T_EXPR_LIST, 2, 1, $1);
+}
+| copy_option_list ',' copy_option
+{
+  push_back_list(result->malloc_pool_, result, $$, $1, $3);
+}
+;
+
+copy_option:
+FORMAT NAME_OB
+{
+  ParseNode *name_node = NULL;
+  get_non_reserved_node(name_node, result->malloc_pool_, @1.first_column, @1.last_column);
+  malloc_non_terminal_node($$, result->malloc_pool_, T_LINK_NODE, 2, name_node, $2);
+  $$->value_ = 1;
+}
+| FORMAT COMP_EQ NAME_OB
+{
+  ParseNode *name_node = NULL;
+  get_non_reserved_node(name_node, result->malloc_pool_, @1.first_column, @1.last_column);
+  malloc_non_terminal_node($$, result->malloc_pool_, T_LINK_NODE, 2, name_node, $3);
+  $$->value_ = 1;
+}
+| FORMAT COMP_EQ STRING_VALUE
+{
+  ParseNode *name_node = NULL;
+  get_non_reserved_node(name_node, result->malloc_pool_, @1.first_column, @1.last_column);
+  malloc_non_terminal_node($$, result->malloc_pool_, T_LINK_NODE, 2, name_node, $3);
+  $$->value_ = 1;
+}
+| NAME_OB
+{
+  ParseNode *bool_node = NULL;
+  malloc_terminal_node(bool_node, result->malloc_pool_, T_BOOL);
+  bool_node->value_ = 1;
+  malloc_non_terminal_node($$, result->malloc_pool_, T_LINK_NODE, 2, $1, bool_node);
+  $$->value_ = 1;
+}
+| NAME_OB STRING_VALUE
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_LINK_NODE, 2, $1, $2);
+  $$->value_ = 1;
+}
+| NAME_OB COMP_EQ file_sql_literal
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_LINK_NODE, 2, $1, $3);
+  $$->value_ = 1;
 }
 ;
 

@@ -1849,6 +1849,10 @@ stmt::StmtType ObResolverUtils::get_stmt_type_by_item_type(const ObItemType item
         type = stmt::T_CALL_PROCEDURE;
       }
       break;
+      case T_COPY_FILE: {
+        type = stmt::T_SELECT;
+      }
+      break;
       default: {
         type = stmt::T_NONE;
       }

@@ -1313,7 +1313,7 @@ public:
     return table_depend_infos_;
   }
 
-  int allocate_output_expr_for_values_op(ObLogicalOperator &values_op);
+  int allocate_output_expr_for_values_op(ObLogicalOperator &values_op, int64_t col_cnt = 1);
 
   inline common::ObIArray<JoinPath*> &get_recycled_join_paths()
   {

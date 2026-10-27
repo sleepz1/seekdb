@@ -18,6 +18,8 @@
 #include "sql/optimizer/ob_explain_log_plan.h"
 #include "sql/optimizer/ob_log_values.h"
 #include "sql/code_generator/ob_code_generator.h"
+#include "sql/resolver/ddl/ob_explain_stmt.h"
+#include "sql/resolver/dml/ob_select_stmt.h"
 
 using namespace oceanbase;
 using namespace sql;
@@ -32,11 +34,91 @@ using namespace oceanbase::sql::log_op_def;
  *  2. generate the plan text from the logical plan and put the text in the buffer
  *     and remember the logical plan as well.
  */
+int ObExplainLogPlan::generate_file_schema_plan()
+{
+  int ret = OB_SUCCESS;
+  const ObExplainStmt *explain_stmt = static_cast<const ObExplainStmt *>(get_stmt());
+  const ObSelectStmt *select_stmt = NULL;
+  ObLogicalOperator *top = NULL;
+  ObLogValues *values_op = NULL;
+  if (OB_ISNULL(explain_stmt) ||
+      OB_ISNULL(select_stmt = static_cast<const ObSelectStmt *>(explain_stmt->get_explain_query_stmt()))) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_FAIL(allocate_values_as_top(top))) {
+  } else if (OB_ISNULL(top) || OB_UNLIKELY(LOG_VALUES != top->get_type())) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    set_plan_root(top);
+    top->mark_is_plan_root();
+    values_op = static_cast<ObLogValues *>(top);
+    const ObCollationType coll = ObCharset::get_system_collation();
+    for (int64_t i = 0; OB_SUCC(ret) && i < select_stmt->get_select_item_size(); ++i) {
+      const SelectItem &item = select_stmt->get_select_item(i);
+      const ObRawExpr *expr = item.expr_;
+      const char *type_name = "VARCHAR";
+      const char *null_name = "YES";
+      if (OB_NOT_NULL(expr)) {
+        switch (expr->get_result_type().get_type()) {
+          case ObTinyIntType: type_name = "BOOLEAN"; break;
+          case ObIntType:
+          case ObInt32Type:
+          case ObSmallIntType:
+          case ObMediumIntType: type_name = "BIGINT"; break;
+          case ObDoubleType:
+          case ObFloatType: type_name = "DOUBLE"; break;
+          case ObDateType:
+          case ObMySQLDateType: type_name = "DATE"; break;
+          case ObDateTimeType:
+          case ObMySQLDateTimeType:
+          case ObTimestampType: type_name = "DATETIME"; break;
+          default: type_name = "VARCHAR"; break;
+        }
+        if (expr->is_not_null_for_read()) {
+          null_name = "NO";
+        }
+      }
+      ObString col_name = item.alias_name_;
+      if (col_name.empty() && OB_NOT_NULL(expr) && T_REF_COLUMN == expr->get_expr_type()) {
+        col_name = static_cast<const ObColumnRefRawExpr *>(expr)->get_column_name();
+      }
+      ObObj cells[6];
+      cells[0].set_varchar(col_name);
+      cells[0].set_collation_type(coll);
+      cells[1].set_varchar(type_name);
+      cells[1].set_collation_type(coll);
+      cells[2].set_varchar(null_name);
+      cells[2].set_collation_type(coll);
+      cells[3].set_null();
+      cells[4].set_null();
+      cells[5].set_null();
+      ObNewRow row;
+      row.cells_ = cells;
+      row.count_ = 6;
+      if (OB_FAIL(values_op->add_row(row))) {
+      }
+    }
+    if (OB_SUCC(ret)) {
+      values_op->set_op_id(0);
+      set_max_op_id(1);
+      optimizer_context_.set_packed(false);
+      if (OB_FAIL(allocate_output_expr_for_values_op(*values_op, 6))) {
+      } else {
+        get_optimizer_context().set_plan_type(ObPhyPlanType::OB_PHY_PLAN_LOCAL,
+                                              ObPhyPlanType::OB_PHY_PLAN_LOCAL,
+                                              false);
+      }
+    }
+  }
+  return ret;
+}
+
 int ObExplainLogPlan::generate_normal_raw_plan()
 {
   int ret = OB_SUCCESS;
   if (OB_ISNULL(get_stmt()) || OB_UNLIKELY(!get_stmt()->is_explain_stmt())) {
     ret = OB_ERR_UNEXPECTED;
+  } else if (static_cast<const ObExplainStmt *>(get_stmt())->is_file_schema_describe()) {
+    ret = generate_file_schema_plan();
   } else {
     ObLogPlan *child_plan = NULL;
     const ObDMLStmt *child_stmt = NULL;
