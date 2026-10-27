@@ -1,0 +1,72 @@
+name: Contest SDB04 compile and runtime
+
+on:
+  push:
+    branches: [contest/sdb04-codex-repair]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contest-sdb04-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  observer-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install documented build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git wget curl rpm rpm2cpio cpio make build-essential binutils m4 file python3 libncurses5 libtool-bin libaio1 ccache
+          df -h .
+          free -h
+      - name: Restore pinned dependencies
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: |
+            deps/3rd
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: sdb04-deps-${{ runner.os }}-${{ hashFiles('deps/init/**', 'rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+      - name: Configure release with official dependency initialization
+        run: |
+          set -o pipefail
+          bash build.sh release --init 2>&1 | tee configure.log
+          echo "$GITHUB_WORKSPACE/deps/3rd/usr/local/oceanbase/devtools/bin" >> "$GITHUB_PATH"
+      - name: Compile complete seekdb binary
+        run: |
+          set -o pipefail
+          cmake --build build_release --target seekdb -j2 2>&1 | tee build.log
+          test -x build_release/src/observer/seekdb
+      - name: Existing contest checks
+        run: |
+          set -o pipefail
+          python3 unittest/sql/engine/expr/ai_function_contest_check.py 2>&1 | tee existing-ai-check.log
+          g++ -std=c++17 -Wall -Wextra -Werror -O2 -I. -o "$RUNNER_TEMP/test_file_scan" unittest/sql/engine/basic/test_file_scan_utils.cpp
+          "$RUNNER_TEMP/test_file_scan" "$RUNNER_TEMP/file-sql-data"
+      - name: Preserve actual compiler diagnostics
+        if: always()
+        run: |
+          for f in configure.log build.log existing-ai-check.log; do
+            if test -f "$f"; then
+              echo "### $f" >> "$GITHUB_STEP_SUMMARY"
+              grep -n -E -C 2 'error:|fatal error:|FAILED|Error [0-9]+|passed|check: ok' "$f" | head -n 100 >> "$GITHUB_STEP_SUMMARY" || true
+            fi
+          done
+      - name: Upload build evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sdb04-build-evidence
+          path: |
+            configure.log
+            build.log
+            existing-ai-check.log
+            build_release/compile_commands.json
+          retention-days: 3
