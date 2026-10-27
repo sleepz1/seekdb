@@ -67,3 +67,7 @@ The active branch is contest/sdb04-ai-repair and review continues in PR5. The pr
 ## File SQL compiler regression checkpoint
 
 Full Release run40463906663 reached96% and natively failed at ob_dml_resolver.cpp:11165 and ob_select_resolver.cpp:4723: get_bool_sys_var is private. The existing public bool overload get_sys_variable(ObSysVarClassType,bool&) is declared in ObBasicSessionInfo. Source commit bb2ccd2e826c6cc4b92ef4e1ddce9e9437c5ef28 changes only those two calls to the public interface. Both resolver files belong to the same original production Unity action, now included in the early native syntax gate. Prior AI production Unity passed; runtime remains unexecuted until a complete link succeeds. Initialized dependencies and compiler cache were saved by the real failed run.
+
+## Full binary verification and test compiler correction
+
+At c172b12e2dcdb3ab4ba186d91addd0cd44b4966f, run40468737231/job122070398576 passed both production Unity probes and built the complete seekdb binary at100%. Existing Python checks passed. The standalone file scanner command resolved g++ from bundled Red Hat devtools and failed against Ubuntu glibc headers (bits/wordsize.h), before SQL startup. Use /usr/bin/g++ for this standalone unit and run actual DB/SQL checks independently whenever the complete binary built successfully. Failures remain failures; no expected results or product behavior were changed.

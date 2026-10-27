@@ -81,6 +81,7 @@ jobs:
           python3 unittest/sql/engine/expr/emit_ai_compile_diagnostics.py ai-preflight.log
           exit "$native_status"
       - name: Compile complete seekdb binary
+        id: compile_binary
         run: |
           set -o pipefail
           cmake --build build_release --target seekdb -j4 2>&1 | tee build.log
@@ -89,13 +90,14 @@ jobs:
         run: |
           set -o pipefail
           python3 unittest/sql/engine/expr/ai_function_contest_check.py 2>&1 | tee existing-ai-check.log
-          g++ -std=c++17 -Wall -Wextra -Werror -O2 -I. -o "$RUNNER_TEMP/test_file_scan" unittest/sql/engine/basic/test_file_scan_utils.cpp
+          /usr/bin/g++ -std=c++17 -Wall -Wextra -Werror -O2 -I. -o "$RUNNER_TEMP/test_file_scan" unittest/sql/engine/basic/test_file_scan_utils.cpp
           mkdir -p "$RUNNER_TEMP/file-sql-data"
           cp tools/deploy/mysql_test/test_suite/file_sql/data/* "$RUNNER_TEMP/file-sql-data/"
           base64 -d "$RUNNER_TEMP/file-sql-data/simple.parquet.b64" > "$RUNNER_TEMP/file-sql-data/simple.parquet"
-          "$RUNNER_TEMP/test_file_scan" "$RUNNER_TEMP/file-sql-data"
+          "$RUNNER_TEMP/test_file_scan" "$RUNNER_TEMP/file-sql-data" 2>&1 | tee standalone-file-check.log
       - name: Start actual newly compiled seekdb
         id: start_instance
+        if: always() && steps.compile_binary.outcome == 'success'
         run: |
           python3 -m venv "$RUNNER_TEMP/sdb04-venv"
           "$RUNNER_TEMP/sdb04-venv/bin/pip" install PyMySQL==1.1.1
@@ -105,6 +107,7 @@ jobs:
           python3 .github/script/seekdb/sdb.py wait-ready --client "$GITHUB_WORKSPACE/deps/3rd/u01/obclient/bin/obclient" --base-dir "$RUNNER_TEMP/sdb04-instance" --host 127.0.0.1 --port 2881 --user root --timeout 180
           deps/3rd/u01/obclient/bin/obclient -h127.0.0.1 -P2881 -uroot -e 'CREATE DATABASE IF NOT EXISTS test;'
       - name: Real SQL AI runtime regression
+        if: always() && steps.start_instance.outcome == 'success'
         run: |
           set -o pipefail
           "$RUNNER_TEMP/sdb04-venv/bin/python" unittest/sql/engine/expr/test_ai_contest_runtime.py --host 127.0.0.1 --port 2881 --ai-port 8000 --database test 2>&1 | tee runtime-ai.log
@@ -141,6 +144,7 @@ jobs:
             configure.log
             build.log
             existing-ai-check.log
+            standalone-file-check.log
             runtime-ai.log
             ai-syntax-probe-logs/
             ai-preflight.log
