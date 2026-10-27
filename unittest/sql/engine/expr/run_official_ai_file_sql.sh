@@ -34,6 +34,15 @@ auth_keys="$ssh_dir/authorized_keys"
 auth_existed=0; [[ ! -e $auth_keys ]] || auth_existed=1
 mock_pid=''; key_installed=0
 cleanup() {
+  exit_status=$?
+  if [[ $exit_status != 0 ]]; then
+    for diagnostic in fixture-sql-init.log fixture-ssh-check.log fixture-sshd.log; do
+      if [[ -r $ARTIFACT_DIR/$diagnostic ]]; then
+        printf 'Setup diagnostic: %s\n' "$diagnostic"
+        tail -n 30 "$ARTIFACT_DIR/$diagnostic"
+      fi
+    done
+  fi
   [[ -z $mock_pid ]] || { kill "$mock_pid" 2>/dev/null || true; wait "$mock_pid" 2>/dev/null || true; }
   if [[ -f $scratch/sshd.pid ]]; then
     ssh_pid=$(cat "$scratch/sshd.pid")
@@ -119,6 +128,9 @@ for tool in ssh scp; do
   chmod 700 "$scratch/bin/$tool"
 done
 sudo /usr/sbin/sshd -t -f "$scratch/sshd_config"
+# Create the log as the runner so artifact collection can read it after sudo sshd.
+touch "$ARTIFACT_DIR/fixture-sshd.log"
+chmod 600 "$ARTIFACT_DIR/fixture-sshd.log"
 sudo /usr/sbin/sshd -f "$scratch/sshd_config" -E "$ARTIFACT_DIR/fixture-sshd.log"
 export PATH="$scratch/bin:$(dirname "$OBCLIENT"):$PATH"
 ssh "$fixture_host" true > "$ARTIFACT_DIR/fixture-ssh-check.log" 2>&1

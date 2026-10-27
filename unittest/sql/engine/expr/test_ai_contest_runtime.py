@@ -46,6 +46,10 @@ def relevance(text):
     return hashlib.sha256(text.encode()).digest()[0] % 5
 
 
+def completion_text(prompt):
+    return "runtime accepted:" + hashlib.sha256(prompt.encode()).hexdigest()
+
+
 def decode_json(value):
     if isinstance(value, bytes):
         value = value.decode()
@@ -55,13 +59,14 @@ def decode_json(value):
 class MockState:
     def __init__(self):
         self.lock = threading.Lock()
-        self.reset()
+        self.reset(clear_errors=True)
 
-    def reset(self, scenario="normal"):
+    def reset(self, scenario="normal", clear_errors=False):
         with self.lock:
             self.scenario = scenario
             self.records = []
-            self.errors = []
+            if clear_errors:
+                self.errors = []
 
     def snapshot(self):
         with self.lock:
@@ -92,9 +97,11 @@ class MockState:
                         m.get("role") == "user" and isinstance(m.get("content"), str)
                         for m in messages):
                     raise ValueError("expected OpenAI user message")
+            prompt = body["prompt"] if native else next(
+                m["content"] for m in messages if m["role"] == "user")
             content = {"complete_null": None, "complete_empty": "",
                        "complete_object": {"unexpected": True}, "complete_number": 17}.get(
-                           scenario, "runtime accepted")
+                           scenario, completion_text(prompt))
             if scenario == "complete_missing":
                 return 200, {"choices": [{"message": {}}]} if not native else {}
             return (200, {"response": content} if native else
@@ -197,11 +204,15 @@ class AIContestRuntime(unittest.TestCase):
             cls.sql("CALL DBMS_AI_SERVICE.CREATE_AI_MODEL(%s,%s)",
                     (name, json.dumps({"type": kind, "model_name": model})))
             cls.addClassCleanup(cls.sql, "CALL DBMS_AI_SERVICE.DROP_AI_MODEL(%s)", (name,))
+            endpoint_config = {"ai_model_name": name, "scope": "all",
+                               "url": "http://127.0.0.1:%d%s" % (CONFIG.ai_port, path),
+                               "provider": provider}
+            # Cover both omitted and explicitly empty native credentials.
+            if key != "ollama_e":
+                endpoint_config["access_key"] = ("" if provider.lower() == "ollama"
+                                                 else "runtime-mock-key")
             cls.sql("CALL DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT(%s,%s)",
-                    (endpoint, json.dumps({"ai_model_name": name, "scope": "all",
-                        "url": "http://127.0.0.1:%d%s" % (CONFIG.ai_port, path),
-                        "provider": provider, "access_key": "" if provider.lower() == "ollama"
-                        else "runtime-mock-key"})))
+                    (endpoint, json.dumps(endpoint_config)))
             cls.addClassCleanup(cls.sql, "CALL DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT(%s)",
                                 (endpoint,))
         cls.table = cls.prefix + "_rows"
@@ -213,7 +224,7 @@ class AIContestRuntime(unittest.TestCase):
                                 for i in range(1, 97)])
 
     def setUp(self):
-        MOCK.reset()
+        MOCK.reset(clear_errors=True)
 
     def tearDown(self):
         self.assertEqual([], MOCK.errors, "engine sent an invalid protocol request")
@@ -233,13 +244,27 @@ class AIContestRuntime(unittest.TestCase):
             self.sql(statement, args)
         self.assertNotIn(raised.exception.args[0], (0, 2002, 2003, 2006, 2013, 2055),
                          "connection failure is not a valid SQL rejection")
+        self.assertEqual([], MOCK.errors, "invalid protocol is not the intended SQL rejection")
         self.assertEqual(1, self.scalar("SELECT 1"), "database must survive invalid input")
         if must_request:
             self.assertGreater(len(self.requests()), before, "failure happened before model response")
 
+    def check_complete(self, statement, args=None):
+        result = decode_json(self.scalar(statement, args))
+        request = self.requests()[-1]
+        body = request["body"]
+        prompt = body["prompt"] if request["path"] == "/api/generate" else next(
+            item["content"] for item in body["messages"] if item["role"] == "user")
+        self.assertEqual(completion_text(prompt), result, "provider content must be returned intact")
+        return result
+
     def complete(self, prompt="hello", config=None, model="complete"):
-        return self.scalar("SELECT AI_COMPLETE(%s,%s,%s)",
-                           (self.models[model], prompt, config))
+        result = self.check_complete("SELECT AI_COMPLETE(%s,%s,%s) AS completion",
+                                     (self.models[model], prompt, config))
+        actual_prompt = (self.requests()[-1]["body"]["prompt"] if model == "ollama_c"
+                         else self.user_prompt())
+        self.assertEqual(prompt, actual_prompt)
+        return result
 
     def embed(self, content, dimension=None, model="embed"):
         args = (self.models[model], content)
@@ -263,7 +288,7 @@ class AIContestRuntime(unittest.TestCase):
         self.assertEqual("qwen3-32b", body["model"])
 
     def test_completion_json_config(self):
-        self.scalar("SELECT AI_COMPLETE(%s,'hello',JSON_OBJECT('temperature',0.2,'max_tokens',16))",
+        self.check_complete("SELECT AI_COMPLETE(%s,'hello',JSON_OBJECT('temperature',0.2,'max_tokens',16))",
                     (self.models["complete"],))
         self.assertEqual(16, self.requests()[-1]["body"]["max_tokens"])
 
@@ -281,18 +306,18 @@ class AIContestRuntime(unittest.TestCase):
                                          "JSON_OBJECT('text','你好'))"))
         self.assertEqual("{0}/{1}", result["template"])
         self.assertEqual([[1, True], {"text": "你好"}], result["args"])
-        self.scalar("SELECT AI_COMPLETE(%s,AI_PROMPT('array={0}',JSON_ARRAY(1,TRUE)))",
+        self.check_complete("SELECT AI_COMPLETE(%s,AI_PROMPT('array={0}',JSON_ARRAY(1,TRUE)))",
                     (self.models["complete"],))
         self.assertEqual([1, True], json.loads(self.user_prompt().split("=", 1)[1]))
 
     def test_prompt_repeated_escape_unicode(self):
         template = "{0}/{0}|{{0}}|\\{1\\}|中文\n"
-        self.scalar("SELECT AI_COMPLETE(%s,AI_PROMPT(%s,%s))",
+        self.check_complete("SELECT AI_COMPLETE(%s,AI_PROMPT(%s,%s))",
                     (self.models["complete"], template, "A"))
         self.assertEqual("A/A|{0}|{1}|中文\n", self.user_prompt())
 
     def test_prompt_nested_and_illegal_index(self):
-        self.scalar("SELECT AI_COMPLETE(%s,AI_PROMPT('outer[{0}]',"
+        self.check_complete("SELECT AI_COMPLETE(%s,AI_PROMPT('outer[{0}]',"
                     "AI_PROMPT('inner[{0}]','你好')))", (self.models["complete"],))
         self.assertEqual("outer[inner[你好]]", self.user_prompt())
         MOCK.reset()
@@ -306,7 +331,7 @@ class AIContestRuntime(unittest.TestCase):
         self.sql("UPDATE `%s` SET tpl=%%s,content=%%s WHERE id=1" % self.table,
                  (template, argument))
         try:
-            self.sql("SELECT AI_COMPLETE(%%s,AI_PROMPT(tpl,content)) FROM `%s` WHERE id=1" %
+            self.check_complete("SELECT AI_COMPLETE(%%s,AI_PROMPT(tpl,content)) AS completion FROM `%s` WHERE id=1" %
                      self.table, (self.models["complete"],))
             self.assertEqual(template.replace("{0}", argument), self.user_prompt())
         finally:
@@ -315,6 +340,8 @@ class AIContestRuntime(unittest.TestCase):
     def test_embed_single_default_explicit_and_null(self):
         self.assertEqual(vector("one"), self.embed("one"))
         self.assertEqual(vector("two", 7), self.embed("two", 7))
+        self.assertEqual(vector("four", 4), self.embed("four", 4))
+        self.assertEqual(4, self.requests()[-1]["body"]["dimensions"])
         before = len(self.requests())
         self.assertIsNone(self.scalar("SELECT AI_EMBED(%s,NULL)", (self.models["embed"],)))
         self.assertIsNone(self.scalar("SELECT AI_EMBED(NULL,'anything')"))
@@ -380,6 +407,9 @@ class AIContestRuntime(unittest.TestCase):
             provider = self.scalar("SELECT provider FROM oceanbase.DBA_OB_AI_MODEL_ENDPOINTS "
                                    "WHERE endpoint_name=%s", (self.models[key] + "_ep",))
             self.assertEqual("ollama", provider.lower())
+        for provider in ("openai", "siliconflow"):
+            self.expect_sql_error("CALL DBMS_AI_SERVICE.ALTER_AI_MODEL_ENDPOINT(%s,%s)",
+                (self.models["ollama_c"] + "_ep", json.dumps({"provider": provider})))
         self.assertTrue(self.complete(model="ollama_c"))
         self.assertEqual(vector("native"), self.embed("native", model="ollama_e"))
         self.assertEqual(["/api/generate", "/api/embed"], [r["path"] for r in self.requests()])
@@ -388,7 +418,7 @@ class AIContestRuntime(unittest.TestCase):
     def rerank(self, count, objects=False):
         texts = ["document-%03d-中文" % i for i in range(count)]
         docs = [{"id": "id-%03d" % i, "text": text, "keep": i} for i, text in enumerate(texts)]
-        result = decode_json(self.scalar("SELECT AI_RERANK(%s,'query',%s,%s)",
+        result = decode_json(self.scalar("SELECT AI_RERANK(%s,'query',%s,%s) AS ranked",
                     (self.models["rerank"], json.dumps(docs if objects else texts,
                      ensure_ascii=False), "text" if objects else None)))
         return texts, docs, result
@@ -419,7 +449,7 @@ class AIContestRuntime(unittest.TestCase):
                 with self.subTest(scenario=scenario, objects=objects):
                     MOCK.reset(scenario)
                     docs = [{"id": i, "text": str(i)} for i in range(21)] if objects else [str(i) for i in range(21)]
-                    self.expect_sql_error("SELECT AI_RERANK(%s,'query',%s,%s)",
+                    self.expect_sql_error("SELECT AI_RERANK(%s,'query',%s,%s) AS ranked",
                         (self.models["rerank"], json.dumps(docs), "text" if objects else None),
                         must_request=True)
 

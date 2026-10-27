@@ -1419,9 +1419,10 @@ int ObAIFuncModel::call_completion(ObString &prompt, ObJsonObject *config, ObStr
   } else if (OB_FAIL(complete_provider->get_body(*allocator_, request_model_name, prompt_str, prompt, config, body))) {
   } else if (OB_FAIL(client.send_post(*allocator_, endpoint_info_.get_url(), headers, body, response))) {
   } else if (OB_FAIL(complete_provider->parse_output(*allocator_, response, result_base))) {
-  } else if (OB_NOT_NULL(result_base)
-             && result_base->json_type() == ObJsonNodeType::J_STRING
-             && static_cast<ObJsonString *>(result_base)->get_str().empty()) {
+  } else if (OB_ISNULL(result_base) || result_base->json_type() != ObJsonNodeType::J_STRING) {
+    ret = OB_INVALID_DATA;
+    LOG_USER_ERROR(OB_INVALID_ARGUMENT, "ai_complete, response content must be a string");
+  } else if (static_cast<ObJsonString *>(result_base)->get_str().empty()) {
     ret = OB_INVALID_DATA;
     LOG_USER_ERROR(OB_INVALID_ARGUMENT, "ai_complete, response content is empty");
   } else if (OB_FAIL(ObAIFuncJsonUtils::print_json_to_str(*allocator_, result_base, result_str))) {
