@@ -19,7 +19,7 @@ permissions:
   contents: read
 concurrency:
   group: contest-sdb04-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   observer-build:
     runs-on: ubuntu-22.04
@@ -76,7 +76,7 @@ jobs:
         run: |
           set +e
           set -o pipefail
-          python3 unittest/sql/engine/expr/check_ai_translation_units.py --repo "$GITHUB_WORKSPACE" --build-dir build_release --source src/sql/engine/expr/ob_expr_ai/ob_expr_ai_rerank.cpp --source src/sql/resolver/dml/ob_dml_resolver.cpp --mode unity --prepare auto --jobs 2 --timeout 600 --log-dir ai-syntax-probe-logs 2>&1 | tee ai-preflight.log
+          python3 unittest/sql/engine/expr/check_ai_translation_units.py --repo "$GITHUB_WORKSPACE" --build-dir build_release --source src/sql/engine/expr/ob_expr_ai/ob_expr_ai_rerank.cpp --source src/sql/resolver/dml/ob_dml_resolver.cpp --source src/sql/session/ob_system_variable_factory.cpp --source src/sql/engine/ai_column/ob_ai_column_service.cpp --mode unity --prepare auto --jobs 2 --timeout 600 --log-dir ai-syntax-probe-logs 2>&1 | tee ai-preflight.log
           native_status=${PIPESTATUS[0]}
           if (( native_status != 0 )); then
             python3 unittest/sql/engine/expr/emit_ai_compile_diagnostics.py ai-preflight.log
