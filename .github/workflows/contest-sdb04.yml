@@ -140,6 +140,11 @@ jobs:
           python3 .github/script/seekdb/sdb.py start --binary "$GITHUB_WORKSPACE/build_release/src/observer/seekdb" --base-dir "$RUNNER_TEMP/sdb04-instance" --port 2881 --parameter memory_limit=4G --parameter datafile_size=2G --parameter log_disk_size=2G
           python3 .github/script/seekdb/sdb.py wait-ready --client "$GITHUB_WORKSPACE/deps/3rd/u01/obclient/bin/obclient" --base-dir "$RUNNER_TEMP/sdb04-instance" --host 127.0.0.1 --port 2881 --user root --timeout 180
           deps/3rd/u01/obclient/bin/obclient -h127.0.0.1 -P2881 -uroot -e 'CREATE DATABASE IF NOT EXISTS test;'
+      - name: Cold AI package calls in a fresh database before AI warmup
+        if: always() && steps.start_instance.outcome == 'success'
+        run: |
+          set -o pipefail
+          timeout --signal=TERM 180s "$RUNNER_TEMP/sdb04-venv/bin/python" unittest/sql/engine/expr/test_ai_model_cold_start.py 2>&1 | tee runtime-ai-cold-start.log
       - name: Real SQL AI runtime regression
         if: always() && steps.start_instance.outcome == 'success'
         run: |
@@ -202,6 +207,7 @@ jobs:
             existing-ai-check.log
             standalone-file-check.log
             runtime-ai.log
+            runtime-ai-cold-start.log
             runtime-file-glob.log
             runtime-ai-column-review.log
             file-sql-diagnostics.log
