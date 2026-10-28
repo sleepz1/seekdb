@@ -21,7 +21,39 @@ concurrency:
   group: contest-sdb04-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  glob-regression:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Reproduce the submitted hidden-file glob failure
+        run: |
+          git fetch --no-tags --depth=1 origin 3d7fe083e92740e6b90a156dd03e2749f89cd510
+          mkdir -p "$RUNNER_TEMP/glob-before/src/sql/engine/basic"
+          git show 3d7fe083e92740e6b90a156dd03e2749f89cd510:src/sql/engine/basic/file_sql_scan.h > "$RUNNER_TEMP/glob-before/src/sql/engine/basic/file_sql_scan.h"
+          g++ -std=c++17 -Wall -Wextra -Werror -O2 -I"$RUNNER_TEMP/glob-before" unittest/sql/engine/basic/test_file_glob_hidden.cpp -o "$RUNNER_TEMP/glob-before-test"
+          set +e
+          "$RUNNER_TEMP/glob-before-test" > glob-before.log 2>&1
+          result=$?
+          set -e
+          cat glob-before.log
+          test "$result" -eq 1
+          grep -F 'FAIL wildcard * respects leading dot' glob-before.log
+      - name: Verify corrected glob matching and explicit dot paths
+        run: |
+          set -o pipefail
+          g++ -std=c++17 -Wall -Wextra -Werror -O2 -I. unittest/sql/engine/basic/test_file_glob_hidden.cpp -o "$RUNNER_TEMP/glob-after-test"
+          "$RUNNER_TEMP/glob-after-test" 2>&1 | tee glob-after.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: hidden-file-glob-regression
+          path: glob-*.log
+          retention-days: 7
   observer-build:
+    needs: glob-regression
     runs-on: ubuntu-22.04
     timeout-minutes: 180
     env:
