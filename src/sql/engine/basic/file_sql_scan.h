@@ -1057,6 +1057,11 @@ inline Status infer_jsonl(const std::string &data, const Options &opt, Schema &s
 }
 
 inline bool glob_match(const std::string &pat, const std::string &name) {
+  // A leading dot must be explicit, as with pathname glob expansion.
+  // This applies to all hidden files, including archive metadata sidecars.
+  if (!name.empty() && name[0] == '.' && (pat.empty() || pat[0] != '.')) {
+    return false;
+  }
   size_t pi = 0, ni = 0, star = std::string::npos, mark = 0;
   while (ni < name.size()) {
     if (pi < pat.size() && (pat[pi] == '?' || pat[pi] == name[ni])) {
