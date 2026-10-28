@@ -55,6 +55,29 @@ for columns,terms in [('title, content',['全文索引 分词器','OceanBase 稳
                     results[key]=normalize(cur.fetchall())
                 except pymysql.MySQLError as error:
                     results[key]={'error':error.args[0]}
+# Reusing one parameterized statement must not reuse the membership-only plan
+# for a nonzero threshold. Include aliases, derived tables, HAVING and scores
+# that are used solely for ordering.
+expr="MATCH(title_en,content_en) AGAINST(%s)"
+for threshold in [0,0.5,0,2,0]:
+    cur.execute(f'SELECT id FROM fts_large_bench.docs WHERE {expr} > %s ORDER BY id',('database performance',threshold))
+    results[f'plan-reuse/{threshold}']=normalize(cur.fetchall())
+for name,sql,params in [
+    ('alias',f'SELECT id,{expr} AS score FROM fts_large_bench.docs WHERE {expr} ORDER BY score DESC,id LIMIT 32',('database','database')),
+    ('order-only',f'SELECT id FROM fts_large_bench.docs WHERE {expr} ORDER BY {expr} DESC,id LIMIT 32',('database','database')),
+    ('having',f'SELECT id,{expr} AS score FROM fts_large_bench.docs HAVING score > 0.5 ORDER BY score DESC,id LIMIT 32',('database',)),
+    ('nested',f'SELECT id FROM (SELECT id,{expr} AS score FROM fts_large_bench.docs) t WHERE score > 0.5 ORDER BY id',('database',)),
+    ('and',f"SELECT id FROM fts_large_bench.docs WHERE {expr} AND MATCH(content) AGAINST('数据库') ORDER BY id",('database',)),
+    ('scalar',f'SELECT id FROM fts_large_bench.docs WHERE {expr} ORDER BY id',('database',)),
+    ('vector',f'SELECT id FROM fts_large_bench.docs WHERE {expr} ORDER BY id',('database',)),
+]:
+    if name == 'scalar': cur.execute('SET _rowsets_enabled = false')
+    if name == 'vector': cur.execute('SET _rowsets_enabled = true')
+    try:
+        cur.execute(sql,params)
+        results['shape/'+name]=normalize(cur.fetchall())
+    except pymysql.MySQLError as error:
+        results['shape/'+name]={'error':error.args[0]}
 connection.close()
 pathlib.Path(sys.argv[1]).write_text(json.dumps(results,ensure_ascii=False,sort_keys=True),encoding='utf-8')
 print('Captured '+str(len(results))+' full token/ID/score cases')
