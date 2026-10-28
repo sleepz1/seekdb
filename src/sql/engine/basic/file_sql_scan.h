@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #pragma once
 
 // Streaming CSV / JSONL / Parquet / glob reader used by file SQL.
@@ -1041,6 +1057,11 @@ inline Status infer_jsonl(const std::string &data, const Options &opt, Schema &s
 }
 
 inline bool glob_match(const std::string &pat, const std::string &name) {
+  // A leading dot must be explicit, as with pathname glob expansion.
+  // This applies to all hidden files, including archive metadata sidecars.
+  if (!name.empty() && name[0] == '.' && (pat.empty() || pat[0] != '.')) {
+    return false;
+  }
   size_t pi = 0, ni = 0, star = std::string::npos, mark = 0;
   while (ni < name.size()) {
     if (pi < pat.size() && (pat[pi] == '?' || pat[pi] == name[ni])) {

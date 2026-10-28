@@ -25,6 +25,7 @@
 #include "sql/session/ob_local_session_var.h"
 #include "query/command/ob_root_command_service.h"
 #include "query/vector/ob_vector_index_util.h"
+#include "sql/engine/ai_column/ob_ai_column_service.h"
 
 namespace oceanbase
 {
@@ -150,7 +151,20 @@ int ObAlterTableResolver::resolve(const ParseNode &parse_tree)
     }
     //resolve action list
     if (OB_SUCCESS == ret && NULL != parse_tree.children_[ACTION_LIST]){
-      if (OB_FAIL(resolve_action_list(*(parse_tree.children_[ACTION_LIST])))) {
+      ParseNode *action_list = parse_tree.children_[ACTION_LIST];
+      int64_t retry_idx = -1;
+      for (int64_t i = 0; OB_NOT_NULL(action_list) && i < action_list->num_child_; ++i) {
+        if (OB_NOT_NULL(action_list->children_[i]) && T_AI_COLUMN_RETRY == action_list->children_[i]->type_) {
+          retry_idx = i;
+        }
+      }
+      if (retry_idx >= 0 && action_list->num_child_ != 1) {
+        ret = OB_NOT_SUPPORTED;
+        LOG_USER_ERROR(OB_NOT_SUPPORTED, "combining AI COLUMN RETRY with another ALTER action");
+      } else if (retry_idx >= 0) {
+        if (OB_FAIL(ObAIColumnService::prepare_retry(*alter_table_stmt, *action_list->children_[retry_idx]))) {
+        }
+      } else if (OB_FAIL(resolve_action_list(*action_list))) {
       } else if (OB_FAIL(set_table_options())) {
       } else if (OB_FAIL(check_semistruct_encoding_type(*table_schema_, alter_table_stmt->get_alter_table_schema()))) {
       } else {
@@ -3425,6 +3439,14 @@ int ObAlterTableResolver::resolve_add_column(const ParseNode &node, ObColumnName
         } else if (OB_FAIL(fill_column_schema_according_stat(stat, alter_column_schema))) {
         } else if (OB_FAIL(set_column_collation(alter_column_schema))) {
         }
+        if (OB_SUCC(ret) && ObAIColumnService::is_ai_column(alter_column_schema)) {
+          alter_column_schema.set_nullable(true);
+          alter_column_schema.is_set_nullable_ = true;
+          alter_column_schema.is_set_comment_ = true;
+          if (OB_FAIL(ObAIColumnService::check_alter_dependency(
+                  *table_schema_, alter_table_stmt->get_alter_table_schema(), alter_column_schema))) {
+          }
+        }
 
         //do some check
         if (OB_SUCC(ret)) {
@@ -3457,6 +3479,18 @@ int ObAlterTableResolver::resolve_add_column(const ParseNode &node, ObColumnName
         if (OB_SUCC(ret)) {
           if (OB_FAIL(alter_table_stmt->add_column(alter_column_schema))) {
           } else if (FALSE_IT(alter_table_stmt->set_sql_mode(session_info_->get_sql_mode()))) {
+          } else if (ObAIColumnService::is_ai_column(alter_column_schema)) {
+            const char *prefixes[3] = {"__ai_st_", "__ai_rq_", "__ai_sp_"};
+            const int32_t lengths[3] = {16, 64, 16384};
+            for (int h = 0; OB_SUCC(ret) && h < 3; ++h) {
+              AlterColumnSchema hidden;
+              hidden.alter_type_ = OB_DDL_ADD_COLUMN;
+              hidden.is_set_nullable_ = true;
+              if (OB_FAIL(ObAIColumnService::fill_hidden_column(
+                      hidden, alter_column_schema.get_column_name_str(), prefixes[h], lengths[h]))) {
+              } else if (OB_FAIL(alter_table_stmt->add_column(hidden))) {
+              }
+            }
           }
         }
       }
@@ -4228,6 +4262,28 @@ int ObAlterTableResolver::resolve_drop_column(
         } else if (OB_FAIL(check_drop_column_is_partition_key(*table_schema_,
                                                               alter_column_schema.get_origin_column_name()))) {
         } else if (OB_FAIL(alter_table_stmt->add_column(alter_column_schema))){
+        } else {
+          const ObString &dropped_name = alter_column_schema.get_origin_column_name();
+          const ObColumnSchemaV2 *dropped_col = table_schema_->get_column_schema(dropped_name);
+          if (dropped_col != nullptr && ObAIColumnService::is_ai_column(*dropped_col)) {
+            const char *prefixes[3] = {"__ai_st_", "__ai_rq_", "__ai_sp_"};
+            for (int h = 0; OB_SUCC(ret) && h < 3; ++h) {
+              char hidden_name[256] = {0};
+              const int n = snprintf(hidden_name, sizeof(hidden_name), "%s%.*s", prefixes[h],
+                                     dropped_name.length(), dropped_name.ptr());
+              if (n <= 0 || n >= static_cast<int>(sizeof(hidden_name))) {
+                ret = OB_SIZE_OVERFLOW;
+              } else if (table_schema_->get_column_schema(hidden_name) == nullptr) {
+              } else {
+                AlterColumnSchema hidden;
+                hidden.alter_type_ = OB_DDL_DROP_COLUMN;
+                if (OB_FAIL(hidden.set_origin_column_name(hidden_name))) {
+                } else if (OB_FAIL(hidden.set_column_name(hidden_name))) {
+                } else if (OB_FAIL(alter_table_stmt->add_column(hidden))) {
+                }
+              }
+            }
+          }
         }
       }
       if (OB_SUCC(ret)) {

@@ -4720,7 +4720,7 @@ int ObSelectResolver::resolve_copy_file(const ParseNode &parse_tree)
                          OB_ISNULL(parse_tree.children_) || OB_ISNULL(parse_tree.children_[0]) ||
                          OB_ISNULL(parse_tree.children_[1]))) {
     ret = OB_ERR_UNEXPECTED;
-  } else if (OB_FAIL(session_info_->get_bool_sys_var(share::SYS_VAR_ENABLE_FILE_SQL, enabled))) {
+  } else if (OB_FAIL(session_info_->get_sys_variable(share::SYS_VAR_ENABLE_FILE_SQL, enabled))) {
   } else if (!enabled) {
     ret = OB_NOT_SUPPORTED;
     LOG_USER_ERROR(OB_NOT_SUPPORTED, "file sql");

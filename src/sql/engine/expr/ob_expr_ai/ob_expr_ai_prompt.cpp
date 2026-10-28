@@ -20,7 +20,7 @@
 #include "ob_ai_func.h"
 #include "lib/utility/utility.h"
 #include "common/json_type/ob_json_common.h"
-#include "ob_expr_json_func_helper.h"
+#include "sql/engine/expr/ob_expr_json_func_helper.h"
 
 
 using namespace oceanbase::common;

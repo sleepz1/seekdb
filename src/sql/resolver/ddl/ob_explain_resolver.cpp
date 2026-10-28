@@ -141,7 +141,7 @@ int ObExplainResolver::resolve(const ParseNode &parse_tree)
       ObString statement_id(statement_id_node->str_len_, statement_id_node->str_value_);
       explain_stmt->set_statement_id(statement_id);
     }
-    if (OB_SUCC(ret) && 1 == parse_tree.value_ && OB_NOT_NULL(child_stmt) &&
+    if (OB_SUCC(ret) && parse_tree.is_file_schema_describe_ && OB_NOT_NULL(child_stmt) &&
         child_stmt->is_select_stmt() && OB_NOT_NULL(params_.query_ctx_) &&
         params_.query_ctx_->has_file_sql()) {
       explain_stmt->set_file_schema_describe(true);

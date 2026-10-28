@@ -1,0 +1,219 @@
+# Copyright (c) 2026 OceanBase.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Contest SDB04 compile and runtime
+on:
+  push:
+    branches: [contest/sdb04-ai-repair]
+    paths: ['src/**', 'unittest/**', 'docs/superpowers/plans/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: contest-sdb04-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  glob-regression:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Reproduce the submitted hidden-file glob failure
+        run: |
+          git fetch --no-tags --depth=1 origin 3d7fe083e92740e6b90a156dd03e2749f89cd510
+          mkdir -p "$RUNNER_TEMP/glob-before/src/sql/engine/basic"
+          git show 3d7fe083e92740e6b90a156dd03e2749f89cd510:src/sql/engine/basic/file_sql_scan.h > "$RUNNER_TEMP/glob-before/src/sql/engine/basic/file_sql_scan.h"
+          g++ -std=c++17 -Wall -Wextra -Werror -O2 -I"$RUNNER_TEMP/glob-before" unittest/sql/engine/basic/test_file_glob_hidden.cpp -o "$RUNNER_TEMP/glob-before-test"
+          set +e
+          "$RUNNER_TEMP/glob-before-test" > glob-before.log 2>&1
+          result=$?
+          set -e
+          cat glob-before.log
+          test "$result" -eq 1
+          grep -F 'FAIL wildcard * respects leading dot' glob-before.log
+      - name: Verify corrected glob matching and explicit dot paths
+        run: |
+          set -o pipefail
+          g++ -std=c++17 -Wall -Wextra -Werror -O2 -I. unittest/sql/engine/basic/test_file_glob_hidden.cpp -o "$RUNNER_TEMP/glob-after-test"
+          "$RUNNER_TEMP/glob-after-test" 2>&1 | tee glob-after.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: hidden-file-glob-regression
+          path: glob-*.log
+          retention-days: 7
+  observer-build:
+    needs: glob-regression
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      CCACHE_MAXSIZE: 4G
+      CCACHE_COMPILERCHECK: content
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install documented build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git wget curl rpm rpm2cpio cpio make build-essential binutils m4 file python3 python3-venv libncurses5 libtool-bin libaio1 ccache
+          df -h .
+          free -h
+          echo "CCACHE_DIR=$RUNNER_TEMP/sdb04-ccache" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/sdb04-ccache"
+      - name: Restore pinned dependencies
+        id: deps
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: |
+            deps/3rd
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: sdb04-deps-${{ runner.os }}-${{ hashFiles('deps/init/**', 'rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+      - name: Restore compiler cache
+        id: compiler-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/sdb04-ccache
+          key: sdb04-ccache-v1-${{ runner.os }}-${{ hashFiles('deps/init/**') }}-${{ github.sha }}
+          restore-keys: sdb04-ccache-v1-${{ runner.os }}-${{ hashFiles('deps/init/**') }}-
+      - name: Configure official release with compiler cache
+        id: configure
+        run: |
+          set -o pipefail
+          export CCACHE_BASEDIR="$GITHUB_WORKSPACE"
+          bash build.sh release --init -DCMAKE_C_COMPILER_LAUNCHER=/usr/bin/ccache -DCMAKE_CXX_COMPILER_LAUNCHER=/usr/bin/ccache 2>&1 | tee configure.log
+          echo "$GITHUB_WORKSPACE/deps/3rd/usr/local/oceanbase/devtools/bin" >> "$GITHUB_PATH"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+      - name: Save initialized dependencies before compilation
+        if: steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: |
+            deps/3rd
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ steps.deps.outputs.cache-primary-key }}
+      - name: Compile real production AI and resolver Unity sources before full build
+        run: |
+          set +e
+          set -o pipefail
+          python3 unittest/sql/engine/expr/check_ai_translation_units.py --repo "$GITHUB_WORKSPACE" --build-dir build_release --source src/sql/engine/expr/ob_expr_ai/ob_expr_ai_rerank.cpp --source src/sql/resolver/dml/ob_dml_resolver.cpp --source src/sql/session/ob_system_variable_factory.cpp --source src/sql/engine/ai_column/ob_ai_column_service.cpp --mode unity --prepare auto --jobs 2 --timeout 600 --log-dir ai-syntax-probe-logs 2>&1 | tee ai-preflight.log
+          native_status=${PIPESTATUS[0]}
+          if (( native_status != 0 )); then
+            python3 unittest/sql/engine/expr/emit_ai_compile_diagnostics.py ai-preflight.log
+          fi
+          exit "$native_status"
+      - name: Compile complete seekdb binary
+        id: compile_binary
+        run: |
+          set -o pipefail
+          cmake --build build_release --target seekdb -j4 2>&1 | tee build.log
+          test -x build_release/src/observer/seekdb
+      - name: Existing contest checks
+        run: |
+          set -o pipefail
+          python3 unittest/sql/engine/expr/ai_function_contest_check.py 2>&1 | tee existing-ai-check.log
+          /usr/bin/g++ -std=c++17 -Wall -Wextra -Werror -O2 -I. -o "$RUNNER_TEMP/test_file_scan" unittest/sql/engine/basic/test_file_scan_utils.cpp
+          mkdir -p "$RUNNER_TEMP/file-sql-data"
+          cp tools/deploy/mysql_test/test_suite/file_sql/data/* "$RUNNER_TEMP/file-sql-data/"
+          base64 -d "$RUNNER_TEMP/file-sql-data/simple.parquet.b64" > "$RUNNER_TEMP/file-sql-data/simple.parquet"
+          "$RUNNER_TEMP/test_file_scan" "$RUNNER_TEMP/file-sql-data" 2>&1 | tee standalone-file-check.log
+      - name: Start actual newly compiled seekdb
+        id: start_instance
+        if: always() && steps.compile_binary.outcome == 'success'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/sdb04-venv"
+          "$RUNNER_TEMP/sdb04-venv/bin/pip" install PyMySQL==1.1.1
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/deps/3rd/u01/obclient/lib:$GITHUB_WORKSPACE/deps/3rd/u01/obclient/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          python3 .github/script/seekdb/sdb.py start --binary "$GITHUB_WORKSPACE/build_release/src/observer/seekdb" --base-dir "$RUNNER_TEMP/sdb04-instance" --port 2881 --parameter memory_limit=4G --parameter datafile_size=2G --parameter log_disk_size=2G
+          python3 .github/script/seekdb/sdb.py wait-ready --client "$GITHUB_WORKSPACE/deps/3rd/u01/obclient/bin/obclient" --base-dir "$RUNNER_TEMP/sdb04-instance" --host 127.0.0.1 --port 2881 --user root --timeout 180
+          deps/3rd/u01/obclient/bin/obclient -h127.0.0.1 -P2881 -uroot -e 'CREATE DATABASE IF NOT EXISTS test;'
+      - name: Cold AI package calls in a fresh database before AI warmup
+        if: always() && steps.start_instance.outcome == 'success'
+        run: |
+          set -o pipefail
+          timeout --signal=TERM 180s "$RUNNER_TEMP/sdb04-venv/bin/python" unittest/sql/engine/expr/test_ai_model_cold_start.py 2>&1 | tee runtime-ai-cold-start.log
+      - name: Real SQL AI runtime regression
+        if: always() && steps.start_instance.outcome == 'success'
+        run: |
+          set -o pipefail
+          "$RUNNER_TEMP/sdb04-venv/bin/python" unittest/sql/engine/expr/test_ai_contest_runtime.py --host 127.0.0.1 --port 2881 --ai-port 8000 --database test 2>&1 | tee runtime-ai.log
+      - name: Real SQL hidden-file glob regression
+        if: always() && steps.start_instance.outcome == 'success'
+        run: |
+          set -o pipefail
+          "$RUNNER_TEMP/sdb04-venv/bin/python" unittest/sql/engine/basic/test_file_glob_runtime.py 2>&1 | tee runtime-file-glob.log
+      - name: Unchanged official AI and file SQL mysqltests
+        id: official_mysqltests
+        if: always() && steps.start_instance.outcome == 'success'
+        run: bash unittest/sql/engine/expr/run_official_ai_file_sql.sh
+      - name: Reviewed AI column boundary regressions
+        if: always() && steps.start_instance.outcome == 'success'
+        run: |
+          set -o pipefail
+          timeout --signal=TERM 180s "$RUNNER_TEMP/sdb04-venv/bin/python" unittest/sql/engine/expr/test_ai_column_regressions.py 2>&1 | tee runtime-ai-column-review.log
+      - name: Diagnose unchanged mysqltest failure before stopping the instance
+        if: always() && steps.start_instance.outcome == 'success' && steps.official_mysqltests.outcome == 'failure'
+        run: |
+          set -o pipefail
+          "$RUNNER_TEMP/sdb04-venv/bin/python" unittest/sql/engine/expr/diagnose_file_sql_runtime.py 2>&1 | tee file-sql-diagnostics.log
+      - name: Record disposable instance failure evidence
+        if: failure() && steps.start_instance.outcome == 'success'
+        run: |
+          free -h
+          ps -C seekdb -o pid,rss,vsz,stat || true
+          sudo dmesg | grep -Ei 'oom|killed process|segfault|stack|seekdb' | tail -n 40 || true
+      - name: Stop this disposable test instance
+        if: always()
+        run: |
+          if test -d "$RUNNER_TEMP/sdb04-instance"; then
+            python3 .github/script/seekdb/sdb.py stop --base-dir "$RUNNER_TEMP/sdb04-instance" || true
+          fi
+      - name: Save compiler cache including failed compilation evidence
+        if: always() && steps.configure.outcome == 'success'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/sdb04-ccache
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
+      - name: Preserve actual diagnostics
+        if: always()
+        run: |
+          for f in configure.log build.log existing-ai-check.log runtime-ai.log ai-preflight.log; do
+            if test -f "$f"; then
+              echo "### $f" >> "$GITHUB_STEP_SUMMARY"
+              grep -n -E -C 2 'error:|fatal error:|FAILED|Error [0-9]+|passed|check: ok|Ran [0-9]+ tests' "$f" | head -n 100 >> "$GITHUB_STEP_SUMMARY" || true
+            fi
+          done
+      - name: Upload build and runtime evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sdb04-build-evidence
+          path: |
+            configure.log
+            build.log
+            existing-ai-check.log
+            standalone-file-check.log
+            runtime-ai.log
+            runtime-ai-cold-start.log
+            runtime-file-glob.log
+            runtime-ai-column-review.log
+            file-sql-diagnostics.log
+            ai-syntax-probe-logs/
+            ai-preflight.log
+            official-mysqltest-evidence/
+            build_release/compile_commands.json
+            ${{ runner.temp }}/sdb04-instance/log/
+          retention-days: 3

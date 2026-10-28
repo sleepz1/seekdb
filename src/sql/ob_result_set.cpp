@@ -27,6 +27,7 @@
 #include "sql/monitor/show_trace/ob_show_trace.h"
 #include "sql/engine/table/ob_table_scan_op.h"
 #include "share/ob_ddl_checksum.h"
+#include "sql/engine/ai_column/ob_ai_column_service.h"
 
 using namespace oceanbase::sql;
 using namespace oceanbase::common;
@@ -170,7 +171,8 @@ int ObResultSet::open()
   my_session_.set_process_query_time(ObClockGenerator::getClock());
   LinkExecCtxGuard link_guard(my_session_, get_exec_context());
   ObTraceSpanGuard open_span(&my_session_, TRACE_OPEN);
-  if (OB_FAIL(execute())) {
+  if (OB_FAIL(ObAIColumnService::check_strict_read(my_session_, get_physical_plan()))) {
+  } else if (OB_FAIL(execute())) {
   } else if (OB_FAIL(open_result())) {
   }
 
