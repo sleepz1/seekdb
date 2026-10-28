@@ -117,6 +117,11 @@ jobs:
         id: official_mysqltests
         if: always() && steps.start_instance.outcome == 'success'
         run: bash unittest/sql/engine/expr/run_official_ai_file_sql.sh
+      - name: Reviewed AI column boundary regressions
+        if: always() && steps.start_instance.outcome == 'success'
+        run: |
+          set -o pipefail
+          timeout --signal=TERM 180s "$RUNNER_TEMP/sdb04-venv/bin/python" unittest/sql/engine/expr/test_ai_column_regressions.py 2>&1 | tee runtime-ai-column-review.log
       - name: Diagnose unchanged mysqltest failure before stopping the instance
         if: always() && steps.start_instance.outcome == 'success' && steps.official_mysqltests.outcome == 'failure'
         run: |
@@ -154,6 +159,7 @@ jobs:
             existing-ai-check.log
             standalone-file-check.log
             runtime-ai.log
+            runtime-ai-column-review.log
             file-sql-diagnostics.log
             ai-syntax-probe-logs/
             ai-preflight.log
