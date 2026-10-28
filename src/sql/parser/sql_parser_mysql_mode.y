@@ -52,9 +52,9 @@
   malloc_non_terminal_node(explain_stmt, result->malloc_pool_, T_EXPLAIN, 5, \
                            type_node, display_node, into_table, set_statement_id, stmt); \
   if (NULL != (explain_node)) { \
-    (explain_stmt)->value_ = (explain_node)->value_; \
+    (explain_stmt)->is_file_schema_describe_ = (explain_node)->value_ != 0; \
   } else { \
-    (explain_stmt)->value_ = 0; \
+    (explain_stmt)->is_file_schema_describe_ = 0; \
   }
 %}
 
