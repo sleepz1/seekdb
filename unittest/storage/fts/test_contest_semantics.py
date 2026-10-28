@@ -33,7 +33,7 @@ texts=['','a','The quick BROWN fox the database DATABASE','OceanBase数据库全
 for parser in ['ik','beng','ngram','space']:
     for i,text in enumerate(texts):
         for detail in [False,True]:
-            sql='SELECT TOKENIZE(%s,%s'+(", '[{\"output\":\"all\"}]')" if detail else ')')
+            sql='SELECT TOKENIZE(%s,%s'+(", '[{\"output\":\"all\"}]')" if detail else ')')+' AS tokens'
             key=f'token/{parser}/{i}/{detail}'
             try:
                 cur.execute(sql,(text,parser))
@@ -43,7 +43,7 @@ for parser in ['ik','beng','ngram','space']:
                 results[key]=value
             except pymysql.MySQLError as error:
                 results[key]={'error':error.args[0]}
-for columns,terms in [('title, content',['全文索引 分词器','OceanBase 稳定 database','missingterm','','数据库 数据库']),('title_en, content_en',['database performance audit','DATABASE','the','+database -performance'])]:
+for columns,terms in [('title, content',['全文索引 分词器','OceanBase 稳定 database','missingterm','','数据库 数据库']),('title_en, content_en',['database performance audit','DATABASE','the','+database -performance','database '+' '.join('missingterm'+str(i) for i in range(300))])]:
     for text in terms:
         modes=[' IN NATURAL LANGUAGE MODE',' IN BOOLEAN MODE'] if text else [' IN NATURAL LANGUAGE MODE']
         for mode in modes:
