@@ -157,7 +157,7 @@ else: raise SystemExit("official mock did not become ready")
 PY
 status=0
 printf 'suite\tcase\texit_code\n' > "$ARTIFACT_DIR/results.tsv"
-for entry in ai_function:ai_prompt ai_function:ai_function_enhancement file_sql:file_sql_basic; do
+for entry in ai_function:ai_prompt ai_function:ai_function_enhancement file_sql:file_sql_basic ai_column:ai_column_ddl ai_column:ai_column_t1_dml ai_column:ai_column_worker ai_column:ai_column_retry_strict ai_column:ai_column_vector_index; do
   suite=${entry%:*}; case_name=${entry#*:}
   suite_dir="$REPO_ROOT/tools/deploy/mysql_test/test_suite/$suite"
   case_log="$ARTIFACT_DIR/$case_name"; mkdir -p "$case_log/tmp"
@@ -172,7 +172,11 @@ for entry in ai_function:ai_prompt ai_function:ai_function_enhancement file_sql:
   sha256sum --check "$case_log/source.sha256" > "$case_log/source-integrity.log" 2>&1 || rc=1
   printf '%s\t%s\t%s\n' "$suite" "$case_name" "$rc" >> "$ARTIFACT_DIR/results.tsv"
   printf 'mysqltest %s: exit %s\n' "$case_name" "$rc"
-  [[ $rc == 0 ]] || status=1
+  if [[ $rc != 0 ]]; then
+    tail -n 55 "$case_log/console.log"
+    find "$case_log" -name "*.reject" -exec tail -n 60 {} \;
+    status=1
+  fi
 done
 exit "$status"
 

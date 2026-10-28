@@ -2276,6 +2276,7 @@ typedef enum ObItemType
   T_MERGE_TABLE = 4919,
   T_FILE_SQL_EXPRESSION = 4921,
   T_COPY_FILE = 4922,
+  T_AI_COLUMN_RETRY = 4923,
   T_MAX //Attention: add a new type before T_MAX
 } ObItemType;
 

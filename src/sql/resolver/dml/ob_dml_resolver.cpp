@@ -17,6 +17,7 @@
 #define USING_LOG_PREFIX SQL_RESV
 #include "config_bridge.h"
 #include "ob_dml_resolver.h"
+#include "sql/engine/ai_column/ob_ai_column_service.h"
 #include "sql/resolver/dml/ob_view_table_resolver.h"
 #include "sql/optimizer/ob_optimizer_util.h"
 #include "sql/resolver/dml/ob_default_value_utils.h"
@@ -1882,6 +1883,9 @@ int ObDMLResolver::resolve_basic_column_item(const TableItem &table_item,
     }
     if (OB_FAIL(ret)) {
       //do nothing
+    } else if (!include_hidden && ObAIColumnService::allow_hidden_access() &&
+               ObAIColumnService::is_aux_column_name(column_name) &&
+               FALSE_IT(include_hidden = true)) {
     } else if (OB_FAIL(schema_checker_->get_table_schema( tid, table_schema))) {
     } else if (OB_FAIL(get_column_schema(tid, column_name, col_schema, include_hidden))) {
     } else if (OB_ISNULL(col_schema)) {
