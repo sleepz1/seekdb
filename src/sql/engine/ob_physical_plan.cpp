@@ -38,6 +38,7 @@ ObPhysicalPlan::ObPhysicalPlan(MemoryContext &mem_context /* = CURRENT_CONTEXT *
     root_op_spec_(NULL),
     param_count_(0),
     signature_(0),
+    ai_column_references_(allocator_),
     field_columns_(mem_context->get_arena_allocator()),
     param_columns_(mem_context->get_arena_allocator()),
     autoinc_params_(allocator_),
@@ -127,6 +128,7 @@ void ObPhysicalPlan::reset()
   root_op_spec_ = NULL;
   param_count_ = 0;
   signature_ = 0;
+  ai_column_references_.reset();
   field_columns_.reset();
   param_columns_.reset();
   autoinc_params_.reset();

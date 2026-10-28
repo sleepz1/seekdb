@@ -30,6 +30,8 @@ namespace sql
 class ObAlterTableStmt;
 class ObExecContext;
 class ObSQLSessionInfo;
+class ObDMLStmt;
+class ObPhysicalPlan;
 class ObTableModifyOp;
 
 class ObAIColumnService
@@ -51,7 +53,8 @@ public:
   static int register_after_ddl(uint64_t table_id, int64_t schema_version);
   static int capture_row(ObTableModifyOp &op);
   static int finish_dml(ObTableModifyOp &op);
-  static int check_strict_read(ObSQLSessionInfo &session, const common::ObString &sql);
+  static int collect_referenced_columns(const ObDMLStmt &stmt, ObPhysicalPlan &plan);
+  static int check_strict_read(ObSQLSessionInfo &session, const ObPhysicalPlan *plan);
   static int prepare_retry(ObAlterTableStmt &stmt, const ParseNode &action);
   static int execute_retry(ObExecContext &ctx, ObAlterTableStmt &stmt);
   static int process_tasks();

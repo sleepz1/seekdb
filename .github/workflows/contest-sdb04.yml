@@ -127,6 +127,12 @@ jobs:
         run: |
           set -o pipefail
           "$RUNNER_TEMP/sdb04-venv/bin/python" unittest/sql/engine/expr/diagnose_file_sql_runtime.py 2>&1 | tee file-sql-diagnostics.log
+      - name: Record disposable instance failure evidence
+        if: failure() && steps.start_instance.outcome == 'success'
+        run: |
+          free -h
+          ps -C seekdb -o pid,rss,vsz,stat || true
+          sudo dmesg | grep -Ei 'oom|killed process|segfault|stack|seekdb' | tail -n 40 || true
       - name: Stop this disposable test instance
         if: always()
         run: |

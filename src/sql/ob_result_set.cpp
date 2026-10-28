@@ -171,11 +171,7 @@ int ObResultSet::open()
   my_session_.set_process_query_time(ObClockGenerator::getClock());
   LinkExecCtxGuard link_guard(my_session_, get_exec_context());
   ObTraceSpanGuard open_span(&my_session_, TRACE_OPEN);
-  ObString sql = my_session_.get_current_query_string();
-  if (sql.empty()) {
-    sql = get_stmt_sql();
-  }
-  if (OB_FAIL(ObAIColumnService::check_strict_read(my_session_, sql))) {
+  if (OB_FAIL(ObAIColumnService::check_strict_read(my_session_, get_physical_plan()))) {
   } else if (OB_FAIL(execute())) {
   } else if (OB_FAIL(open_result())) {
   }

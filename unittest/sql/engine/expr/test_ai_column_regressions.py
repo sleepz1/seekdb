@@ -39,7 +39,20 @@ class Reply(BaseHTTPRequestHandler):
                 {'index': i, 'embedding': [1e-30, -2.5e20, 0.25, 0.0]}
                 for i, _value in enumerate(inputs)]}
         else:
-            content = "0, content='injected' -- " if 'attack-number' in prompt else 'value:' + prompt
+            if 'attack-number' in prompt:
+                content = "0, content='injected' -- "
+            elif 'overflow-int' in prompt:
+                content = '999'
+            elif 'normal-int' in prompt:
+                content = '7'
+            elif 'null-content' in prompt:
+                content = None
+            elif 'empty-content' in prompt:
+                content = ''
+            elif 'object-content' in prompt:
+                content = {'unexpected': True}
+            else:
+                content = 'value:' + prompt
             status, reply = 200, {'choices': [{'message': {'content': content}}]}
         data = json.dumps(reply).encode()
         self.send_response(status)
@@ -126,6 +139,13 @@ class AIColumnRegressions(unittest.TestCase):
         self.assertEqual(error.exception.args[0], 11120)
         for _attempt in range(2):
             self.assertEqual(self.sql('SELECT result FROM ' + ordinary)[0][0], 'ordinary-ok')
+        self.sql("INSERT INTO %s(id,content) VALUES(2,'offline-two')" % self.table)
+        self.sql("UPDATE %s SET content='offline-new' WHERE id=1" % self.table)
+        self.sql('DELETE FROM %s WHERE id=2' % self.table)
+        with self.assertRaises(pymysql.MySQLError) as correlated:
+            self.sql('SELECT id FROM %s d WHERE EXISTS(SELECT 1 FROM %s o WHERE o.result=d.result)' %
+                     (self.table, ordinary))
+        self.assertEqual(correlated.exception.args[0], 11120)
 
     def test_b_retry_all_129_rows(self):
         self.create()
@@ -171,6 +191,23 @@ class AIColumnRegressions(unittest.TestCase):
         time.sleep(2)
         self.assertEqual(self.sql('SELECT id,content FROM %s ORDER BY id' % self.table),
                          ((1, 'attack-number'), (2, 'keep-business')))
+        self.assertIsNone(self.sql('SELECT result FROM %s WHERE id=1' % self.table)[0][0])
+
+        self.sql('DROP TABLE ' + self.table)
+        self.create()
+        self.sql("INSERT INTO %s(id,content) VALUES(1,'null-content'),(2,'empty-content'),"
+                 "(3,'object-content'),(4,'typed-valid')" % self.table)
+        self.wait_count('SELECT COUNT(*) FROM %s WHERE id=4 AND result IS NOT NULL' % self.table, 1)
+        self.wait_count("SELECT COUNT(*) FROM oceanbase.__all_ai_column_task WHERE table_name='%s'" %
+                        self.table, 0)
+        self.assertEqual(self.sql('SELECT COUNT(*) FROM %s WHERE id<4 AND result IS NULL' % self.table)[0][0], 3)
+
+        self.sql('DROP TABLE ' + self.table)
+        self.create(sql_type='tinyint')
+        self.sql("INSERT INTO %s(id,content) VALUES(1,'overflow-int'),(2,'normal-int')" % self.table)
+        self.wait_count('SELECT COUNT(*) FROM %s WHERE id=2 AND result=7' % self.table, 1)
+        self.wait_count("SELECT COUNT(*) FROM oceanbase.__all_ai_column_task WHERE table_name='%s'" %
+                        self.table, 0)
         self.assertIsNone(self.sql('SELECT result FROM %s WHERE id=1' % self.table)[0][0])
 
     def test_z_scientific_embedding_does_not_block_following_completion(self):

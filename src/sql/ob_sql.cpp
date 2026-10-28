@@ -26,6 +26,7 @@
 #include "sql/ob_sql_init.h"
 #include "sql/resolver/ob_resolver.h"
 #include "sql/resolver/ddl/ob_explain_stmt.h"
+#include "sql/engine/ai_column/ob_ai_column_service.h"
 #include "sql/resolver/cmd/ob_variable_set_stmt.h"
 #include "sql/resolver/cmd/ob_call_procedure_stmt.h"
 #include "sql/resolver/cmd/ob_anonymous_block_stmt.h"
@@ -2395,6 +2396,9 @@ int ObSql::generate_plan(ParseResult &parse_result,
       phy_plan->set_fetch_cur_time(stmt->get_fetch_cur_time());
       phy_plan->set_stmt_type(stmt->get_stmt_type());
       phy_plan->set_literal_stmt_type(stmt->get_query_ctx()->get_literal_stmt_type());
+      if (OB_FAIL(ObAIColumnService::collect_referenced_columns(*stmt, *phy_plan))) {
+        LOG_WARN("collect resolved AI column references failed", K(ret));
+      }
       if (phy_plan->get_fetch_cur_time() && !pctx->has_cur_time()) {
         pctx->set_cur_time(ObTimeUtility::current_time(), *(sql_ctx.session_info_));
       }

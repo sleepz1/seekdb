@@ -179,4 +179,3 @@ for entry in ai_function:ai_prompt ai_function:ai_function_enhancement file_sql:
   fi
 done
 exit "$status"
-

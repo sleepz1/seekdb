@@ -57,6 +57,13 @@ typedef common::ObFixedArray<common::ObFixedArray<int64_t, common::ObIAllocator>
 typedef common::ObFixedArray<ObTableLocation, common::ObIAllocator> TableLocationFixedArray;
 typedef common::ObFixedArray<ObPlanPwjConstraint, common::ObIAllocator> PlanPwjConstraintArray;
 
+struct AIColumnReference
+{
+  uint64_t table_id_;
+  uint64_t column_id_;
+  TO_STRING_KV(K_(table_id), K_(column_id));
+};
+
 class ObPhysicalPlan : public ObPlanCacheObject
 {
 public:
@@ -73,6 +80,10 @@ public:
 
   virtual void destroy();
   virtual void reset();
+  int set_ai_column_references(const common::ObIArray<AIColumnReference> &refs)
+  { return ai_column_references_.assign(refs); }
+  const common::ObIArray<AIColumnReference> &get_ai_column_references() const
+  { return ai_column_references_; }
   void set_is_last_exec_succ(bool val) { stat_.is_last_exec_succ_ = val; }
   bool is_last_exec_succ() const { return stat_.is_last_exec_succ_; }
   const ObString &get_constructed_sql() const { return stat_.constructed_sql_; }
@@ -407,6 +418,7 @@ private:
    */
 
   //for fill_result_set
+  common::ObFixedArray<AIColumnReference, common::ObIAllocator> ai_column_references_;
   common::ColumnsFieldArray field_columns_;
   common::ParamsFieldArray param_columns_;
   common::ObFixedArray<share::AutoincParam, common::ObIAllocator> autoinc_params_; //auto-increment param

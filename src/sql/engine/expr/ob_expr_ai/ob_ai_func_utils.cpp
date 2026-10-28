@@ -1467,6 +1467,10 @@ int ObAIFuncModel::call_completion_with_system(ObString &system_prompt,
   } else if (OB_FAIL(complete_provider->get_body(*allocator_, request_model_name, system_prompt, prompt, config, body))) {
   } else if (OB_FAIL(client.send_post(*allocator_, endpoint_info_.get_url(), headers, body, response))) {
   } else if (OB_FAIL(complete_provider->parse_output(*allocator_, response, result_base))) {
+  } else if (OB_ISNULL(result_base) || result_base->json_type() != ObJsonNodeType::J_STRING) {
+    ret = OB_INVALID_DATA;
+  } else if (static_cast<ObJsonString *>(result_base)->get_str().empty()) {
+    ret = OB_INVALID_DATA;
   } else if (OB_FAIL(ObAIFuncJsonUtils::print_json_to_str(*allocator_, result_base, result_str))) {
   } else {
     result = result_str;

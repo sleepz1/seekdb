@@ -19,6 +19,9 @@
 #include "sql/engine/ai_column/ob_ai_column_service.h"
 
 #include <cstdio>
+#include <cstdlib>
+#include <cerrno>
+#include <limits>
 #include <cstring>
 #include <unistd.h>
 
@@ -46,6 +49,10 @@
 #include "sql/engine/dml/ob_table_update_op.h"
 #include "sql/engine/expr/ob_expr_ai/ob_ai_func_utils.h"
 #include "sql/engine/ob_exec_context.h"
+#include "sql/engine/ob_physical_plan.h"
+#include "sql/resolver/dml/ob_select_stmt.h"
+#include "sql/resolver/dml/ob_stmt_expr_visitor.h"
+#include "sql/resolver/expr/ob_raw_expr_util.h"
 #include "sql/resolver/ddl/ob_alter_table_stmt.h"
 #include "sql/session/ob_sql_session_info.h"
 
@@ -162,65 +169,6 @@ int append_ident(ObSqlString &sql, const char *name)
     ret = sql.append("`");
   }
   return ret;
-}
-
-bool contains_ident(const char *sql, int64_t len, const char *name)
-{
-  if (sql == nullptr || name == nullptr || len <= 0) {
-    return false;
-  }
-  const int64_t nlen = static_cast<int64_t>(strlen(name));
-  for (int64_t i = 0; i < len;) {
-    const char c = sql[i];
-    if (c == '\'' || c == '"') {
-      const char quote = c;
-      ++i;
-      while (i < len) {
-        if (sql[i] == '\\' && i + 1 < len) {
-          i += 2;
-        } else if (sql[i] == quote && i + 1 < len && sql[i + 1] == quote) {
-          i += 2;
-        } else if (sql[i] == quote) {
-          ++i;
-          break;
-        } else {
-          ++i;
-        }
-      }
-    } else if (c == '`') {
-      const int64_t start = ++i;
-      while (i < len && sql[i] != '`') {
-        ++i;
-      }
-      if (i - start == nlen && 0 == strncasecmp(sql + start, name, nlen)) {
-        return true;
-      }
-      if (i < len) {
-        ++i;
-      }
-    } else if (c == '#' || (c == '-' && i + 1 < len && sql[i + 1] == '-')) {
-      while (i < len && sql[i] != '\n') {
-        ++i;
-      }
-    } else if (c == '/' && i + 1 < len && sql[i + 1] == '*') {
-      i += 2;
-      while (i + 1 < len && !(sql[i] == '*' && sql[i + 1] == '/')) {
-        ++i;
-      }
-      i = (i + 1 < len) ? i + 2 : len;
-    } else if (ident_char(c)) {
-      const int64_t start = i;
-      while (i < len && ident_char(sql[i])) {
-        ++i;
-      }
-      if (i - start == nlen && 0 == strncasecmp(sql + start, name, nlen)) {
-        return true;
-      }
-    } else {
-      ++i;
-    }
-  }
-  return false;
 }
 
 int rewrite_status(const char *src, int64_t len, const char *state_col, ObSqlString &out)
@@ -907,46 +855,117 @@ void unwrap_json_string(const char *in, char *out, int64_t cap)
   }
 }
 
-void normalize_vector(const char *in, char *out, int64_t cap)
+int normalize_vector(const char *in, char *out, int64_t cap)
 {
+  int ret = OB_SUCCESS;
   int64_t w = 0;
-  if (in == nullptr) {
-    copy_cstr(out, cap, "[]");
-    return;
+  if (in == nullptr || out == nullptr || cap <= 1) {
+    return OB_INVALID_DATA;
   }
-  for (const char *p = in; *p != '\0' && w + 1 < cap;) {
-    if (*p == ' ' || *p == '\n' || *p == '\t') {
+  for (const char *p = in; OB_SUCC(ret) && *p != '\0';) {
+    if (*p == ' ' || *p == '\n' || *p == '\t' || *p == '\r') {
       ++p;
-      continue;
-    }
-    if (*p == '[' || *p == ']' || *p == ',') {
-      out[w++] = *p++;
-      continue;
-    }
-    const char *start = p;
-    if (*p == '-') {
-      ++p;
-    }
-    while ((*p >= '0' && *p <= '9') || *p == '.') {
-      ++p;
-    }
-    char num[128] = {0};
-    copy_buf(num, sizeof(num), start, p - start);
-    char *dot = strchr(num, '.');
-    if (dot != nullptr) {
-      char *end = num + strlen(num) - 1;
-      while (end > dot && *end == '0') {
-        *end-- = '\0';
+    } else if (*p == '[' || *p == ']' || *p == ',') {
+      if (w + 1 >= cap) { ret = OB_SIZE_OVERFLOW; }
+      else { out[w++] = *p++; }
+    } else {
+      const char *start = p;
+      if (*p == '-') { ++p; }
+      const char *digits = p;
+      while (*p >= '0' && *p <= '9') { ++p; }
+      if (p == digits) { ret = OB_INVALID_DATA; break; }
+      const char *dot = nullptr;
+      if (*p == '.') {
+        dot = p++;
+        digits = p;
+        while (*p >= '0' && *p <= '9') { ++p; }
+        if (p == digits) { ret = OB_INVALID_DATA; break; }
       }
-      if (end == dot) {
-        *end = '\0';
+      const char *mantissa_end = p;
+      const char *exponent = p;
+      if (*p == 'e' || *p == 'E') {
+        ++p;
+        if (*p == '+' || *p == '-') { ++p; }
+        digits = p;
+        while (*p >= '0' && *p <= '9') { ++p; }
+        if (p == digits) { ret = OB_INVALID_DATA; break; }
       }
-    }
-    for (const char *q = num; *q != '\0' && w + 1 < cap; ++q) {
-      out[w++] = *q;
+      if (*p != '\0' && *p != ',' && *p != ']' &&
+          *p != ' ' && *p != '\n' && *p != '\t' && *p != '\r') {
+        ret = OB_INVALID_DATA;
+      } else {
+        if (dot != nullptr) {
+          while (mantissa_end > dot + 1 && mantissa_end[-1] == '0') { --mantissa_end; }
+          if (mantissa_end == dot + 1) { mantissa_end = dot; }
+        }
+        const int64_t mantissa_len = mantissa_end - start;
+        const int64_t exponent_len = p - exponent;
+        if (w + mantissa_len + exponent_len + 1 > cap) {
+          ret = OB_SIZE_OVERFLOW;
+        } else {
+          MEMCPY(out + w, start, mantissa_len); w += mantissa_len;
+          MEMCPY(out + w, exponent, exponent_len); w += exponent_len;
+        }
+      }
     }
   }
   out[w] = '\0';
+  return ret;
+}
+
+int canonical_integer(TaskRow &task)
+{
+  int ret = OB_SUCCESS;
+  char *value = task.output;
+  const int64_t cap = sizeof(task.output);
+  ObSchemaGetterGuard guard;
+  const ObTableSchema *schema = nullptr;
+  const ObColumnSchemaV2 *column = nullptr;
+  int64_t minimum = 0;
+  uint64_t maximum = 0;
+  if (OB_FAIL(load_schema(task.table_id, 0, guard, schema))) {
+    return ret;
+  } else if (schema == nullptr ||
+             (column = schema->get_column_schema(task.column_id)) == nullptr) {
+    return OB_INVALID_DATA;
+  }
+  switch (column->get_data_type()) {
+    case ObTinyIntType: minimum = -128; maximum = 127; break;
+    case ObSmallIntType: minimum = -32768; maximum = 32767; break;
+    case ObMediumIntType: minimum = -8388608; maximum = 8388607; break;
+    case ObInt32Type: minimum = -2147483647 - 1; maximum = 2147483647; break;
+    case ObIntType:
+      minimum = std::numeric_limits<int64_t>::min();
+      maximum = std::numeric_limits<int64_t>::max();
+      break;
+    case ObUTinyIntType: maximum = 255; break;
+    case ObUSmallIntType: maximum = 65535; break;
+    case ObUMediumIntType: maximum = 16777215; break;
+    case ObUInt32Type: maximum = 4294967295ULL; break;
+    case ObUInt64Type: maximum = std::numeric_limits<uint64_t>::max(); break;
+    default: return OB_INVALID_DATA;
+  }
+  if (value == nullptr || value[0] == '\0') {
+    ret = OB_INVALID_DATA;
+  } else {
+    char *end = nullptr;
+    errno = 0;
+    const char *number = value;
+    while (*number == ' ' || *number == '\t' || *number == '\r' || *number == '\n') { ++number; }
+    const bool negative = *number == '-';
+    const long long signed_value = negative ? std::strtoll(number, &end, 10) : 0;
+    const unsigned long long unsigned_value = negative ? 0 : std::strtoull(number, &end, 10);
+    if (errno == ERANGE || end == number || *end != '\0') {
+      ret = OB_INVALID_DATA;
+    } else if ((negative && signed_value < minimum) ||
+               (!negative && unsigned_value > maximum)) {
+      ret = OB_INVALID_DATA;
+    } else if ((negative ? snprintf(value, cap, "%lld", signed_value)
+                         : snprintf(value, cap, "%llu", unsigned_value)) >= cap) {
+      ret = OB_SIZE_OVERFLOW;
+    }
+  }
+  return ret;
 }
 
 int call_model(TaskRow &task)
@@ -974,13 +993,20 @@ int call_model(TaskRow &task)
       } else {
         char tmp[16384] = {0};
         unwrap_json_string(raw.ptr(), tmp, sizeof(tmp));
-        normalize_vector(tmp[0] == '\0' ? raw.ptr() : tmp, task.output, sizeof(task.output));
-        task.http_ok = true;
+        if (OB_FAIL(normalize_vector(tmp[0] == '\0' ? raw.ptr() : tmp,
+                                     task.output, sizeof(task.output)))) {
+        } else {
+          task.http_ok = true;
+        }
       }
     } else if (OB_FAIL(caller.call_completion_with_system(system_prompt, prompt, nullptr, raw))) {
     } else {
       unwrap_json_string(raw.ptr(), task.output, sizeof(task.output));
-      task.http_ok = true;
+      if (0 == strcmp(task.result_kind, "int") &&
+          OB_FAIL(canonical_integer(task))) {
+      } else {
+        task.http_ok = true;
+      }
     }
   }
   return ret;
@@ -1755,11 +1781,57 @@ int ObAIColumnService::finish_dml(ObTableModifyOp &op)
   return ret;
 }
 
-int ObAIColumnService::check_strict_read(ObSQLSessionInfo &session, const ObString &sql)
+int ObAIColumnService::collect_referenced_columns(const ObDMLStmt &stmt, ObPhysicalPlan &plan)
 {
   int ret = OB_SUCCESS;
-  if (g_hidden_depth > 0 || session.is_nested_session() || sql.empty() ||
-      0 == ATOMIC_LOAD(&g_meta_ready)) {
+  ObSEArray<const ObDMLStmt *, 8> pending;
+  ObSEArray<AIColumnReference, 16> refs;
+  if (OB_FAIL(pending.push_back(&stmt))) {
+  }
+  for (int64_t i = 0; OB_SUCC(ret) && i < pending.count(); ++i) {
+    const ObDMLStmt *current = pending.at(i);
+    ObStmtExprGetter visitor;
+    visitor.set_relation_scope();
+    visitor.remove_scope(SCOPE_DML_COLUMN);
+    visitor.remove_scope(SCOPE_DML_CONSTRAINT);
+    visitor.remove_scope(SCOPE_DMLINFOS);
+    ObSEArray<ObRawExpr *, 16> expressions;
+    ObSEArray<ObRawExpr *, 16> columns;
+    if (OB_FAIL(current->get_relation_exprs(expressions, visitor))) {
+    } else if (OB_FAIL(ObRawExprUtils::extract_column_exprs(expressions, columns))) {
+    }
+    for (int64_t j = 0; OB_SUCC(ret) && j < columns.count(); ++j) {
+      const ObColumnRefRawExpr *column = static_cast<const ObColumnRefRawExpr *>(columns.at(j));
+      const TableItem *table = nullptr;
+      for (int64_t k = 0; table == nullptr && k < pending.count(); ++k) {
+        table = pending.at(k)->get_table_item_by_id(column->get_table_id());
+      }
+      if (table != nullptr && table->is_basic_table()) {
+        AIColumnReference ref = {table->ref_id_, column->get_column_id()};
+        ret = refs.push_back(ref);
+      }
+    }
+    ObSEArray<ObSelectStmt *, 8> children;
+    if (OB_SUCC(ret) && OB_FAIL(current->get_child_stmts(children))) {
+    }
+    for (int64_t j = 0; OB_SUCC(ret) && j < children.count(); ++j) {
+      bool seen = children.at(j) == nullptr;
+      for (int64_t k = 0; !seen && k < pending.count(); ++k) {
+        seen = pending.at(k) == children.at(j);
+      }
+      if (!seen) { ret = pending.push_back(children.at(j)); }
+    }
+  }
+  if (OB_SUCC(ret)) { ret = plan.set_ai_column_references(refs); }
+  return ret;
+}
+
+int ObAIColumnService::check_strict_read(ObSQLSessionInfo &session, const ObPhysicalPlan *plan)
+{
+  int ret = OB_SUCCESS;
+  if (g_hidden_depth > 0 || session.is_nested_session() || plan == nullptr ||
+      !(plan->is_select_plan() || plan->is_dml_write_stmt()) ||
+      plan->get_ai_column_references().empty() || 0 == ATOMIC_LOAD(&g_meta_ready)) {
     return ret;
   }
   bool strict = false;
@@ -1793,10 +1865,9 @@ int ObAIColumnService::check_strict_read(ObSQLSessionInfo &session, const ObStri
     char db[AI_NAME];
     char table[AI_NAME];
   };
-  Item items[64];
-  int n = 0;
-  while (OB_SUCC(ret) && n < 64 && OB_SUCC(res.get_result()->next())) {
-    Item &item = items[n];
+  ObSEArray<Item, 4> items;
+  while (OB_SUCC(ret) && OB_SUCC(ret = res.get_result()->next())) {
+    Item item;
     memset(&item, 0, sizeof(item));
     if (OB_FAIL(res.get_result()->get_int(static_cast<int64_t>(0), reinterpret_cast<int64_t &>(item.table_id)))) {
     } else if (OB_FAIL(res.get_result()->get_int(static_cast<int64_t>(1), reinterpret_cast<int64_t &>(item.column_id)))) {
@@ -1805,16 +1876,20 @@ int ObAIColumnService::check_strict_read(ObSQLSessionInfo &session, const ObStri
     } else if (OB_FAIL(copy_mysql_str(*res.get_result(), 4, item.db, sizeof(item.db)))) {
     } else if (OB_FAIL(copy_mysql_str(*res.get_result(), 5, item.table, sizeof(item.table)))) {
     } else {
-      ++n;
+      ret = items.push_back(item);
     }
   }
   if (OB_ITER_END == ret) {
     ret = OB_SUCCESS;
   }
-  for (int i = 0; OB_SUCC(ret) && i < n; ++i) {
-    if (!contains_ident(sql.ptr(), sql.length(), items[i].name)) {
-      continue;
+  for (int64_t i = 0; OB_SUCC(ret) && i < items.count(); ++i) {
+    bool referenced = false;
+    const auto &refs = plan->get_ai_column_references();
+    for (int64_t j = 0; !referenced && j < refs.count(); ++j) {
+      referenced = refs.at(j).table_id_ == items[i].table_id &&
+                   refs.at(j).column_id_ == items[i].column_id;
     }
+    if (!referenced) { continue; }
     ObSqlString check;
     ObMySQLProxy::MySQLResult hit;
     if (OB_FAIL(check.append("SELECT 1 FROM "))) {
@@ -1981,17 +2056,25 @@ int ObAIColumnService::execute_retry(ObExecContext &ctx, ObAlterTableStmt &stmt)
     char pred[1024];
     char prompt[AI_PROMPT];
   };
-  Hit hits[128];
-  int nhits = 0;
+  ObSEArray<Hit, 1> hits;
+  AiTlsGuard tls(true);
+  ObMySQLTransaction trans;
+  bool started = false;
+  int64_t affected = 0;
+  if (OB_SUCC(ret) && OB_FAIL(select.append(" FOR UPDATE"))) {
+  } else if (OB_SUCC(ret) && OB_FAIL(trans.start(proxy))) {
+  } else if (OB_SUCC(ret)) {
+    started = true;
+  }
   if (OB_SUCC(ret)) {
-    AiTlsGuard guard(true);
     ObMySQLProxy::MySQLResult rows;
-    if (OB_FAIL(proxy->read(rows, select.ptr()))) {
+    if (OB_FAIL(trans.read(rows, select.ptr()))) {
       LOG_WARN("retry select failed", K(ret), K(select));
     } else if (OB_ISNULL(rows.get_result())) {
       ret = OB_ERR_UNEXPECTED;
     }
-    while (OB_SUCC(ret) && nhits < 128 && OB_SUCC(rows.get_result()->next())) {
+    while (OB_SUCC(ret) && OB_SUCC(ret = rows.get_result()->next())) {
+      Hit hit;
       ObSqlString pred;
       for (int64_t i = 0; OB_SUCC(ret) && i < rk.get_size(); ++i) {
         uint64_t pk_id = 0;
@@ -2013,10 +2096,10 @@ int ObAIColumnService::execute_retry(ObExecContext &ctx, ObAlterTableStmt &stmt)
         }
       }
       if (OB_SUCC(ret)) {
-        copy_cstr(hits[nhits].pred, sizeof(hits[nhits].pred), pred.ptr());
-        ret = copy_mysql_str(*rows.get_result(), rk.get_size(), hits[nhits].prompt, AI_PROMPT);
-        if (OB_SUCC(ret)) {
-          ++nhits;
+        copy_cstr(hit.pred, sizeof(hit.pred), pred.ptr());
+        if (OB_FAIL(copy_mysql_str(*rows.get_result(), rk.get_size(), hit.prompt, AI_PROMPT))) {
+        } else {
+          ret = hits.push_back(hit);
         }
       }
     }
@@ -2024,18 +2107,7 @@ int ObAIColumnService::execute_retry(ObExecContext &ctx, ObAlterTableStmt &stmt)
       ret = OB_SUCCESS;
     }
   }
-  if (OB_FAIL(ret) || 0 == nhits) {
-    return ret;
-  }
-  AiTlsGuard tls(true);
-  ObMySQLTransaction trans;
-  bool started = false;
-  int64_t affected = 0;
-  if (OB_FAIL(trans.start(proxy))) {
-  } else {
-    started = true;
-  }
-  for (int i = 0; OB_SUCC(ret) && i < nhits; ++i) {
+  for (int64_t i = 0; OB_SUCC(ret) && i < hits.count(); ++i) {
     char request_id[80] = {0};
     ObSqlString upd;
     ObSqlString del;
@@ -2187,6 +2259,12 @@ int ObAIColumnService::process_tasks()
     }
     if (OB_FAIL(publish_group(*proxy, rows, i, j, ok))) {
       LOG_WARN("publish ai column group failed", K(ret));
+      if (ok) {
+        const int failure_ret = publish_group(*proxy, rows, i, j, false);
+        if (OB_SUCCESS != failure_ret) {
+          LOG_WARN("record failed AI column publication failed", K(failure_ret));
+        }
+      }
       ret = OB_SUCCESS;
     }
     i = j;
