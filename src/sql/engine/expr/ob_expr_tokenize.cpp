@@ -381,6 +381,14 @@ int ObExprTokenize::parse_parser_properties(const ObExpr &expr,
 int ObExprTokenize::TokenizeParam::reform_parser_properties(const ObString &properties)
 {
   int ret = OB_SUCCESS;
+  // Default TOKENIZE (no parser-properties arg) already matches FT_DEFAULT_*.
+  // Skip JSON init/parse/rebuild/serialize; ObFTParseHelper init uses the empty
+  // fast path and keeps identical defaults.
+  if (properties.empty()) {
+    properties_.reset();
+    return ret;
+  }
+
   storage::ObFTParserJsonProps parser_properties;
 
   if (OB_FAIL(parser_properties.init())) {
