@@ -17,6 +17,10 @@
 #define USING_LOG_PREFIX LIB
 
 #include "ob_vsag_adaptor.h"
+#if defined(OB_ENABLE_HIPVS)
+#include <cstdlib>
+#include "ob_hipvs_hnsw_backend.h"
+#endif
 #include <map>
 #include "vsag/vsag.h"
 #include "vsag/errors.h"
@@ -974,6 +978,20 @@ int build_index(VectorIndexPtr &index_handler, float *vector_list,
     if (extra_infos != nullptr) {
       dataset->ExtraInfos(extra_infos);
     }
+#if defined(OB_ENABLE_HIPVS)
+    // hipVS is opt-in and produces an hnswlib-compatible artifact. VSAG
+    // remains the serving index because its serialization is seekdb-specific;
+    // when ROCm/GPU setup is missing, this call is a no-op and the existing
+    // build continues unchanged.
+    const char *hipvs_artifact = std::getenv("OB_HIPVS_HNSW_ARTIFACT");
+    if (hipvs_artifact != nullptr && hipvs_hnsw_enabled()) {
+      HipVsHnswBuildOptions hipvs_options;
+      hipvs_options.max_degree = 32;
+      hipvs_options.ef_construction = 200;
+      (void)build_hipvs_hnsw_artifact(vector_list, size, dim,
+                                      hipvs_artifact, hipvs_options);
+    }
+#endif
     if (OB_FAIL(hnsw->build_index(dataset))) {
     }
   }

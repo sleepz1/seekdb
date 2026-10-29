@@ -1,0 +1,4 @@
+add_executable(hipvs_hnsw_benchmark hnsw_benchmark.cpp)
+target_compile_features(hipvs_hnsw_benchmark PRIVATE cxx_std_17)
+target_link_libraries(hipvs_hnsw_benchmark PRIVATE cuvs::cuvs)
+target_compile_definitions(hipvs_hnsw_benchmark PRIVATE CUVS_BUILD_CAGRA_HNSWLIB=1)

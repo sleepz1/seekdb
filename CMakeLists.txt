@@ -31,6 +31,18 @@ endif()
 
 option(OB_ENABLE_STANDBY "Build physical standby support" ON)
 option(ENABLE_SANITY "Build with seekdb memory Sanity instrumentation" OFF)
+option(OB_ENABLE_HIPVS
+  "Enable the optional AMD hipVS HNSW build backend (requires ROCm/hipVS)"
+  OFF)
+if(OB_ENABLE_HIPVS)
+  # hipVS exports the cuVS C++ target. Keep discovery opt-in so normal
+  # seekdb builds do not require a ROCm installation.
+  find_package(cuvs CONFIG REQUIRED)
+endif()
+
+if(OB_ENABLE_HIPVS)
+  add_subdirectory(tools/hipvs)
+endif()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(SEEKDB_GENERATED_ROOT "${CMAKE_BINARY_DIR}/generated")

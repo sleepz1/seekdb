@@ -356,6 +356,11 @@ else()
 endif()
 target_link_libraries(oblib_base INTERFACE oblib_base_without_pass oblib_pass)
 
+if(OB_ENABLE_HIPVS)
+  target_compile_definitions(oblib_base INTERFACE OB_ENABLE_HIPVS=1 CUVS_BUILD_CAGRA_HNSWLIB=1)
+  target_link_libraries(oblib_base INTERFACE cuvs::cuvs)
+endif()
+
 function(oblib_add_library target)
   message(STATUS "oblib_add_library ${target}")
   add_library(${target} OBJECT ${ARGN})
