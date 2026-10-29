@@ -53,6 +53,7 @@ public:
   virtual ~ObIKFTParser() { reset(); }
 
   int init(const ObFTParserParam &param);
+  int reuse(const ObFTParserParam &param);
 
   int get_next_token(const char *&word,
                      int64_t &word_len,
@@ -116,6 +117,8 @@ public:
   ObIKFTParserDesc() {}
   virtual ~ObIKFTParserDesc() = default;
   virtual int segment(ObFTParserParam *param, ObITokenIterator *&iter) const override;
+  virtual bool can_reuse_token_iter() const override { return true; }
+  virtual int reuse_token_iter(ObFTParserParam *param, ObITokenIterator *iter) const override;
   virtual void free_token_iter(ObFTParserParam *param, ObITokenIterator *&iter) const override;
   virtual int get_add_word_flag(ObAddWordFlag &flag) const override;
 };

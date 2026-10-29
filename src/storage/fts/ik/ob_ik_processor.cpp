@@ -68,6 +68,28 @@ int TokenizeContext::init()
   return ret;
 }
 
+int TokenizeContext::reuse_document(ObCollationType coll_type,
+                                    const char *fulltext,
+                                    int64_t fulltext_len,
+                                    bool is_smart)
+{
+  int ret = OB_SUCCESS;
+  if (OB_ISNULL(fulltext) || fulltext_len <= 0) {
+    ret = OB_INVALID_ARGUMENT;
+  } else {
+    coll_type_ = coll_type;
+    fulltext_ = fulltext;
+    fulltext_len_ = fulltext_len;
+    cursor_ = 0;
+    next_char_len_ = 0;
+    next_char_type_ = ObFTCharUtil::CharType::USELESS;
+    is_smart_ = is_smart;
+    reset_resource();
+    ret = prepare_next_char();
+  }
+  return ret;
+}
+
 int TokenizeContext::reset_resource()
 {
   handle_size_ = 0;

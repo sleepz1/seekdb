@@ -263,7 +263,7 @@ int ObFTParseHelper::segment(
     const char *ft,
     const int64_t ft_len,
     common::ObIAllocator &allocator,
-    ObAddWord &add_word)
+    ObAddWord &add_word) const
 {
   int ret = OB_SUCCESS;
   if (OB_UNLIKELY(parser_version < 0 || nullptr == parser_desc || nullptr == cs || nullptr == ft || 0 >= ft_len)) {
@@ -282,7 +282,26 @@ int ObFTParseHelper::segment(
     param.min_ngram_size_ = property.min_ngram_token_size_;
     param.max_ngram_size_ = property.max_ngram_token_size_;
 
-    if (OB_FAIL(parser_desc->segment(&param, iter))) {
+    if (OB_NOT_NULL(cached_iter_)) {
+      iter = cached_iter_;
+      if (OB_FAIL(parser_desc->reuse_token_iter(&param, iter))) {
+        // A parser may reject reuse after a state change. Drop it and fall
+        // back to the original construction path for this document.
+        parser_desc->free_token_iter(&param, cached_iter_);
+        cached_iter_ = nullptr;
+        iter = nullptr;
+        ret = OB_SUCCESS;
+      }
+    }
+    if (OB_ISNULL(iter) && OB_SUCC(ret)) {
+      if (OB_FAIL(parser_desc->segment(&param, iter))) {
+      } else if (OB_ISNULL(iter)) {
+        ret = OB_ERR_UNEXPECTED;
+      } else if (parser_desc->can_reuse_token_iter()) {
+        cached_iter_ = iter;
+      }
+    }
+    if (OB_FAIL(ret)) {
     } else if (OB_ISNULL(iter)) {
       ret = OB_ERR_UNEXPECTED;
     } else {
@@ -301,7 +320,7 @@ int ObFTParseHelper::segment(
         ret = OB_SUCCESS;
       }
     }
-    if (OB_NOT_NULL(iter)) {
+    if (OB_NOT_NULL(iter) && iter != cached_iter_) {
       parser_desc->free_token_iter(&param, iter);
       iter = nullptr;
     }
@@ -315,7 +334,8 @@ ObFTParseHelper::ObFTParseHelper()
     parser_name_(),
     add_word_flag_(),
     parser_property_(),
-    is_inited_(false)
+    is_inited_(false),
+    cached_iter_(nullptr)
 {
 }
 
@@ -352,6 +372,12 @@ int ObFTParseHelper::init(
 
 void ObFTParseHelper::reset()
 {
+  if (OB_NOT_NULL(cached_iter_) && OB_NOT_NULL(parser_desc_) && OB_NOT_NULL(allocator_)) {
+    ObFTParserParam param;
+    param.allocator_ = allocator_;
+    parser_desc_->free_token_iter(&param, cached_iter_);
+    cached_iter_ = nullptr;
+  }
   parser_desc_ = nullptr;
   allocator_ = nullptr;
   add_word_flag_.clear();

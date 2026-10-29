@@ -18,6 +18,7 @@
 #define OB_FTS_STOP_WORD_H_
 
 #include "lib/container/ob_iarray.h"
+#include "lib/allocator/ob_allocator.h"
 #include "lib/hash/ob_hashset.h"
 #include "object/ob_object.h"
 #include "data_plane/fts/ob_fts_struct.h"
@@ -78,9 +79,12 @@ public:
 
   int init();
   void destroy();
-  int check_stopword(const ObFTWord &word, bool &is_stopword);
+  int check_stopword(const ObFTWord &word, bool &is_stopword,
+                     common::ObIAllocator *scratch_allocator = nullptr);
 
 private:
+  int check_stopword_with_allocator(const ObFTWord &word, bool &is_stopword,
+                                    common::ObIAllocator &allocator);
   static const int64_t DEFAULT_STOPWORD_BUCKET_NUM = 37L;
   typedef common::hash::ObHashSet<storage::ObFTWord> StopWordSet;
 
@@ -126,6 +130,10 @@ private:
 private:
   ObObjMeta word_meta_;
   common::ObIAllocator &allocator_;
+  // Reused for charset conversion in the stopword hot path. Keeping this
+  // scratch arena per parse request avoids both per-token construction and
+  // retaining temporary conversion buffers in the index allocator.
+  common::ObArenaAllocator stopword_allocator_;
   ObFTWordMap &word_map_;
   int64_t min_max_word_cnt_;
   int64_t non_stopword_cnt_;
