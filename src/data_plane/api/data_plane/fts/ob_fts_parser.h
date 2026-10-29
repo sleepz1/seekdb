@@ -135,17 +135,6 @@ public:
 
   virtual int segment(ObFTParserParam *param, ObITokenIterator *&iter) const = 0;
 
-  // Parsers that keep immutable analysis state (for example dictionaries and
-  // tokenizer pipelines) can reset only the current document between calls.
-  // The default keeps the original one-shot lifetime semantics.
-  virtual bool can_reuse_token_iter() const { return false; }
-  virtual int reuse_token_iter(ObFTParserParam *param, ObITokenIterator *iter) const
-  {
-    UNUSED(param);
-    UNUSED(iter);
-    return OB_NOT_SUPPORTED;
-  }
-
   virtual void free_token_iter(ObFTParserParam *param, ObITokenIterator *&iter) const
   {
     if (OB_NOT_NULL(iter)) {

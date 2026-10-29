@@ -31,17 +31,14 @@ namespace oceanbase
 {
 namespace storage
 {
-int ObIIKProcessor::process(TokenizeContext &ctx)
+int ObIIKProcessor::process(TokenizeContext &ctx,
+                            const char *ch,
+                            const uint8_t char_len,
+                            const ObFTCharUtil::CharType type)
 {
   int ret = OB_SUCCESS;
 
-  ObFTCharUtil::CharType type;
-  const char *ch = nullptr;
-  uint8_t char_len = 0;
-
-  if (OB_FAIL(ctx.current_char_type(type))) {
-  } else if (OB_FAIL(ctx.current_char(ch, char_len))) {
-  } else if (OB_FAIL(do_process(ctx, ch, char_len, type))) {
+  if (OB_FAIL(do_process(ctx, ch, char_len, type))) {
   }
   return ret;
 }
@@ -64,28 +61,6 @@ int TokenizeContext::init()
   if (OB_ISNULL(fulltext_) || fulltext_len_ <= 0) {
     ret = OB_INVALID_ARGUMENT;
   } else if (OB_FAIL(prepare_next_char())) {
-  }
-  return ret;
-}
-
-int TokenizeContext::reuse_document(ObCollationType coll_type,
-                                    const char *fulltext,
-                                    int64_t fulltext_len,
-                                    bool is_smart)
-{
-  int ret = OB_SUCCESS;
-  if (OB_ISNULL(fulltext) || fulltext_len <= 0) {
-    ret = OB_INVALID_ARGUMENT;
-  } else {
-    coll_type_ = coll_type;
-    fulltext_ = fulltext;
-    fulltext_len_ = fulltext_len;
-    cursor_ = 0;
-    next_char_len_ = 0;
-    next_char_type_ = ObFTCharUtil::CharType::USELESS;
-    is_smart_ = is_smart;
-    reset_resource();
-    ret = prepare_next_char();
   }
   return ret;
 }

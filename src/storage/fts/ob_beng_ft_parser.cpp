@@ -90,25 +90,6 @@ int ObBEngFTParser::init(ObFTParserParam *param)
   return ret;
 }
 
-int ObBEngFTParser::reuse(ObFTParserParam *param)
-{
-  int ret = OB_SUCCESS;
-  if (OB_UNLIKELY(!is_inited_)) {
-    ret = OB_NOT_INIT;
-  } else if (OB_ISNULL(param) || OB_UNLIKELY(!param->is_valid())) {
-    ret = OB_INVALID_ARGUMENT;
-  } else if (OB_UNLIKELY(UINT32_MAX < param->ft_length_)) {
-    ret = OB_NOT_SUPPORTED;
-  } else {
-    // ObEnglishTextAnalyzer::analyze() reuses the existing pipeline and only
-    // reopens the tokenizer for the new document.
-    doc_.set_string(param->fulltext_, param->ft_length_);
-    analysis_ctx_.cs_ = param->cs_;
-    ret = segment(doc_, token_stream_);
-  }
-  return ret;
-}
-
 int ObBEngFTParser::segment(
     const common::ObDatum &doc,
     share::ObITokenStream *&token_stream)
@@ -166,19 +147,6 @@ void ObBasicEnglishFTParserDesc::free_token_iter(
     iter->~ObITokenIterator();
     param->allocator_->free(iter);
   }
-}
-
-int ObBasicEnglishFTParserDesc::reuse_token_iter(
-    ObFTParserParam *param,
-    ObITokenIterator *iter) const
-{
-  int ret = OB_SUCCESS;
-  if (OB_ISNULL(param) || OB_ISNULL(iter)) {
-    ret = OB_INVALID_ARGUMENT;
-  } else {
-    ret = static_cast<ObBEngFTParser *>(iter)->reuse(param);
-  }
-  return ret;
 }
 
 int ObBasicEnglishFTParserDesc::get_add_word_flag(ObAddWordFlag &flag) const

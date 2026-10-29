@@ -39,12 +39,6 @@ public:
   ~TokenizeContext();
 
   int init();
-  // Rebind the context to another document while retaining its allocator and
-  // result containers. This is used by the parser helper's document cache.
-  int reuse_document(ObCollationType coll_type,
-                     const char *fulltext,
-                     int64_t fulltext_len,
-                     bool is_smart);
   int reset_resource();
 
   int get_next_token(const char *&word, int64_t &word_len, int64_t &offset, int64_t &char_cnt);
@@ -107,7 +101,10 @@ public:
 
   virtual ~ObIIKProcessor() {}
 
-  int process(TokenizeContext &ctx);
+  int process(TokenizeContext &ctx,
+              const char *ch,
+              const uint8_t char_len,
+              const ObFTCharUtil::CharType type);
 
   virtual int do_process(TokenizeContext &ctx,
                          const char *ch,

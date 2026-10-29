@@ -21,6 +21,7 @@
 #include "storage/fts/dict/ob_ft_cache_container.h"
 #include "storage/fts/dict/ob_ft_dict.h"
 #include "storage/fts/dict/ob_ft_dict_def.h"
+#include "storage/fts/ik/ob_ik_arbitrator.h"
 #include "storage/fts/ik/ob_ik_processor.h"
 #include "data_plane/fts/ob_fts_parser.h"
 
@@ -53,7 +54,6 @@ public:
   virtual ~ObIKFTParser() { reset(); }
 
   int init(const ObFTParserParam &param);
-  int reuse(const ObFTParserParam &param);
 
   int get_next_token(const char *&word,
                      int64_t &word_len,
@@ -98,6 +98,8 @@ private:
   TokenizeContext *ctx_;
   ObFTDictHub *hub_;
   ObList<ObIIKProcessor *, ObIAllocator> segmenters_;
+  // reused across batches of one document; hash map buckets are kept
+  ObIKArbitrator arb_;
 
   // For now there's no change of dict in one query, so we can pin dict this level.
   ObFTCacheRangeContainer cache_main_;
@@ -117,8 +119,6 @@ public:
   ObIKFTParserDesc() {}
   virtual ~ObIKFTParserDesc() = default;
   virtual int segment(ObFTParserParam *param, ObITokenIterator *&iter) const override;
-  virtual bool can_reuse_token_iter() const override { return true; }
-  virtual int reuse_token_iter(ObFTParserParam *param, ObITokenIterator *iter) const override;
   virtual void free_token_iter(ObFTParserParam *param, ObITokenIterator *&iter) const override;
   virtual int get_add_word_flag(ObAddWordFlag &flag) const override;
 };

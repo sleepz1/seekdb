@@ -67,32 +67,6 @@ int ObIKFTParser::init(const ObFTParserParam &param)
   return ret;
 }
 
-int ObIKFTParser::reuse(const ObFTParserParam &param)
-{
-  int ret = OB_SUCCESS;
-  if (OB_UNLIKELY(!is_inited_)) {
-    ret = OB_NOT_INIT;
-  } else if (OB_UNLIKELY(!param.is_valid()) || OB_ISNULL(param.cs_)) {
-    ret = OB_INVALID_ARGUMENT;
-  } else {
-    const ObCollationType coll_type = ObCharset::collation_type(param.cs_->name);
-    if (CS_TYPE_INVALID == coll_type) {
-      ret = OB_INVALID_ARGUMENT;
-    } else {
-      coll_type_ = coll_type;
-      if (OB_ISNULL(ctx_)) {
-        ret = OB_ERR_UNEXPECTED;
-      } else if (OB_FAIL(ctx_->reuse_document(
-                     coll_type_,
-                     param.fulltext_,
-                     param.ft_length_,
-                     param.ik_param_.mode_ == ObFTIKParam::Mode::SMART))) {
-      }
-    }
-  }
-  return ret;
-}
-
 int ObIKFTParser::get_next_token(const char *&word,
                                  int64_t &word_len,
                                  int64_t &char_cnt,
@@ -164,7 +138,7 @@ int ObIKFTParser::process_one_char(TokenizeContext &ctx,
   for (ObList<ObIIKProcessor *, ObIAllocator>::iterator iter = segmenters_.begin();
        OB_SUCC(ret) && iter != segmenters_.end();
        iter++) {
-    if (OB_FAIL((*iter)->process(ctx))) {
+    if (OB_FAIL((*iter)->process(ctx, ch, char_len, type))) {
     }
   }
   return ret;
@@ -204,9 +178,8 @@ int ObIKFTParser::process_next_batch()
     }
 
     if (OB_SUCC(ret) || OB_ITER_END == ret) {
-      ObIKArbitrator arb;
-      if (OB_FAIL(arb.process(*ctx_))) {
-      } else if (OB_FAIL(arb.output_result(*ctx_))) {
+      if (OB_FAIL(arb_.process(*ctx_))) {
+      } else if (OB_FAIL(arb_.output_result(*ctx_))) {
       }
     } else {
       // Already logged.
@@ -243,19 +216,6 @@ void ObIKFTParserDesc::free_token_iter(ObFTParserParam *param,
 {
   iter->~ObITokenIterator();
   param->allocator_->free(iter);
-}
-
-int ObIKFTParserDesc::reuse_token_iter(
-    ObFTParserParam *param,
-    ObITokenIterator *iter) const
-{
-  int ret = OB_SUCCESS;
-  if (OB_ISNULL(param) || OB_ISNULL(iter)) {
-    ret = OB_INVALID_ARGUMENT;
-  } else {
-    ret = static_cast<ObIKFTParser *>(iter)->reuse(*param);
-  }
-  return ret;
 }
 
 

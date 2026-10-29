@@ -26,6 +26,19 @@ namespace oceanbase
 {
 namespace storage
 {
+namespace
+{
+inline bool is_ascii_casedown_noop(const char *str, const int64_t len)
+{
+  for (int64_t i = 0; i < len; ++i) {
+    const unsigned char c = static_cast<unsigned char>(str[i]);
+    if (c >= 0x80 || (c >= 'A' && c <= 'Z')) {
+      return false;
+    }
+  }
+  return true;
+}
+} // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 // class ObStopWordChecker
@@ -71,23 +84,7 @@ void ObStopWordChecker::destroy()
   }
 }
 
-int ObStopWordChecker::check_stopword(const ObFTWord &word,
-                                      bool &is_stopword,
-                                      common::ObIAllocator *scratch_allocator)
-{
-  if (OB_NOT_NULL(scratch_allocator)) {
-    return check_stopword_with_allocator(word, is_stopword, *scratch_allocator);
-  }
-  // Preserve the public two-argument behavior for callers outside the parser
-  // path. The hot parser path always supplies its request-local allocator.
-  common::ObArenaAllocator fallback_allocator(lib::ObMemAttr("ChkStopWord"));
-  return check_stopword_with_allocator(word, is_stopword, fallback_allocator);
-}
-
-int ObStopWordChecker::check_stopword_with_allocator(
-    const ObFTWord &word,
-    bool &is_stopword,
-    common::ObIAllocator &allocator)
+int ObStopWordChecker::check_stopword(const ObFTWord &word, bool &is_stopword)
 {
   int ret = OB_SUCCESS;
   if (OB_UNLIKELY(!inited_)) {
@@ -95,19 +92,23 @@ int ObStopWordChecker::check_stopword_with_allocator(
   } else if (OB_UNLIKELY(word.empty())) {
     ret = OB_INVALID_ARGUMENT;
   } else {
-    common::ObString cmp_str;
-    // do nothing set out with in if type is the same.
-    if (word.get_collation_type() == stopword_type_.get_collation_type()) {
-      cmp_str = word.get_word().get_string();
-    } else if (OB_FAIL(common::ObCharset::charset_convert(
-                           allocator,
-                           word.get_word().get_string(),
-                           word.get_collation_type(),
-                           stopword_type_.get_collation_type(),
-                           cmp_str))) {
-    } else {
-      ObFTWord converted(cmp_str.length(), cmp_str.ptr(), stopword_type_);
-      ret = stopword_set_.exist_refactored(converted);
+    ObFTWord cmp_word = word;
+    // stopword set is utf8mb4_general_ci: skip convert/alloc when collation matches.
+    if (word.get_collation_type() != stopword_type_.get_collation_type()) {
+      common::ObArenaAllocator allocator(lib::ObMemAttr("ChkStopWord"));
+      common::ObString cmp_str;
+      if (OB_FAIL(common::ObCharset::charset_convert(
+                                       allocator,
+                                       word.get_word().get_string(),
+                                       word.get_collation_type(),
+                                       stopword_type_.get_collation_type(),
+                                       cmp_str))) {
+      } else {
+        cmp_word = ObFTWord(cmp_str.length(), cmp_str.ptr(), stopword_type_);
+      }
+    }
+    if (OB_SUCC(ret)) {
+      ret = stopword_set_.exist_refactored(cmp_word);
       if (OB_HASH_NOT_EXIST == ret) {
         is_stopword = false;
         ret = OB_SUCCESS;
@@ -116,7 +117,6 @@ int ObStopWordChecker::check_stopword_with_allocator(
         ret = OB_SUCCESS;
       } else if (OB_SUCC(ret)) {
         ret = OB_ERR_UNEXPECTED;
-      } else {
       }
     }
   }
@@ -133,7 +133,6 @@ ObAddWord::ObAddWord(
     ObFTWordMap &word_map)
   : word_meta_(meta),
     allocator_(allocator),
-    stopword_allocator_(lib::ObMemAttr("FTStopWord")),
     word_map_(word_map),
     min_max_word_cnt_(0),
     non_stopword_cnt_(0),
@@ -180,15 +179,20 @@ int ObAddWord::casedown_word(const ObFTWord &src, ObFTWord &dst)
   if (OB_UNLIKELY(src.empty())) {
     ret = OB_INVALID_ARGUMENT;
   } else if (flag_.casedown()) {
-    ObString dst_str;
-    if (OB_FAIL(ObCharset::tolower(
-                    word_meta_.get_collation_type(),
-                    src.get_word().get_string(),
-                    dst_str,
-                    allocator_))) {
+    const ObString src_str = src.get_word().get_string();
+    if (is_ascii_casedown_noop(src_str.ptr(), src_str.length())) {
+      dst = src;
     } else {
-      ObFTWord tmp(dst_str.length(), dst_str.ptr(), word_meta_);
-      dst = tmp;
+      ObString dst_str;
+      if (OB_FAIL(ObCharset::tolower(
+                      word_meta_.get_collation_type(),
+                      src_str,
+                      dst_str,
+                      allocator_))) {
+      } else {
+        ObFTWord tmp(dst_str.length(), dst_str.ptr(), word_meta_);
+        dst = tmp;
+      }
     }
   } else {
     dst = src;
@@ -205,10 +209,7 @@ int ObAddWord::check_stopword(const ObFTWord &ft_word, bool &is_stopword)
     ObStopWordChecker *stop_word_checker = ObFTParseData::instance().stop_word_checker();
     if (OB_ISNULL(stop_word_checker)) {
       ret = OB_ERR_UNEXPECTED;
-    } else {
-      stopword_allocator_.reuse();
-      if (OB_FAIL(stop_word_checker->check_stopword(ft_word, is_stopword, &stopword_allocator_))) {
-      }
+    } else if (OB_FAIL(stop_word_checker->check_stopword(ft_word, is_stopword))) {
     }
   }
   return ret;
