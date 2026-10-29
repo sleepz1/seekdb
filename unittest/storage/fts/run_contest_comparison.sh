@@ -20,6 +20,8 @@ CLIENT=$ROOT/deps/3rd/u01/obclient/bin/obclient
 export LD_LIBRARY_PATH="$ROOT/deps/3rd/u01/obclient/lib:$ROOT/deps/3rd/u01/obclient/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export MYSQL="$CLIENT -h127.0.0.1 -P2881 -uroot -N -s --default-character-set=utf8mb4"
 export MYSQL_VERBOSE="$CLIENT -h127.0.0.1 -P2881 -uroot --default-character-set=utf8mb4"
+export OBMYSQL_MS0=127.0.0.1 OBMYSQL_MS0_DEV=127.0.0.1 OBMYSQL_PORT=2881
+regression_status=0
 mkdir -p "$OUT"
 git diff --name-only "$PARENT_SHA" "$REPAIR_SHA" -- src > "$OUT/changed-sources.txt"
 sha256sum tools/benchmark/fts_large_bench* > "$OUT/benchmark-integrity.sha256"
@@ -47,12 +49,17 @@ for variant in parent original repair; do
     test_out="$OUT/$variant/mysqltest-$test_case"
     mkdir -p "$test_out/tmp"
     sha256sum "$suite/t/$test_case.test" "$suite/r/mysql/$test_case.result" > "$test_out/source.sha256"
-    (cd "$ROOT/tools/deploy"
+    if (cd "$ROOT/tools/deploy"
       timeout --signal=TERM 300s "$ROOT/deps/3rd/u01/obclient/bin/mysqltest" --host=127.0.0.1 --port=2881 --user=root --database=test \
         --tmpdir="$test_out/tmp" --logdir="$test_out" --silent \
         --test-file="$suite/t/$test_case.test" --result-file="$suite/r/mysql/$test_case.result" \
         --timer-file="$test_out/timer" --tail-lines=20
-    ) 2>&1 | tee "$test_out/console.log"
+    ) 2>&1 | tee "$test_out/console.log"; then
+      echo PASS > "$test_out/status.txt"
+    else
+      echo FAIL > "$test_out/status.txt"
+      regression_status=1
+    fi
     sha256sum --check "$test_out/source.sha256"
   done
   python3 .github/script/seekdb/sdb.py stop --base-dir "$INSTANCE"
@@ -60,3 +67,4 @@ for variant in parent original repair; do
   rm -rf "$INSTANCE"
 done
 sha256sum --check "$OUT/benchmark-integrity.sha256"
+exit "$regression_status"
