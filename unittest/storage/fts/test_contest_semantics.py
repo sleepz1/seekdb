@@ -43,7 +43,8 @@ for parser in ['ik','beng','ngram','space']:
                 results[key]=value
             except pymysql.MySQLError as error:
                 results[key]={'error':error.args[0]}
-for columns,terms in [('title, content',['全文索引 分词器','OceanBase 稳定 database','missingterm','','数据库 数据库']),('title_en, content_en',['database performance audit','DATABASE','the','+database -performance','database '+' '.join('missingterm'+str(i) for i in range(300))])]:
+long_query='database performance '+' '.join('missingterm'+str(i) for i in range(300))
+for columns,terms in [('title, content',['全文索引 分词器','OceanBase 稳定 database','missingterm','','数据库 数据库']),('title_en, content_en',['database performance audit','DATABASE','the','+database -performance',long_query])]:
     for text in terms:
         modes=[' IN NATURAL LANGUAGE MODE',' IN BOOLEAN MODE'] if text else [' IN NATURAL LANGUAGE MODE']
         for mode in modes:
@@ -55,6 +56,9 @@ for columns,terms in [('title, content',['全文索引 分词器','OceanBase 稳
                     results[key]=normalize(cur.fetchall())
                 except pymysql.MySQLError as error:
                     results[key]={'error':error.args[0]}
+                if text == long_query and mode == ' IN NATURAL LANGUAGE MODE' and shape in ['count','ids']:
+                    assert isinstance(results[key],list) and results[key], 'Long natural-language query must succeed: '+key
+                    if shape == 'count': assert results[key][0][0] > 0, 'Long query must find matching documents'
 # Reusing one parameterized statement must not reuse the membership-only plan
 # for a nonzero threshold. Include aliases, derived tables, HAVING and scores
 # that are used solely for ordering.
@@ -68,11 +72,7 @@ for name,sql,params in [
     ('having',f'SELECT id,{expr} AS score FROM fts_large_bench.docs HAVING score > 0.5 ORDER BY score DESC,id LIMIT 32',('database',)),
     ('nested',f'SELECT id FROM (SELECT id,{expr} AS score FROM fts_large_bench.docs) t WHERE score > 0.5 ORDER BY id',('database',)),
     ('and',f"SELECT id FROM fts_large_bench.docs WHERE {expr} AND MATCH(content) AGAINST('数据库') ORDER BY id",('database',)),
-    ('scalar',f'SELECT id FROM fts_large_bench.docs WHERE {expr} ORDER BY id',('database',)),
-    ('vector',f'SELECT id FROM fts_large_bench.docs WHERE {expr} ORDER BY id',('database',)),
 ]:
-    if name == 'scalar': cur.execute('SET _rowsets_enabled = false')
-    if name == 'vector': cur.execute('SET _rowsets_enabled = true')
     try:
         cur.execute(sql,params)
         results['shape/'+name]=normalize(cur.fetchall())

@@ -41,6 +41,20 @@ for variant in parent original repair; do
   if [[ $variant != parent ]]; then
     "$RUNNER_TEMP/sdb07-venv/bin/python" unittest/storage/fts/test_contest_semantics.py --compare "$OUT/parent/semantics.json" "$OUT/$variant/semantics.json"
   fi
+  $MYSQL -e 'CREATE DATABASE IF NOT EXISTS test'
+  for test_case in tokenize_function parser_properties; do
+    suite="$ROOT/tools/deploy/mysql_test/test_suite/fts_index"
+    test_out="$OUT/$variant/mysqltest-$test_case"
+    mkdir -p "$test_out/tmp"
+    sha256sum "$suite/t/$test_case.test" "$suite/r/mysql/$test_case.result" > "$test_out/source.sha256"
+    (cd "$ROOT/tools/deploy"
+      timeout --signal=TERM 300s "$ROOT/deps/3rd/u01/obclient/bin/mysqltest" --host=127.0.0.1 --port=2881 --user=root --database=test \
+        --tmpdir="$test_out/tmp" --logdir="$test_out" --silent \
+        --test-file="$suite/t/$test_case.test" --result-file="$suite/r/mysql/$test_case.result" \
+        --timer-file="$test_out/timer" --tail-lines=20
+    ) 2>&1 | tee "$test_out/console.log"
+    sha256sum --check "$test_out/source.sha256"
+  done
   python3 .github/script/seekdb/sdb.py stop --base-dir "$INSTANCE"
   cp "$INSTANCE/log/seekdb.log" "$OUT/$variant/seekdb.log" || true
   rm -rf "$INSTANCE"
