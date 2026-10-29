@@ -35,10 +35,16 @@
 #define USING_LOG_PREFIX SQL_ENG
 #include "sql/engine/expr/ob_expr_json_func_helper.h" // file not self-contained, there're logs inside.
 
+#include <atomic>
+
 namespace oceanbase
 {
 namespace sql
 {
+namespace
+{
+std::atomic<int64_t> g_loaded_dic_charset(-1);
+} // namespace
 ObExprTokenize::ObExprTokenize(common::ObIAllocator &alloc)
     : ObStringExprOperator(alloc,
                            T_FUN_TOKENIZE,
@@ -375,6 +381,14 @@ int ObExprTokenize::parse_parser_properties(const ObExpr &expr,
 int ObExprTokenize::TokenizeParam::reform_parser_properties(const ObString &properties)
 {
   int ret = OB_SUCCESS;
+  // Default TOKENIZE (no parser-properties arg) already matches FT_DEFAULT_*.
+  // Skip JSON init/parse/rebuild/serialize; ObFTParseHelper init uses the empty
+  // fast path and keeps identical defaults.
+  if (properties.empty()) {
+    properties_.reset();
+    return ret;
+  }
+
   storage::ObFTParserJsonProps parser_properties;
 
   if (OB_FAIL(parser_properties.init())) {
@@ -394,16 +408,24 @@ int ObExprTokenize::TokenizeParam::try_load_dictionary_for_ik()
   int ret = OB_SUCCESS;
   bool need_to_load_dic = false;
   storage::ObDicLoaderHandle dic_loader_handle;
+  const ObCharsetType charset = ObCharset::charset_type_by_coll(meta_.get_collation_type());
   if (OB_FAIL(share::ObFtsIndexBuilderUtil::check_need_to_load_dic(
           parser_name_, need_to_load_dic))) {
-  } else if (need_to_load_dic) {
+  } else if (need_to_load_dic
+             && g_loaded_dic_charset.load(std::memory_order_acquire)
+                    == static_cast<int64_t>(charset)) {
+    need_to_load_dic = false;
+  }
+  if (OB_SUCC(ret) && need_to_load_dic) {
     if (OB_FAIL(storage::ObGenDicLoader::get_instance().get_dic_loader(
                     ObString::make_string(storage::ObFTSLiteral::PARSER_NAME_IK), // currently only ik, use parser_name_ without version suffix
-                    ObCharset::charset_type_by_coll(meta_.get_collation_type()),
+                    charset,
                     dic_loader_handle))) {
     } else if (OB_UNLIKELY(!dic_loader_handle.is_valid())) {
       ret = OB_ERR_UNEXPECTED;
     } else if (OB_FAIL(dic_loader_handle.get_loader()->try_load_dictionary_in_trans())) {
+    } else {
+      g_loaded_dic_charset.store(static_cast<int64_t>(charset), std::memory_order_release);
     }
   }
   return ret;
