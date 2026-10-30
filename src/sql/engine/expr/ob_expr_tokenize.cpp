@@ -87,16 +87,29 @@ int ObExprTokenize::tokenize_fulltext(const TokenizeParam &param,
                                       ObIJsonBase *&result)
 {
   int ret = OB_SUCCESS;
-  storage::ObFTParseHelper tokenize_helper;
+  UNUSED(allocator);
+  // Thread-local helper keeps ObIFTParser across TOKENIZE calls (bench hot path).
+  thread_local storage::ObFTParseHelper tl_helper;
+  thread_local common::ObArenaAllocator tl_meta_alloc(common::ObMemAttr("FTTokenizeTL"));
+  bool same = false;
+  if (OB_FAIL(tl_helper.check_is_the_same(param.parser_name_, param.properties_, same))) {
+    same = false;
+    ret = OB_SUCCESS;
+  }
+  if (!same) {
+    tl_helper.reset();
+    tl_meta_alloc.reset();
+    if (OB_FAIL(tl_helper.init(&tl_meta_alloc, param.parser_name_, param.properties_))) {
+    }
+  }
+  storage::ObFTParseHelper &tokenize_helper = tl_helper;
   const int64_t ft_word_bkt_cnt = MIN(MAX(param.fulltext_.length() / 2, 2), 997);
   int64_t doc_len = 0;
   storage::ObFTWordMap token_map;
 
-  ObArenaAllocator tmp_parse_alloc(ObMemAttr("Tmp buffer"));
-
-  if (TokenizeParam::OUTPUT_MODE::DEFAULT != mode && TokenizeParam::OUTPUT_MODE::ALL != mode) {
+  if (OB_FAIL(ret)) {
+  } else if (TokenizeParam::OUTPUT_MODE::DEFAULT != mode && TokenizeParam::OUTPUT_MODE::ALL != mode) {
     ret = OB_INVALID_ARGUMENT;
-  } else if (OB_FAIL(tokenize_helper.init(&allocator, param.parser_name_, param.properties_))) {
   } else if (OB_FAIL(token_map.create(ft_word_bkt_cnt, common::ObMemAttr("FTWordMap")))) {
   } else if (
       (0 != param.fulltext_.length())

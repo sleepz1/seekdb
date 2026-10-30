@@ -63,6 +63,8 @@ public:
         ft_length_(0),
         parser_version_(0),
         allocator_(nullptr),
+        metadata_alloc_(nullptr),
+        scratch_alloc_(nullptr),
         ik_param_(),
         ngram_token_size_(NGRAM_TOKEN_SIZE),
         min_ngram_size_(NGRAM_TOKEN_SIZE),
@@ -87,6 +89,8 @@ public:
     ft_length_ = 0;
     parser_version_ = 0;
     allocator_ = nullptr;
+    metadata_alloc_ = nullptr;
+    scratch_alloc_ = nullptr;
     ik_param_ = ObFTIKParam();
     ngram_token_size_ = NGRAM_TOKEN_SIZE;
     min_ngram_size_ = NGRAM_TOKEN_SIZE;
@@ -108,12 +112,17 @@ public:
   int64_t ft_length_;
   int64_t parser_version_;
   common::ObIAllocator *allocator_;
+  // Long-lived objects (parser/ctx/dicts); falls back to allocator_ when null.
+  common::ObIAllocator *metadata_alloc_;
+  // Per-document scratch; falls back to allocator_ when null.
+  common::ObIAllocator *scratch_alloc_;
   ObFTIKParam ik_param_;
   int64_t ngram_token_size_;
   int64_t min_ngram_size_;
   int64_t max_ngram_size_;
 };
 
+class ObIFTParser; // fwd
 class ObITokenIterator
 {
 public:
@@ -124,7 +133,19 @@ public:
       int64_t &word_len,
       int64_t &char_cnt,
       int64_t &word_freq) = 0;
+  // Non-null when this iterator supports reuse_parser across documents.
+  virtual ObIFTParser *as_reusable_parser() { return nullptr; }
   DECLARE_PURE_VIRTUAL_TO_STRING;
+};
+
+// Reusable fulltext parser (build/tokenize hot path).
+class ObIFTParser : public ObITokenIterator
+{
+public:
+  ObIFTParser() = default;
+  virtual ~ObIFTParser() = default;
+  virtual int reuse_parser(const char *fulltext, const int64_t fulltext_len) = 0;
+  ObIFTParser *as_reusable_parser() override { return this; }
 };
 
 class ObIFTParserDesc

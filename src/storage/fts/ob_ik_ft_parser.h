@@ -18,6 +18,7 @@
 #define _OCEANBASE_STORAGE_FTS_OB_IK_FT_PARSER_H_
 
 #include "lib/allocator/ob_allocator.h"
+#include "lib/allocator/page_arena.h"
 #include "storage/fts/dict/ob_ft_cache_container.h"
 #include "storage/fts/dict/ob_ft_dict.h"
 #include "storage/fts/dict/ob_ft_dict_def.h"
@@ -32,23 +33,25 @@ namespace storage
 {
 class ObFTDictHub;
 
-class ObIKFTParser final : public ObITokenIterator
+class ObIKFTParser final : public ObIFTParser
 {
 public:
-  ObIKFTParser(ObIAllocator &allocator, ObFTDictHub *hub)
-      : allocator_(allocator),
+  ObIKFTParser(ObIAllocator &metadata_alloc, ObFTDictHub *hub)
+      : metadata_alloc_(metadata_alloc),
         is_inited_(false),
         coll_type_(ObCollationType::CS_TYPE_INVALID),
         ctx_(nullptr),
         hub_(hub),
-        segmenters_(allocator_),
-        cache_main_(allocator),
-        cache_quan_(allocator),
-        cache_stop_(allocator),
+        segmenters_(metadata_alloc_),
+        cache_main_(metadata_alloc_),
+        cache_quan_(metadata_alloc_),
+        cache_stop_(metadata_alloc_),
         dict_main_(nullptr),
         dict_quan_(nullptr),
-        dict_stop_(nullptr)
+        dict_stop_(nullptr),
+        scratch_alloc_()
   {
+    scratch_alloc_.set_attr(common::ObMemAttr("ft_segment_data"));
   }
 
   virtual ~ObIKFTParser() { reset(); }
@@ -59,6 +62,8 @@ public:
                      int64_t &word_len,
                      int64_t &char_cnt,
                      int64_t &word_freq) override;
+
+  int reuse_parser(const char *fulltext, const int64_t fulltext_len) override;
 
   VIRTUAL_TO_STRING_KV(K(is_inited_));
 
@@ -91,17 +96,15 @@ private:
 
 private:
   static constexpr int SEGMENT_LIMIT = 1000;
-  ObIAllocator &allocator_;
+  ObIAllocator &metadata_alloc_;
   bool is_inited_;
 
   ObCollationType coll_type_;
   TokenizeContext *ctx_;
   ObFTDictHub *hub_;
   ObList<ObIIKProcessor *, ObIAllocator> segmenters_;
-  // reused across batches of one document; hash map buckets are kept
   ObIKArbitrator arb_;
 
-  // For now there's no change of dict in one query, so we can pin dict this level.
   ObFTCacheRangeContainer cache_main_;
   ObFTCacheRangeContainer cache_quan_;
   ObFTCacheRangeContainer cache_stop_;
@@ -109,6 +112,7 @@ private:
   ObIFTDict *dict_main_;
   ObIFTDict *dict_quan_;
   ObIFTDict *dict_stop_;
+  ObArenaAllocator scratch_alloc_;
 
   DISABLE_COPY_ASSIGN(ObIKFTParser);
 };

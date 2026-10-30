@@ -31,7 +31,14 @@ for variant in parent original repair; do
     original) source_sha=$ORIGINAL_SHA;;
     repair) source_sha=$REPAIR_SHA;;
   esac
-  while IFS= read -r path; do git checkout "$source_sha" -- "$path"; done < "$OUT/changed-sources.txt"
+  while IFS= read -r path; do
+    if git cat-file -e "$source_sha:$path" 2>/dev/null; then
+      git checkout "$source_sha" -- "$path"
+    else
+      # File added in repair tip: absent on parent/original — drop from tree.
+      rm -f -- "$path"
+    fi
+  done < "$OUT/changed-sources.txt"
   mkdir -p "$OUT/$variant"
   echo "$source_sha" > "$OUT/$variant/source-sha.txt"
   cmake --build build_release --target seekdb -j4 2>&1 | tee "$OUT/$variant/build.log"
