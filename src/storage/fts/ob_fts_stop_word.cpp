@@ -458,13 +458,16 @@ int ObAddWord::groupby_word(const ObFTWord &word, const int64_t word_freq)
     if (OB_FAIL(word_map_.set_refactored(word, 1/*word count*/))) {
     }
   } else if (OB_FAIL(word_map_.get_refactored(word, word_count)) && OB_HASH_NOT_EXIST != ret) {
-  } else if (OB_HASH_NOT_EXIST == ret) {
-    ret = OB_SUCCESS;
-    if (OB_FAIL(word_map_.set_refactored(word, word_freq))) {
-    }
   } else {
-    word_count += word_freq;
-    if (OB_FAIL(word_map_.set_refactored(word, word_count, 0/*overwrite*/))) {
+    // Match proven baseline: first hit starts at 1, later hits += word_freq,
+    // always overwrite (flag=1). overwrite=0 returns OB_HASH_EXIST and aborts build.
+    if (OB_HASH_NOT_EXIST == ret) {
+      ret = OB_SUCCESS;
+      word_count = 1;
+    } else {
+      word_count += word_freq;
+    }
+    if (OB_FAIL(word_map_.set_refactored(word, word_count, 1/*overwrite*/))) {
     }
   }
   return ret;
