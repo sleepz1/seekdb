@@ -81,7 +81,7 @@ public:
   bool is_empty() const { return tokens_.empty(); }
 
   void reset() { tokens_.reset(); }
-  void reuse() { tokens_.clear(); }  // ObList/ObFastList both expose clear()
+  void reuse() { reuse_list_(tokens_); }
 
   int64_t min();
 
@@ -95,6 +95,8 @@ public:
   typedef typename ListType::const_iterator ConstCellIter;
 
 private:
+  static void reuse_list_(ObList<ObIKToken, ObIAllocator> &list) { list.clear(); }
+  static void reuse_list_(ObFastList<ObIKToken, HANDLE_SIZE_LIMIT> &list) { list.reuse(); }
   ListType tokens_;
 };
 

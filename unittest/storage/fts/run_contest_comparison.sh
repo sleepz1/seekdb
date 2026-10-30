@@ -41,6 +41,11 @@ for variant in parent original repair; do
   done < "$OUT/changed-sources.txt"
   mkdir -p "$OUT/$variant"
   echo "$source_sha" > "$OUT/$variant/source-sha.txt"
+  # Wide FTS header swaps (ob_fts_struct.h / new IK headers) can leave share/cache
+  # objects stale or empty in the static archive under ccache + -j. Force those
+  # TUs to rebuild before linking seekdb.
+  find build_release -path '*unity_ob_share_ob_share_cache*' \( -name '*.o' -o -name '*.o.d' \) -delete 2>/dev/null || true
+  cmake --build build_release --target ob_share_static -j4 2>&1 | tee "$OUT/$variant/build-share.log"
   cmake --build build_release --target seekdb -j4 2>&1 | tee "$OUT/$variant/build.log"
   python3 .github/script/seekdb/sdb.py start --binary "$ROOT/build_release/src/observer/seekdb" --base-dir "$INSTANCE" --port 2881 --parameter memory_limit=4G --parameter datafile_size=2G --parameter log_disk_size=2G
   python3 .github/script/seekdb/sdb.py wait-ready --client "$CLIENT" --base-dir "$INSTANCE" --host 127.0.0.1 --port 2881 --user root --timeout 180
