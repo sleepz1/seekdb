@@ -85,6 +85,27 @@ profile_variant() {
   rebuild_with_timeline "$PROF" beng fti_en_beng "fti_en_beng(title_en, content_en) WITH PARSER beng"
 }
 
+# Steady-state rebuild timings (no perf), repeated to average out runner noise.
+repeat_builds() {
+  local dir=$1 out=$1/build-repeat.txt summary=""
+  : > "$out"
+  for spec in "ik_all|rep_ik_all(title, content) WITH PARSER ik" "ik_content|rep_ik_content(content) WITH PARSER ik" "beng|rep_beng(title_en, content_en) WITH PARSER beng"; do
+    local name=${spec%%|*} total=0
+    for r in 1 2 3; do
+      local idx=rep_${name}_$r def=${spec#*|}; def=${def/rep_${name}(/rep_${name}_$r(}
+      sleep 2
+      local s e; s=$(date +%s%N)
+      $MYSQL -e "SET ob_query_timeout = 100000000000; SET ob_trx_timeout = 100000000000; USE fts_large_bench; ALTER TABLE docs ADD FULLTEXT INDEX $def;" 2>&1 | tail -2
+      e=$(date +%s%N)
+      local ms=$(( (e-s)/1000000 )); total=$((total+ms))
+      echo "$name run$r ${ms}ms $($MYSQL -e "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema='fts_large_bench' AND index_name='$idx'" 2>/dev/null | tail -1)" >> "$out"
+      $MYSQL -e "USE fts_large_bench; ALTER TABLE docs DROP INDEX $idx;" 2>&1 | tail -2
+    done
+    summary="$summary $name=$((total/3))ms"
+  done
+  notice "$(basename "$dir") rebuild-avg" "$summary"
+}
+
 run_variant() {
   local label=$1 sha=$2 profile=$3
   local dir=$OUT/$label
@@ -129,6 +150,7 @@ run_variant() {
     fi
     rm -rf "$test_out/tmp"
   done
+  repeat_builds "$dir"
   if [[ "$profile" == 1 ]]; then profile_variant "$label"; fi
   python3 .github/script/seekdb/sdb.py stop --base-dir "$INSTANCE"
   grep -E "ddl|DDL" "$INSTANCE/log/seekdb.log" 2>/dev/null | grep -E "INFO|WARN" | tail -4000 | gzip > "$dir/seekdb-ddl.log.gz" || true
