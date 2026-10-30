@@ -28,6 +28,7 @@
 #include "share/ob_ddl_checksum.h"
 #include "share/geo/ob_srs_provider.h"
 #include "sql/das/iter/ob_das_iter_utils.h"
+#include "sql/das/ob_das_utils.h"
 #include "sql/engine/px/ob_granule_iterator_op.h"
 #include "sql/engine/expr/ob_expr_lob_utils.h"
 
@@ -795,6 +796,39 @@ int ObTableScanOp::attach_related_taskinfo(ObDASScanOp &target_op, ObDASBaseRtDe
   return ret;
 }
 
+int ObTableScanOp::try_push_scoreless_fts_merge_limit(const common::ObLimitParam &limit_param)
+{
+  int ret = OB_SUCCESS;
+  if (!limit_param.is_valid() || limit_param.limit_ < 0) {
+  } else if (OB_ISNULL(tsc_rtdef_.attach_rtinfo_)
+             || OB_ISNULL(tsc_rtdef_.attach_rtinfo_->attach_rtdef_)
+             || OB_ISNULL(MY_CTDEF.attach_spec_.attach_ctdef_)) {
+  } else if (!ObDASUtils::is_fts_idx_scan(MY_CTDEF.attach_spec_.attach_ctdef_)) {
+  } else {
+    ObDASBaseRtDef *ir_base = nullptr;
+    if (OB_FAIL(ObDASUtils::find_child_das_rtdef(
+            tsc_rtdef_.attach_rtinfo_->attach_rtdef_, DAS_OP_IR_SCAN, ir_base))) {
+    } else if (OB_ISNULL(ir_base)) {
+      ret = OB_SUCCESS; // no IR node; leave final-limit-only behavior
+    } else {
+      ObDASIRScanRtDef *ir_rtdef = static_cast<ObDASIRScanRtDef *>(ir_base);
+      const ObDASIRScanCtDef *ir_ctdef = static_cast<const ObDASIRScanCtDef *>(ir_rtdef->ctdef_);
+      if (OB_ISNULL(ir_ctdef)) {
+        ret = OB_ERR_UNEXPECTED;
+      } else if (ir_ctdef->need_calc_relevance() || ir_ctdef->has_pushdown_topk()) {
+        // Keep final-limit-only for BM25 / BMW topk paths.
+      } else {
+        // Membership: stop after offset+limit matched docs at merge output.
+        // TSC still applies need_final_limit_ for multi-part / offset safety.
+        common::ObLimitParam &merge_limit = ir_rtdef->get_fts_merge_limit_param();
+        merge_limit.offset_ = 0;
+        merge_limit.limit_ = limit_param.offset_ + limit_param.limit_;
+      }
+    }
+  }
+  return ret;
+}
+
 int ObTableScanOp::prepare_pushdown_limit_param()
 {
   int ret = OB_SUCCESS;
@@ -811,6 +845,9 @@ int ObTableScanOp::prepare_pushdown_limit_param()
       OB_ASSERT(nullptr != tsc_rtdef_.lookup_rtdef_);
       tsc_rtdef_.lookup_rtdef_->limit_param_.offset_ = 0;
       tsc_rtdef_.lookup_rtdef_->limit_param_.limit_  = -1;
+    }
+    if (OB_SUCC(ret) && nullptr != tsc_rtdef_.attach_rtinfo_
+        && OB_FAIL(try_push_scoreless_fts_merge_limit(limit_param_))) {
     }
   } else if (tsc_rtdef_.has_lookup_limit() || (OB_NOT_NULL(scan_iter_) && scan_iter_->get_das_task_cnt() > 1)) {
     //for index back, need to final limit output rows in TableScan operator,

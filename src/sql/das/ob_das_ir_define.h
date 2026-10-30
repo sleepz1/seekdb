@@ -20,6 +20,7 @@
 #include "data_plane/blocksstable/ob_index_block_util.h"
 #include "query/das/ob_das_id_protocol.h"
 #include "ob_das_attach_define.h"
+#include "data_plane/api/data_plane/access/ob_tablet_scan.h"
 
 namespace oceanbase
 {
@@ -204,9 +205,15 @@ public:
   ObDASIRScanRtDef()
     : ObDASAttachRtDef(DAS_OP_IR_SCAN),
       fts_idx_(OB_INVALID_INDEX),
-      minimum_should_match_(0) {}
+      minimum_should_match_(0),
+      fts_merge_limit_param_() {}
 
   virtual ~ObDASIRScanRtDef() {}
+
+  // Merge-output early stop only. Never reuse inv_idx_scan_rtdef->limit_param_
+  // here: that rtdef is also applied to per-token posting scans.
+  common::ObLimitParam &get_fts_merge_limit_param() { return fts_merge_limit_param_; }
+  const common::ObLimitParam &get_fts_merge_limit_param() const { return fts_merge_limit_param_; }
 
   ObDASScanRtDef *get_inv_idx_scan_rtdef()
   {
@@ -255,6 +262,8 @@ public:
   // fts_idx_ is dynamically generated during execution based on the rtdef tree and does not need to be serialized.
   int64_t fts_idx_;
   int64_t minimum_should_match_;
+  // Filled at runtime for scoreless membership LIMIT early-stop; not serialized.
+  common::ObLimitParam fts_merge_limit_param_;
 };
 
 struct ObDASIRAuxLookupCtDef : ObDASAttachCtDef
