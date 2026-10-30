@@ -1,0 +1,1 @@
+Evaluate BOOL(relevance) match filters directly and skip casedown for caseless CJK tokens

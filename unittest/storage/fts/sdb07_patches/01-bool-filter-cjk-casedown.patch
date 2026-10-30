@@ -1,0 +1,76 @@
+diff --git a/src/storage/fts/ob_fts_stop_word.cpp b/src/storage/fts/ob_fts_stop_word.cpp
+index d10be0e4..f7cb1c08 100644
+--- a/src/storage/fts/ob_fts_stop_word.cpp
++++ b/src/storage/fts/ob_fts_stop_word.cpp
+@@ -39,6 +39,30 @@ inline bool is_ascii_casedown_noop(const char *str, const int64_t len)
+   return true;
+ }
+ 
++// For utf8mb4 also accept well-formed U+4000..U+9FFF (lead byte E4..E9), which
++// covers CJK ideographs; these code points have no case mapping, so casedn
++// reproduces the input bytes exactly. Anything else falls back to casedn.
++inline bool is_utf8mb4_casedown_noop(const char *str, const int64_t len)
++{
++  const unsigned char *p = reinterpret_cast<const unsigned char *>(str);
++  int64_t i = 0;
++  while (i < len) {
++    const unsigned char c = p[i];
++    if (c < 0x80) {
++      if (c >= 'A' && c <= 'Z') {
++        return false;
++      }
++      ++i;
++    } else if (c >= 0xE4 && c <= 0xE9 && i + 2 < len
++               && 0x80 == (p[i + 1] & 0xC0) && 0x80 == (p[i + 2] & 0xC0)) {
++      i += 3;
++    } else {
++      return false;
++    }
++  }
++  return true;
++}
++
+ // Stop words are compared under utf8mb4_general_ci, which maps every character to
+ // exactly one weight (no expansions) and ignores trailing spaces. All built-in stop
+ // words are short ASCII words, so:
+@@ -246,8 +270,11 @@ int ObAddWord::casedown_word(const ObFTWord &src, ObFTWord &dst)
+     ret = OB_INVALID_ARGUMENT;
+   } else if (flag_.casedown()) {
+     const ObString src_str = src.get_word().get_string();
+-    if (is_ascii_compatible_charset(word_meta_.get_collation_type())
+-        && is_ascii_casedown_noop(src_str.ptr(), src_str.length())) {
++    const ObCollationType coll_type = word_meta_.get_collation_type();
++    if (CHARSET_UTF8MB4 == ObCharset::charset_type_by_coll(coll_type)
++        ? is_utf8mb4_casedown_noop(src_str.ptr(), src_str.length())
++        : (is_ascii_compatible_charset(coll_type)
++           && is_ascii_casedown_noop(src_str.ptr(), src_str.length()))) {
+       dst = src;
+     } else {
+       ObString dst_str;
+diff --git a/src/storage/retrieval/ob_sparse_daat_iter.cpp b/src/storage/retrieval/ob_sparse_daat_iter.cpp
+index fd8e2993..7385592b 100644
+--- a/src/storage/retrieval/ob_sparse_daat_iter.cpp
++++ b/src/storage/retrieval/ob_sparse_daat_iter.cpp
+@@ -365,11 +365,18 @@ int ObSRDaaTIterImpl::filter_on_demand(const int64_t count, const double relevan
+       relevance_proj_datum.set_double(relevance);
+       relevance_proj_expr->get_evaluated_flags(*eval_ctx).set(count);
+       relevance_proj_expr->set_evaluated_projected(*eval_ctx);
+-      ObDatum *filter_res = nullptr;
+-      filter_expr->clear_evaluated_flag(*eval_ctx);
+-      if (OB_FAIL(filter_expr->eval(*eval_ctx, filter_res))) {
++      if (T_OP_BOOL == filter_expr->type_ && 1 == filter_expr->arg_cnt_
++          && OB_NOT_NULL(filter_expr->args_) && relevance_proj_expr == filter_expr->args_[0]
++          && ObDoubleType == relevance_proj_expr->datum_meta_.type_) {
++        // BOOL(<non-null double relevance>) is exactly (relevance != 0).
++        need_project = 0 != relevance;
+       } else {
+-        need_project = !(filter_res->is_null() || 0 == filter_res->get_int());
++        ObDatum *filter_res = nullptr;
++        filter_expr->clear_evaluated_flag(*eval_ctx);
++        if (OB_FAIL(filter_expr->eval(*eval_ctx, filter_res))) {
++        } else {
++          need_project = !(filter_res->is_null() || 0 == filter_res->get_int());
++        }
+       }
+     }
+   } else if (OB_UNLIKELY(0 != count)) {
