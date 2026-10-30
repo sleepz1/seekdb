@@ -11,7 +11,7 @@
 # limitations under the License.
 set -euo pipefail
 REPAIR_SHA=$(git rev-parse HEAD)
-PARENT_SHA=5bce9e06d1281347ad61344e4b01fab9158c58a2
+PARENT_SHA=5d7919353d73cbbd0012c777b9beb22abf5692eb
 ORIGINAL_SHA=44c0ff58d66dfeb5c7adccd125421c879ddd6484
 ROOT=$PWD
 OUT=$ROOT/sdb07-evidence
@@ -42,6 +42,10 @@ for variant in parent original repair; do
   "$RUNNER_TEMP/sdb07-venv/bin/python" unittest/storage/fts/test_contest_semantics.py "$OUT/$variant/semantics.json"
   if [[ $variant != parent ]]; then
     "$RUNNER_TEMP/sdb07-venv/bin/python" unittest/storage/fts/test_contest_semantics.py --compare "$OUT/parent/semantics.json" "$OUT/$variant/semantics.json"
+  fi
+  "$RUNNER_TEMP/sdb07-venv/bin/python" unittest/storage/fts/test_beng_short_buffer.py "$OUT/$variant/beng-buffer.json"
+  if [[ $variant != parent ]]; then
+    cmp "$OUT/parent/beng-buffer.json" "$OUT/$variant/beng-buffer.json"
   fi
   $MYSQL -e 'CREATE DATABASE IF NOT EXISTS test'
   for test_case in tokenize_function parser_properties; do

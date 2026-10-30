@@ -131,6 +131,9 @@ public:
   virtual void reuse() override;
   virtual int get_next(ObDatum &next_token, int64_t &token_freq) override;
 private:
+  // Normalized tokens are consumed before the next get_next() call.
+  // Keep short tokens in the stream instead of allocating an arena block.
+  char norm_buffer_[256];
   ObArenaAllocator norm_allocator_;
 };
 
