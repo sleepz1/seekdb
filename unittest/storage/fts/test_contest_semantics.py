@@ -129,7 +129,7 @@ expr_en="MATCH(title_en, content_en) AGAINST(%s IN BOOLEAN MODE)"
 for name,sql,params in [
     ('or',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE {expr_cn} OR id < 10',('全文索引 分词器',)),
     ('not',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE NOT ({expr_cn})',('全文索引 分词器',)),
-    ('and-filter',f'SELECT id FROM fts_large_bench.docs WHERE {expr_cn} AND id % 97 = 3 ORDER BY id',('数据库',)),
+    ('and-filter',f'SELECT id FROM fts_large_bench.docs WHERE {expr_cn} AND id %% 97 = 3 ORDER BY id',('数据库',)),
     ('bool-neg',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE {expr_en}',('+database -performance',)),
     ('bool-only-neg',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE {expr_en}',('-database',)),
     ('bool-limit',f'SELECT id FROM fts_large_bench.docs WHERE {expr_en} ORDER BY id LIMIT 50',('database audit',)),
