@@ -81,7 +81,7 @@ public:
   bool is_empty() const { return tokens_.empty(); }
 
   void reset() { tokens_.reset(); }
-  void reuse() { tokens_.reuse(); }
+  void reuse() { tokens_.clear(); }  // ObList/ObFastList both expose clear()
 
   int64_t min();
 
