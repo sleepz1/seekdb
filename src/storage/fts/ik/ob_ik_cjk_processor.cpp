@@ -37,7 +37,8 @@ int ObIKCJKProcessor::do_process(TokenizeContext &ctx,
   int ret = OB_SUCCESS;
 
   if (ObFTCharUtil::CharType::USELESS != type) {
-    // handle previous hits_ first and then check from this char
+    // Always advance open prefix hits so mixed English/digits still break CJK
+    // phrases the same way as before.
     for (ObList<ObDATrieHit, ObIAllocator>::iterator iter = hits_.begin();
          OB_SUCC(ret) && iter != hits_.end();
          iter++) {
@@ -60,9 +61,12 @@ int ObIKCJKProcessor::do_process(TokenizeContext &ctx,
         ret = OB_UNEXPECT_INTERNAL_ERROR;
       }
     }
-    if (OB_SUCC(ret)) {
-      // Start from this char
-      // find range of dict
+    // New CJK dictionary walks only start on CJK codepoints. English/Arabic
+    // never seed the main dict and previously only produced unmatch noise on
+    // the build/tokenize hot path.
+    if (OB_SUCC(ret)
+        && (ObFTCharUtil::CharType::CHINESE == type
+            || ObFTCharUtil::CharType::OTHER_CJK == type)) {
       ObDATrieHit hit(&dict_main_, ctx.get_cursor());
       if (OB_FAIL(dict_main_.match({char_len, ch}, hit))) {
       } else if (hit.is_match()) {

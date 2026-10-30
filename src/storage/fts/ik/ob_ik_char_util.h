@@ -481,6 +481,39 @@ inline int ObFTCharUtil::do_classify(const char *input, const uint8_t char_len, 
   ob_wc_t unicode = 0;
   type = CharType::USELESS;
 
+  // Hot path for build/tokenize: avoid generic charset decode for ASCII and
+  // common 3-byte UTF-8 BMP codepoints. Classification precedence unchanged.
+  if (CS_TYPE == CHARSET_UTF8MB4 && OB_NOT_NULL(input)) {
+    if (1 == char_len) {
+      const unsigned char c = static_cast<unsigned char>(input[0]);
+      if (c < 0x80) {
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+          type = CharType::ENGLISH_LETTER;
+        } else if (c >= '0' && c <= '9') {
+          type = CharType::ARABIC_LETTER;
+        }
+        return ret;
+      }
+    } else if (3 == char_len
+               && (static_cast<unsigned char>(input[0]) & 0xF0) == 0xE0
+               && (static_cast<unsigned char>(input[1]) & 0xC0) == 0x80
+               && (static_cast<unsigned char>(input[2]) & 0xC0) == 0x80) {
+      unicode = (static_cast<ob_wc_t>(input[0] & 0x0F) << 12)
+                | (static_cast<ob_wc_t>(input[1] & 0x3F) << 6)
+                | static_cast<ob_wc_t>(input[2] & 0x3F);
+      if (ObUnicodeBlockUtils::is_alpha(unicode)) {
+        type = CharType::ENGLISH_LETTER;
+      } else if (ObUnicodeBlockUtils::is_arabic(unicode)) {
+        type = CharType::ARABIC_LETTER;
+      } else if (ObUnicodeBlockUtils::is_chinese(unicode)) {
+        type = CharType::CHINESE;
+      } else if (ObUnicodeBlockUtils::is_other_cjk(unicode)) {
+        type = CharType::OTHER_CJK;
+      }
+      return ret;
+    }
+  }
+
   // decode once; keep the same classification precedence as before
   if (OB_FAIL(decode_unicode<CS_TYPE>(input, char_len, unicode))) {
   } else if (ObUnicodeBlockUtils::is_alpha(unicode)) {
