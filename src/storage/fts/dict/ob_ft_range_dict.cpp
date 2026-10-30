@@ -378,6 +378,24 @@ int ObFTRangeDict::match_with_hit(const ObString &single_word,
   return last_hit.dict_->match_with_hit(single_word, last_hit, hit);
 }
 
+namespace
+{
+// utf8mb4_bin ordering is raw unsigned byte order + length: avoid ObCharset::strcmp
+// on the per-character range lookup hot path during IK build/tokenize.
+inline int utf8mb4_bin_cmp(const ObString &left, const ObString &right)
+{
+  const int64_t min_len = left.length() < right.length() ? left.length() : right.length();
+  int cmp = 0;
+  if (min_len > 0) {
+    cmp = MEMCMP(left.ptr(), right.ptr(), static_cast<size_t>(min_len));
+  }
+  if (0 == cmp) {
+    cmp = left.length() < right.length() ? -1 : (left.length() > right.length() ? 1 : 0);
+  }
+  return cmp;
+}
+} // namespace
+
 int ObFTRangeDict::find_first_char_range(const ObString &single_word, ObIFTDict *&dict) const
 {
   int ret = OB_SUCCESS;
@@ -389,10 +407,7 @@ int ObFTRangeDict::find_first_char_range(const ObString &single_word, ObIFTDict 
   int64_t candidate = -1;
   while (OB_SUCC(ret) && left <= right) {
     const int64_t mid = left + (right - left) / 2;
-    if (ObCharset::strcmp(ObCollationType::CS_TYPE_UTF8MB4_BIN,
-                          range_dicts_[mid].start_.get_word(),
-                          single_word)
-        <= 0) {
+    if (utf8mb4_bin_cmp(range_dicts_[mid].start_.get_word(), single_word) <= 0) {
       candidate = mid;
       left = mid + 1;
     } else {
@@ -400,10 +415,7 @@ int ObFTRangeDict::find_first_char_range(const ObString &single_word, ObIFTDict 
     }
   }
   if (OB_SUCC(ret) && candidate >= 0) {
-    if (ObCharset::strcmp(ObCollationType::CS_TYPE_UTF8MB4_BIN,
-                          range_dicts_[candidate].end_.get_word(),
-                          single_word)
-        >= 0) {
+    if (utf8mb4_bin_cmp(range_dicts_[candidate].end_.get_word(), single_word) >= 0) {
       dict = range_dicts_[candidate].dict_;
       found = true;
     }
