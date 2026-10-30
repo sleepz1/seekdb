@@ -50,6 +50,9 @@ public:
   // Merged hot-path accessor: one call instead of current_char + current_char_type.
   int current_char_and_type(const char *&ch, uint8_t &char_len, ObFTCharUtil::CharType &type);
 
+  // Classify char at absolute offset using cached well_formed_len (yuque §2.2).
+  int classify_char_at(int64_t offset, int64_t &char_len, ObFTCharUtil::CharType &type) const;
+
   int step_next();
 
   ObCollationType collation() const;

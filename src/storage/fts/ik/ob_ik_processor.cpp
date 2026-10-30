@@ -120,6 +120,24 @@ int TokenizeContext::current_char_and_type(const char *&ch,
   return ret;
 }
 
+int TokenizeContext::classify_char_at(int64_t offset,
+                                      int64_t &char_len,
+                                      ObFTCharUtil::CharType &type) const
+{
+  int ret = OB_SUCCESS;
+  if (OB_UNLIKELY(offset < 0 || offset >= fulltext_len_)) {
+    ret = OB_INVALID_ARGUMENT;
+  } else if (OB_FAIL(ObFTCharUtil::classify_first_valid_char(cs_type_,
+                                                             fulltext_ + offset,
+                                                             fulltext_len_ - offset,
+                                                             well_formed_len_,
+                                                             cs_,
+                                                             char_len,
+                                                             type))) {
+  }
+  return ret;
+}
+
 int TokenizeContext::prepare_next_char()
 {
   int ret = OB_SUCCESS;
