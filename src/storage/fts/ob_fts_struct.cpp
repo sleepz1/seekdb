@@ -25,33 +25,90 @@ namespace oceanbase
 namespace storage
 {
 
-int ObFTWord::hash(uint64_t &hash_val) const
+int ObFTWord::init(const char *ptr,
+                   const int64_t length,
+                   const ObObjMeta &meta,
+                   const common::ObDatumHashFuncType hash_func,
+                   const common::ObDatumCmpFuncType cmp_func)
 {
   int ret = OB_SUCCESS;
-  common::ObDatumBasicFuncs *funcs = ObDatumFuncs::get_basic_func(meta_.get_type(), meta_.get_collation_type());
-  if (OB_ISNULL(funcs)) {
-    ret = OB_ERR_UNEXPECTED;
-  } else if (funcs->default_hash_ == nullptr) {
-    ret = OB_ERR_UNEXPECTED;
+  if (OB_UNLIKELY(nullptr == ptr || length <= 0 || nullptr == hash_func || nullptr == cmp_func)) {
+    ret = OB_INVALID_ARGUMENT;
   } else {
-    ret = funcs->default_hash_(word_, 0, hash_val, nullptr);
+    word_.set_string(ptr, length);
+    meta_ = meta;
+    hash_func_ = hash_func;
+    cmp_func_ = cmp_func;
+    is_calc_hash_val_ = false;
+    hash_val_ = 0;
   }
   return ret;
 }
+
+int ObFTWord::hash(uint64_t &hash_val) const
+{
+  int ret = OB_SUCCESS;
+  if (is_calc_hash_val_) {
+    hash_val = hash_val_;
+  } else {
+    common::ObDatumHashFuncType hash_func = hash_func_;
+    if (OB_ISNULL(hash_func)) {
+      common::ObDatumBasicFuncs *funcs = ObDatumFuncs::get_basic_func(meta_.get_type(),
+                                                                      meta_.get_collation_type());
+      if (OB_ISNULL(funcs) || OB_ISNULL(funcs->default_hash_)) {
+        ret = OB_ERR_UNEXPECTED;
+      } else {
+        hash_func = funcs->default_hash_;
+        // Cache resolved func for subsequent compares / re-hash after reuse patterns.
+        const_cast<ObFTWord *>(this)->hash_func_ = hash_func;
+      }
+    }
+    if (OB_SUCC(ret)) {
+      if (OB_FAIL(hash_func(word_, 0, hash_val_, nullptr))) {
+      } else {
+        is_calc_hash_val_ = true;
+        hash_val = hash_val_;
+      }
+    }
+  }
+  return ret;
+}
+
 bool ObFTWord::operator==(const ObFTWord &other) const
 {
   bool is_equal = false;
   int ret = OB_SUCCESS;
-  int cmp_ret = 0;
-  ObDatumCmpFuncType func = get_datum_cmp_func(meta_, other.meta_);
-  if (func == nullptr) {
+  if (OB_FAIL(do_compare(other, is_equal))) {
     ob_abort();
-  } else if (OB_FAIL(func(word_, other.word_, cmp_ret, nullptr))) {
-    ob_abort();
-  } else {
-    is_equal = (cmp_ret == 0);
   }
   return is_equal;
 }
+
+int ObFTWord::do_compare(const ObFTWord &other, bool &is_equal) const
+{
+  int ret = OB_SUCCESS;
+  int cmp_ret = 0;
+  is_equal = false;
+  if (OB_LIKELY(is_calc_hash_val_ && other.is_calc_hash_val_) && (hash_val_ != other.hash_val_)) {
+    // not equal
+  } else {
+    ObDatumCmpFuncType cmp_func = cmp_func_;
+    if (OB_ISNULL(cmp_func)) {
+      cmp_func = get_datum_cmp_func(meta_, other.meta_);
+      if (OB_NOT_NULL(cmp_func)) {
+        const_cast<ObFTWord *>(this)->cmp_func_ = cmp_func;
+      }
+    }
+    if (OB_ISNULL(cmp_func)) {
+      ret = OB_ERR_UNEXPECTED;
+    } else if (OB_FAIL(cmp_func(word_, other.word_, cmp_ret, nullptr))) {
+      ret = OB_ERR_UNEXPECTED;
+    } else {
+      is_equal = (0 == cmp_ret);
+    }
+  }
+  return ret;
+}
+
 } // namespace storage
 } // namespace oceanbase
