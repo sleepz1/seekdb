@@ -402,16 +402,9 @@ int ObFTParseHelper::segment(
   } else {
     words.reuse();
     ObAddWord add_word(parser_property_, meta, add_word_flag_, *allocator_, words);
-    // Avoid cached reuse_parser during FTS build until CI proves it stable;
-    // TOKENIZE can re-enable segment_with_cache after green tip.
-    if (OB_FAIL(segment(parser_property_,
-                        parser_name_.get_parser_version(),
-                        parser_desc_,
-                        cs,
-                        fulltext,
-                        fulltext_len,
-                        *allocator_,
-                        add_word))) {
+    // Re-enable reuse_parser now that groupby overwrite=1 is restored and
+    // same-runner CI is green on 3875c66 (Lost-connection / ERROR 4200 fixed).
+    if (OB_FAIL(segment_with_cache(cs, fulltext, fulltext_len, add_word))) {
     } else {
       doc_length = add_word.get_add_word_count();
     }
