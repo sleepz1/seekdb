@@ -1,0 +1,137 @@
+-- GLOB mismatch!
+-- ARCHITECTURE: x86_64
+-- Using C++20 standard
+-- build without pie
+-- Using OB_CC compiler: /home/runner/work/seekdb/seekdb/deps/3rd/usr/local/oceanbase/devtools/bin/clang-17
+-- Using OB_CXX compiler: /home/runner/work/seekdb/seekdb/deps/3rd/usr/local/oceanbase/devtools/bin/clang++-17
+-- ob-compile not found, compile locally.
+-- STDC_SHARED_LIB: /home/runner/work/seekdb/seekdb/deps/3rd/usr/local/oceanbase/devtools/lib64/libstdc++.so.6.0.30
+-- [rust] cargo: /home/runner/.cargo/bin/cargo
+-- [rust] config target ready -> /home/runner/work/seekdb/seekdb/build_release/rust-target/exports/libconfig.a
+-- [rust] local target ready -> /home/runner/work/seekdb/seekdb/build_release/rust-target/exports/liblocal.a
+-- [rust] sql_nio target ready -> /home/runner/work/seekdb/seekdb/build_release/rust-target/exports/libsql_nio.a
+-- oblib_add_library compress
+-- oblib_add_library zstd_1_3_8
+-- oblib_add_library restore
+-- ob_lib_add_target oblib_lib
+-- ob_lib_add_target oblib_lib_simd
+-- ob_lib_add_target oblib_lib_bitmap
+-- ob_add_new_object_target ob_malloc_object
+-- ob_lib_add_target oblib_common
+-- ob_lib_add_target oblib_rpc
+-- oblib_add_library oblib_grpc
+-- oblib_extra_objects /home/runner/work/seekdb/seekdb/build_release/src/oblib/lib/compress/zstd_1_3_8/zstd_1_3_8_objs.o
+-- ob_add_new_object_target ob_share
+-- ob_add_new_object_target ob_share_extra
+-- observer_add_target ob_data_plane
+-- observer_add_target ob_query
+-- ob_add_new_object_target ob_sql
+-- ob_add_new_object_target ob_sql_extra
+-- observer_add_target ob_sql_simd
+-- observer_add_target ob_pl
+-- observer_add_target syspack_source
+-- observer_add_target ob_standby_runtime
+-- observer_add_target ob_standby
+-- observer_add_target ob_rootserver
+-- observer_add_target ob_logservice
+-- observer_add_target ob_storage_tablet_autoincrement_state
+-- ob_add_new_object_target ob_storage
+-- observer_add_target ob_storage_simd
+-- observer_add_target ob_server
+-- Configuring done (0.4s)
+-- Generating done (0.6s)
+-- Build files have been written to: /home/runner/work/seekdb/seekdb/build_release
+[  0%] Built target seekdb_jemalloc_build
+[  1%] Built target rust_staticlibs_build
+[  1%] Built target restore
+[  7%] Built target zstd_1_3_8_objs
+[  8%] Built target oblib_grpc
+[  8%] Built target oblib_lib_simd
+[  9%] Built target oblib_lib_bitmap
+[ 10%] Built target malloc_hook
+[ 11%] Built target oblib_rpc
+[ 11%] Built target ob_data_plane
+[ 15%] Built target oblib_common
+[ 15%] Built target ob_query
+[ 19%] Built target ob_share_extra
+[ 19%] Built target ob_sql_simd
+[ 24%] Built target ob_sql_server_parser_objects
+[ 24%] Building CXX object src/sql/CMakeFiles/ob_sql_extra.dir/engine/expr/ob_datum_cast.cpp.o
+[ 24%] Building CXX object src/pl/CMakeFiles/ob_pl.dir/Unity/unity_ob_pl_pl_common_c___cxx.cxx.o
+[ 40%] Built target ob_share
+[ 40%] Building CXX object src/pl/CMakeFiles/ob_pl.dir/Unity/unity_ob_pl_pl_cache_c___cxx.cxx.o
+[ 40%] Building CXX object src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_resolver_ddl_1_c___cxx.cxx.o
+[ 41%] Building CXX object src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_resolver_dcl_0_c___cxx.cxx.o
+[ 41%] Building CXX object src/pl/CMakeFiles/ob_pl.dir/Unity/unity_ob_pl_pl_recompile_c___cxx.cxx.o
+[ 41%] Building CXX object src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_resolver_0_c___cxx.cxx.o
+[ 41%] Building CXX object src/sql/CMakeFiles/ob_sql_extra.dir/engine/expr/ob_obj_cast_runtime.cpp.o
+[ 41%] Built target generate_syspack_source
+[ 41%] Building CXX object src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_engine_expr_3_c___cxx.cxx.o
+[ 46%] Built target ob_sql_extra
+[ 47%] Building CXX object src/pl/CMakeFiles/ob_pl.dir/Unity/unity_ob_pl_pl_sys_package_c___cxx.cxx.o
+[ 47%] Building CXX object src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_plan_cache_0_c___cxx.cxx.o
+[ 48%] Building CXX object src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_engine_expr_8_c___cxx.cxx.o
+[ 48%] Built target ob_standby_runtime
+[ 48%] Building CXX object src/pl/CMakeFiles/ob_pl.dir/parser/ob_pl_parser.cpp.o
+[ 48%] Building CXX object src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_optimizer_stat_1_c___cxx.cxx.o
+[ 49%] Built target ob_pl
+[ 49%] Building CXX object src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_optimizer_0_c___cxx.cxx.o
+[ 49%] Building CXX object src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_executor_0_c___cxx.cxx.o
+[ 49%] Building CXX object src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_resolver_ddl_2_c___cxx.cxx.o
+[ 49%] Building CXX object src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_engine_vector_discrete_0_c___cxx.cxx.o
+In file included from CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_optimizer_0_c___cxx.cxx:60:
+[1m/home/runner/work/seekdb/seekdb/src/sql/optimizer/ob_join_order.cpp:16721:40: [0m[0;1;31merror: [0m[1mno matching member function for call to 'segment'[0m
+ 16721 |     } else if (OB_FAIL(tokenize_helper.segment([0m
+       | [0;1;32m                       ~~~~~~~~~~~~~~~~^~~~~~~
+[0m[1m../../../src/oblib/lib/utility/ob_macro_utils.h:651:84: [0m[0;1;30mnote: [0mexpanded from macro 'OB_FAIL'[0m
+  651 | #define OB_FAIL(statement) (OB_UNLIKELY(::oceanbase::common::OB_SUCCESS != (ret = (statement))))[0m
+      | [0;1;32m                                                                                   ^~~~~~~~~
+[0m[1m../../../src/oblib/lib/utility/ob_macro_utils.h:627:48: [0m[0;1;30mnote: [0mexpanded from macro 'OB_UNLIKELY'[0m
+  627 | #define OB_UNLIKELY(x)     __builtin_expect(!!(x),!!0)[0m
+      | [0;1;32m                                               ^
+[0m[1m../../../src/data_plane/api/data_plane/fts/ob_fts_parser_helper.h:173:7: [0m[0;1;30mnote: [0mcandidate function not viable: no known conversion from 'hash::ObHashMap<ObFTWord, int64_t>' (aka 'ObHashMap<oceanbase::storage::ObFTWord, long>') to 'ObFTWordMap &' (aka 'ObHashMap<oceanbase::storage::ObFTWord, long, oceanbase::common::hash::NoPthreadDefendMode, hash_func<ObFTWord>, equal_to<ObFTWord>, SimpleAllocer<ObHashTableNode<oceanbase::common::hash::HashMapPair<oceanbase::storage::ObFTWord, long>>, common::hash::NodeNumTraits<typename common::hash::HashMapTypes<ObFTWord, int64_t>::AllocType>::NODE_NUM, oceanbase::common::hash::NoPthreadDefendMode>> &') for 5th argument[0m
+  173 |   int segment([0m
+      | [0;1;32m      ^
+[0m  174 |       const common::ObObjMeta &meta,[0m
+  175 |       const char *fulltext,[0m
+  176 |       const int64_t fulltext_len,[0m
+  177 |       int64_t &doc_length,[0m
+  178 |       ObFTWordMap &words) const;[0m
+      | [0;1;32m      ~~~~~~~~~~~~~~~~~~
+[0m[1m../../../src/data_plane/api/data_plane/fts/ob_fts_parser_helper.h:210:14: [0m[0;1;30mnote: [0mcandidate function not viable: requires 8 arguments, but 5 were provided[0m
+  210 |   static int segment([0m
+      | [0;1;32m             ^
+[0m  211 |       const ObFTParserProperty &property,[0m
+      | [0;1;32m      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m  212 |       const int64_t parser_version,[0m
+      | [0;1;32m      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m  213 |       const ObIFTParserDesc *parser_desc,[0m
+      | [0;1;32m      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m  214 |       const ObCharsetInfo *cs,[0m
+      | [0;1;32m      ~~~~~~~~~~~~~~~~~~~~~~~~
+[0m  215 |       const char *fulltext,[0m
+      | [0;1;32m      ~~~~~~~~~~~~~~~~~~~~~
+[0m  216 |       const int64_t fulltext_len,[0m
+      | [0;1;32m      ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m  217 |       common::ObIAllocator &allocator,[0m
+      | [0;1;32m      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m  218 |       ObAddWord &add_word);[0m
+      | [0;1;32m      ~~~~~~~~~~~~~~~~~~~
+[0m1 error generated.
+gmake[3]: *** [src/sql/CMakeFiles/ob_sql.dir/build.make:174: src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_optimizer_0_c___cxx.cxx.o] Error 1
+gmake[3]: *** Waiting for unfinished jobs....
+[ 49%] Built target ob_standby
+[ 49%] Building CXX object src/rootserver/CMakeFiles/ob_rootserver.dir/Unity/unity_ob_rootserver_ob_rootserver_sql_mixed_0_c___cxx.cxx.o
+[ 50%] Built target ob_logservice
+[ 50%] Building CXX object src/rootserver/CMakeFiles/ob_rootserver.dir/Unity/unity_ob_rootserver_ob_rootserver_runtime_common_1_c___cxx.cxx.o
+[ 50%] Building CXX object src/rootserver/CMakeFiles/ob_rootserver.dir/Unity/unity_ob_rootserver_ob_rootserver_runtime_common_0_c___cxx.cxx.o
+gmake[2]: *** [CMakeFiles/Makefile2:1086: src/sql/CMakeFiles/ob_sql.dir/all] Error 2
+gmake[2]: *** Waiting for unfinished jobs....
+[ 51%] Building CXX object src/rootserver/CMakeFiles/ob_rootserver.dir/Unity/unity_ob_rootserver_ob_rootserver_runtime_ddl_0_c___cxx.cxx.o
+[ 51%] Building CXX object src/rootserver/CMakeFiles/ob_rootserver.dir/Unity/unity_ob_rootserver_ob_rootserver_runtime_fork_freeze_0_c___cxx.cxx.o
+[ 51%] Building CXX object src/rootserver/CMakeFiles/ob_rootserver.dir/Unity/unity_ob_rootserver_ob_rootserver_runtime_services_0_c___cxx.cxx.o
+[ 51%] Building CXX object src/rootserver/CMakeFiles/ob_rootserver.dir/ddl_task/ob_ddl_redefinition_task.cpp.o
+[ 52%] Building CXX object src/rootserver/CMakeFiles/ob_rootserver.dir/ob_ddl_service.cpp.o
+[ 54%] Built target ob_rootserver
+gmake[1]: *** [CMakeFiles/Makefile2:1754: src/observer/CMakeFiles/seekdb.dir/rule] Error 2
+gmake: *** [Makefile:671: seekdb] Error 2

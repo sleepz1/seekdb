@@ -1,0 +1,4 @@
+src/data_plane/api/data_plane/fts/ob_fts_struct.h
+src/sql/resolver/ddl/ob_fts_index_builder_util.cpp
+src/sql/resolver/ddl/ob_fts_index_builder_util.h
+src/storage/fts/ob_fts_stop_word.cpp
