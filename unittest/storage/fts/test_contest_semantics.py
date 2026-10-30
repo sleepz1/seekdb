@@ -78,6 +78,69 @@ for name,sql,params in [
         results['shape/'+name]=normalize(cur.fetchall())
     except pymysql.MySQLError as error:
         results['shape/'+name]={'error':error.args[0]}
+# SDB-07 regression cases for the changed code paths (compared against the parent):
+# 1) inline utf8mb4_general_ci / binary string compare used by sort, group by,
+#    distinct, comparison predicates and FTS aux index build;
+# 2) casedown skip for already-lowercase ASCII and CJK tokens;
+# 3) BOOL(MATCH) relevance filter evaluated directly.
+cmp_values=['a','A','b','B','ab','aB','Ab','a ','a  ','a\t','','  ','z','Z','_','0','9',
+            '数据','数据库','数据 ','數據','数','䀀','鿿','é','É','e','E','ß','ss','ẞ','Ａ','ａ','ＡＢ',
+            'İ','i','I','ı','Σ','σ','ς','😀','😀a','𠀀','a😀','数据😀','数据a','数据A','A数据','a数据',
+            '中文 ','中文','中文\t','\u3000','x\u3000','abc'*30,'ABC'*30,'abc'*29+'abd','数据库'*20,'数据库'*19+'数据底']
+cur.execute('CREATE DATABASE IF NOT EXISTS sdb07_regress')
+cur.execute('DROP TABLE IF EXISTS sdb07_regress.cmp')
+cur.execute('CREATE TABLE sdb07_regress.cmp(id INT PRIMARY KEY, s VARCHAR(256) COLLATE utf8mb4_general_ci, b VARBINARY(1024), t TEXT COLLATE utf8mb4_general_ci)')
+for i,v in enumerate(cmp_values):
+    cur.execute('INSERT INTO sdb07_regress.cmp VALUES(%s,%s,%s,%s)',(i,v,v.encode('utf-8'),v+' '+cmp_values[(i*7)%len(cmp_values)]+' OceanBase 全文索引 Database'))
+for name,sql in [
+    ('order-ci','SELECT id FROM sdb07_regress.cmp ORDER BY s,id'),
+    ('order-ci-desc','SELECT id FROM sdb07_regress.cmp ORDER BY s DESC,id'),
+    ('order-bin','SELECT id FROM sdb07_regress.cmp ORDER BY b,id'),
+    ('group-ci','SELECT MIN(id),COUNT(*) FROM sdb07_regress.cmp GROUP BY s ORDER BY MIN(id)'),
+    ('distinct-ci','SELECT COUNT(DISTINCT s) FROM sdb07_regress.cmp'),
+    ('pairs-ci','SELECT a.id,b.id,a.s<b.s,a.s=b.s,a.s>b.s FROM sdb07_regress.cmp a, sdb07_regress.cmp b ORDER BY a.id,b.id'),
+    ('pairs-bin','SELECT a.id,b.id,a.b<b.b,a.b=b.b FROM sdb07_regress.cmp a, sdb07_regress.cmp b ORDER BY a.id,b.id'),
+]:
+    try:
+        cur.execute(sql)
+        results['cmp/'+name]=normalize(cur.fetchall())
+    except pymysql.MySQLError as error:
+        results['cmp/'+name]={'error':error.args[0]}
+for parser in ['ik','beng','ngram','space']:
+    idx='ft_'+parser
+    try:
+        cur.execute(f'ALTER TABLE sdb07_regress.cmp ADD FULLTEXT INDEX {idx}(t) WITH PARSER {parser}')
+        for q in ['数据','DATA','database','oceanbase','全文索引','a','é','ss','😀']:
+            for mode in [' IN NATURAL LANGUAGE MODE',' IN BOOLEAN MODE']:
+                cur.execute(f'SELECT id, ROUND(MATCH(t) AGAINST(%s{mode}),9) AS sc FROM sdb07_regress.cmp WHERE MATCH(t) AGAINST(%s{mode}) ORDER BY sc DESC,id',(q,q))
+                results[f'cmp-fts/{parser}/{q}/{mode}']=normalize(cur.fetchall())
+        cur.execute(f'ALTER TABLE sdb07_regress.cmp DROP INDEX {idx}')
+    except pymysql.MySQLError as error:
+        results[f'cmp-fts/{parser}/error']={'error':error.args[0]}
+for i,text in enumerate(['abc数据库def','ABC数据库DEF','Abc數據庫Def','ÀÉÎõü数据','ＡＢＣ数据ａｂｃ','İSTANBUL istanbul','ΣΊΣΥΦΟΣ σίσυφος','ǅungla ǈ ǋ','ⅫⅻⒶⓐ','x'*300+'数据']):
+    for parser in ['ik','beng','ngram','space']:
+        try:
+            cur.execute('SELECT TOKENIZE(%s,%s)',(text,parser))
+            results[f'casedown/{parser}/{i}']=sorted(json.loads(cur.fetchone()[0]),key=lambda x:json.dumps(x,sort_keys=True,ensure_ascii=False))
+        except pymysql.MySQLError as error:
+            results[f'casedown/{parser}/{i}']={'error':error.args[0]}
+expr_cn="MATCH(title, content) AGAINST(%s)"
+expr_en="MATCH(title_en, content_en) AGAINST(%s IN BOOLEAN MODE)"
+for name,sql,params in [
+    ('or',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE {expr_cn} OR id < 10',('全文索引 分词器',)),
+    ('not',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE NOT ({expr_cn})',('全文索引 分词器',)),
+    ('and-filter',f'SELECT id FROM fts_large_bench.docs WHERE {expr_cn} AND id % 97 = 3 ORDER BY id',('数据库',)),
+    ('bool-neg',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE {expr_en}',('+database -performance',)),
+    ('bool-only-neg',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE {expr_en}',('-database',)),
+    ('bool-limit',f'SELECT id FROM fts_large_bench.docs WHERE {expr_en} ORDER BY id LIMIT 50',('database audit',)),
+    ('is-true',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE ({expr_cn}) IS TRUE',('分词器',)),
+]:
+    try:
+        cur.execute(sql,params)
+        results['boolfilter/'+name]=normalize(cur.fetchall())
+    except pymysql.MySQLError as error:
+        results['boolfilter/'+name]={'error':error.args[0]}
+cur.execute('DROP DATABASE IF EXISTS sdb07_regress')
 connection.close()
 pathlib.Path(sys.argv[1]).write_text(json.dumps(results,ensure_ascii=False,sort_keys=True),encoding='utf-8')
 print('Captured '+str(len(results))+' full token/ID/score cases')

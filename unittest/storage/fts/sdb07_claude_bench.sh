@@ -157,6 +157,20 @@ run_variant() {
   rm -rf "$INSTANCE"
 }
 
+# Equivalence of the inline utf8mb4_general_ci compare against the original collation code.
+cmp_equiv() {
+  local C=src/oblib/lib/charset CXX=$ROOT/deps/3rd/usr/local/oceanbase/devtools/bin/clang++-17 out
+  if out=$($CXX -std=gnu++20 -Dregister= --gcc-toolchain=$ROOT/deps/3rd/usr/local/oceanbase/devtools -O1 -Isrc/oblib -Isrc \
+      -Ideps/3rd/usr/local/oceanbase/deps/devel/include -w unittest/storage/fts/sdb07_utf8mb4_cmp_equiv.cpp \
+      $C/ob_ctype_mb.cc $C/ob_ctype_simple.cc $C/ob_ctype_bin.cc $C/ob_dtoa.cc -o "$OUT/cmp_equiv" 2>&1 | grep -v warning | tail -5) \
+      && out="$out $("$OUT/cmp_equiv")"; then
+    notice "utf8mb4 cmp equivalence" "$out"
+  else
+    status=1; notice "utf8mb4 cmp equivalence" "FAILED: $out"
+  fi
+  echo "$out" > "$OUT/cmp-equiv.txt"
+}
+cmp_equiv
 # variants file: label sha profile(0/1); first line must be base
 git diff --name-only 5d7919353d73cbbd0012c777b9beb22abf5692eb "$HEAD_SHA" -- src > "$OUT/changed-sources.txt"
 while read -r label sha profile; do
