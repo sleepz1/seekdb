@@ -139,17 +139,22 @@ int ObBasicEnglishFTParserDesc::segment(
 {
   int ret = OB_SUCCESS;
   ObBEngFTParser *parser = nullptr;
+  ObIAllocator *meta_alloc = nullptr;
   if (OB_ISNULL(param) || OB_ISNULL(param->fulltext_) || OB_UNLIKELY(!param->is_valid())) {
     ret = OB_INVALID_ARGUMENT;
-  } else if (OB_ISNULL(parser = OB_NEWx(ObBEngFTParser, param->allocator_, *(param->allocator_)))) {
+  } else if (FALSE_IT(meta_alloc = (nullptr != param->metadata_alloc_) ? param->metadata_alloc_
+                                                                      : param->allocator_)) {
+  } else if (OB_ISNULL(meta_alloc)) {
+    ret = OB_INVALID_ARGUMENT;
+  } else if (OB_ISNULL(parser = OB_NEWx(ObBEngFTParser, meta_alloc, *meta_alloc))) {
     ret = OB_ALLOCATE_MEMORY_FAILED;
   } else if (OB_FAIL(parser->init(param))) {
   } else {
     iter = parser;
   }
 
-  if (OB_FAIL(ret)) {
-    OB_DELETEx(ObBEngFTParser, param->allocator_, parser);
+  if (OB_FAIL(ret) && OB_NOT_NULL(meta_alloc)) {
+    OB_DELETEx(ObBEngFTParser, meta_alloc, parser);
   }
 
   return ret;
@@ -160,10 +165,15 @@ void ObBasicEnglishFTParserDesc::free_token_iter(
     ObITokenIterator *&iter) const
 {
   if (OB_NOT_NULL(iter)) {
-    abort_unless(nullptr != param);
-    abort_unless(nullptr != param->allocator_);
+    ObIAllocator *meta_alloc = nullptr;
+    if (OB_NOT_NULL(param)) {
+      meta_alloc = (nullptr != param->metadata_alloc_) ? param->metadata_alloc_ : param->allocator_;
+    }
     iter->~ObITokenIterator();
-    param->allocator_->free(iter);
+    if (OB_NOT_NULL(meta_alloc)) {
+      meta_alloc->free(iter);
+    }
+    iter = nullptr;
   }
 }
 

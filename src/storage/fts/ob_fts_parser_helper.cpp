@@ -318,7 +318,8 @@ ObFTParseHelper::ObFTParseHelper()
     add_word_flag_(),
     parser_property_(),
     is_inited_(false),
-    cached_iter_(nullptr)
+    cached_iter_(nullptr),
+    parser_cache_alloc_(common::ObMemAttr("FTParseCache"))
 {
 }
 
@@ -357,18 +358,17 @@ void ObFTParseHelper::free_cached_iter() const
 {
   if (OB_NOT_NULL(cached_iter_)) {
     ObFTParserParam param;
-    param.allocator_ = allocator_;
-    param.metadata_alloc_ = allocator_;
-    param.scratch_alloc_ = allocator_;
-    if (OB_NOT_NULL(parser_desc_) && OB_NOT_NULL(allocator_)) {
+    param.allocator_ = &parser_cache_alloc_;
+    param.metadata_alloc_ = &parser_cache_alloc_;
+    param.scratch_alloc_ = &parser_cache_alloc_;
+    if (OB_NOT_NULL(parser_desc_)) {
       parser_desc_->free_token_iter(&param, cached_iter_);
     } else {
       cached_iter_->~ObITokenIterator();
-      if (OB_NOT_NULL(allocator_)) {
-        allocator_->free(cached_iter_);
-      }
+      parser_cache_alloc_.free(cached_iter_);
     }
     cached_iter_ = nullptr;
+    parser_cache_alloc_.reset();
   }
 }
 
@@ -530,10 +530,12 @@ int ObFTParseHelper::segment_with_cache(
     ObAddWord &add_word) const
 {
   int ret = OB_SUCCESS;
+  // Cached parser must live on parser_cache_alloc_: callers (FT DML /
+  // FTIndexRowCache) reuse() their arenas between documents.
   ObFTParserParam param;
-  param.allocator_ = allocator_;
-  param.metadata_alloc_ = allocator_;
-  param.scratch_alloc_ = allocator_;
+  param.allocator_ = &parser_cache_alloc_;
+  param.metadata_alloc_ = &parser_cache_alloc_;
+  param.scratch_alloc_ = &parser_cache_alloc_;
   param.cs_ = cs;
   param.fulltext_ = fulltext;
   param.ft_length_ = fulltext_len;

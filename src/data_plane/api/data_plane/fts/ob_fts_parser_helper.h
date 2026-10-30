@@ -18,6 +18,7 @@
 #define OB_FTS_PARSER_HELPER_H_
 
 #include "lib/allocator/ob_fifo_allocator.h"
+#include "lib/allocator/page_arena.h"
 #include "lib/charset/ob_charset.h"
 #include "lib/string/ob_string.h"
 #include "object/ob_object.h"
@@ -234,6 +235,9 @@ private:
   ObFTParserProperty parser_property_;
   bool is_inited_;
   mutable ObITokenIterator *cached_iter_;
+  // Owns cached parser lifetime; must NOT share ObDomainDMLIterator /
+  // ObFTIndexRowCache arenas that reuse() between documents.
+  mutable common::ObArenaAllocator parser_cache_alloc_;
 
 private:
   static constexpr const char *ENTRY_NAME_DOC_LEN = "doc_len";
