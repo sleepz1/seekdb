@@ -87,10 +87,8 @@ int ObExprTokenize::tokenize_fulltext(const TokenizeParam &param,
                                       ObIJsonBase *&result)
 {
   int ret = OB_SUCCESS;
-  UNUSED(allocator);
-  // Thread-local helper keeps ObIFTParser across TOKENIZE calls (bench hot path).
+  // The helper owns parser metadata; tokens and JSON belong to this evaluation.
   thread_local storage::ObFTParseHelper tl_helper;
-  thread_local common::ObArenaAllocator tl_meta_alloc(common::ObMemAttr("FTTokenizeTL"));
   bool same = false;
   if (OB_FAIL(tl_helper.check_is_the_same(param.parser_name_, param.properties_, same))) {
     same = false;
@@ -98,10 +96,10 @@ int ObExprTokenize::tokenize_fulltext(const TokenizeParam &param,
   }
   if (!same) {
     tl_helper.reset();
-    tl_meta_alloc.reset();
-    if (OB_FAIL(tl_helper.init(&tl_meta_alloc, param.parser_name_, param.properties_))) {
+    if (OB_FAIL(tl_helper.init(&allocator, param.parser_name_, param.properties_))) {
     }
   }
+  tl_helper.bind_output_allocator(allocator);
   storage::ObFTParseHelper &tokenize_helper = tl_helper;
   const int64_t ft_word_bkt_cnt = MIN(MAX(param.fulltext_.length() / 2, 2), 997);
   int64_t doc_len = 0;

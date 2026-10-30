@@ -18,6 +18,7 @@
 #define OB_FTS_PARSER_HELPER_H_
 
 #include "lib/allocator/ob_fifo_allocator.h"
+#include "lib/allocator/page_arena.h"
 #include "lib/charset/ob_charset.h"
 #include "lib/string/ob_string.h"
 #include "object/ob_object.h"
@@ -203,6 +204,7 @@ public:
       common::ObIJsonBase *&json_root);
 
   void reset();
+  void bind_output_allocator(common::ObIAllocator &allocator) { allocator_ = &allocator; }
 
   TO_STRING_KV(KP_(allocator), K_(parser_name), KP_(parser_desc), K_(is_inited));
 
@@ -233,7 +235,9 @@ private:
   ObAddWordFlag add_word_flag_;
   ObFTParserProperty parser_property_;
   bool is_inited_;
+  mutable common::ObArenaAllocator parser_metadata_allocator_;
   mutable ObITokenIterator *cached_iter_;
+  mutable const ObCharsetInfo *cached_charset_;
 
 private:
   static constexpr const char *ENTRY_NAME_DOC_LEN = "doc_len";
