@@ -382,6 +382,89 @@ struct ObDatumStrCmpImpl
   }
 };
 
+// Exact inline prefix of ob_strnncollsp_utf8mb4 for utf8mb4_general_ci. ASCII and
+// well-formed U+4000..U+9FFF characters are compared with the collation's own sort
+// table; once anything else (or the end of the shorter string) is reached, the
+// remaining suffixes go to the charset implementation, which carries no state
+// across already-equal characters, so the result is identical.
+struct ObDatumUtf8mb4GeneralCiCmp
+{
+  static OB_INLINE bool simple_char(const unsigned char *p, const int64_t remain,
+                                    int64_t &char_len, ob_wc_t &wc)
+  {
+    bool is_simple = true;
+    const unsigned char c = p[0];
+    if (c < 0x80) {
+      char_len = 1;
+      wc = c;
+    } else if (c >= 0xE4 && c <= 0xE9 && remain >= 3
+               && 0x80 == (p[1] & 0xC0) && 0x80 == (p[2] & 0xC0)) {
+      char_len = 3;
+      wc = (static_cast<ob_wc_t>(c & 0x0F) << 12) | (static_cast<ob_wc_t>(p[1] & 0x3F) << 6)
+          | static_cast<ob_wc_t>(p[2] & 0x3F);
+    } else {
+      is_simple = false;
+    }
+    return is_simple;
+  }
+  static OB_INLINE void to_sort(const ObCharsetInfo &cs, ob_wc_t &wc)
+  {
+    const ObUnicaseInfo *uni_plane = cs.caseinfo;
+    if (wc <= uni_plane->maxchar) {
+      const ObUnicaseInfoChar *page = uni_plane->page[wc >> 8];
+      if (OB_NOT_NULL(page)) {
+        wc = (cs.state & OB_CS_LOWER_SORT) ? page[wc & 0xFF].tolower : page[wc & 0xFF].sort;
+      }
+    } else {
+      wc = OB_CS_REPLACEMENT_CHARACTER;
+    }
+  }
+  static OB_INLINE int cmp(const ObDatum &l, const ObDatum &r, const bool with_end_space)
+  {
+    static const ObCharsetInfo *cs = ObCharset::get_charset(CS_TYPE_UTF8MB4_GENERAL_CI);
+    int cmp_ret = 0;
+    bool decided = false;
+    int64_t i = 0;
+    const unsigned char *s = reinterpret_cast<const unsigned char *>(l.ptr_);
+    const unsigned char *t = reinterpret_cast<const unsigned char *>(r.ptr_);
+    const int64_t s_len = l.len_;
+    const int64_t t_len = r.len_;
+    const int64_t min_len = s_len < t_len ? s_len : t_len;
+    if (OB_NOT_NULL(cs) && OB_NOT_NULL(cs->caseinfo)) {
+      while (i < min_len && !decided) {
+        int64_t s_char_len = 0;
+        int64_t t_char_len = 0;
+        ob_wc_t s_wc = 0;
+        ob_wc_t t_wc = 0;
+        if (s[i] == t[i] && s[i] < 0x80) {
+          ++i;
+        } else if (!simple_char(s + i, s_len - i, s_char_len, s_wc)
+                   || !simple_char(t + i, t_len - i, t_char_len, t_wc)
+                   || s_char_len != t_char_len) {
+          break;
+        } else if (s_wc == t_wc) {
+          i += s_char_len;
+        } else {
+          to_sort(*cs, s_wc);
+          to_sort(*cs, t_wc);
+          if (s_wc != t_wc) {
+            cmp_ret = s_wc > t_wc ? 1 : -1;
+            decided = true;
+          } else {
+            i += s_char_len;
+          }
+        }
+      }
+    }
+    if (!decided) {
+      cmp_ret = ObCharset::strcmpsp(CS_TYPE_UTF8MB4_GENERAL_CI, l.ptr_ + i, s_len - i,
+                                    r.ptr_ + i, t_len - i, with_end_space);
+      cmp_ret = cmp_ret > 0 ? 1 : (cmp_ret < 0 ? -1 : 0);
+    }
+    return cmp_ret;
+  }
+};
+
 template <ObCollationType CS_TYPE, bool WITH_END_SPACE>
 struct ObDatumStrCmp : public ObDefined<SupportedCollection<CS_TYPE>::defined_>
 {
@@ -396,6 +479,8 @@ struct ObDatumStrCmp : public ObDefined<SupportedCollection<CS_TYPE>::defined_>
     } else if (l.len_ == r.len_ && (l.ptr_ == r.ptr_ || 0 == l.len_ || 0 == MEMCMP(l.ptr_, r.ptr_, l.len_))) {
       // Byte-identical strings are equal under every collation.
       cmp_ret = 0;
+    } else if (CS_TYPE == CS_TYPE_UTF8MB4_GENERAL_CI) {
+      cmp_ret = ObDatumUtf8mb4GeneralCiCmp::cmp(l, r, WITH_END_SPACE);
     } else {
       ret = ObDatumStrCmpImpl::cmp(l, r, cmp_ret, CS_TYPE, WITH_END_SPACE);
     }
