@@ -39,6 +39,30 @@ inline bool is_ascii_casedown_noop(const char *str, const int64_t len)
   return true;
 }
 
+// For utf8mb4 also accept well-formed U+4000..U+9FFF (lead byte E4..E9), which
+// covers CJK ideographs; these code points have no case mapping, so casedn
+// reproduces the input bytes exactly. Anything else falls back to casedn.
+inline bool is_utf8mb4_casedown_noop(const char *str, const int64_t len)
+{
+  const unsigned char *p = reinterpret_cast<const unsigned char *>(str);
+  int64_t i = 0;
+  while (i < len) {
+    const unsigned char c = p[i];
+    if (c < 0x80) {
+      if (c >= 'A' && c <= 'Z') {
+        return false;
+      }
+      ++i;
+    } else if (c >= 0xE4 && c <= 0xE9 && i + 2 < len
+               && 0x80 == (p[i + 1] & 0xC0) && 0x80 == (p[i + 2] & 0xC0)) {
+      i += 3;
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
 // Stop words are compared under utf8mb4_general_ci, which maps every character to
 // exactly one weight (no expansions) and ignores trailing spaces. All built-in stop
 // words are short ASCII words, so:
@@ -246,8 +270,11 @@ int ObAddWord::casedown_word(const ObFTWord &src, ObFTWord &dst)
     ret = OB_INVALID_ARGUMENT;
   } else if (flag_.casedown()) {
     const ObString src_str = src.get_word().get_string();
-    if (is_ascii_compatible_charset(word_meta_.get_collation_type())
-        && is_ascii_casedown_noop(src_str.ptr(), src_str.length())) {
+    const ObCollationType coll_type = word_meta_.get_collation_type();
+    if (CHARSET_UTF8MB4 == ObCharset::charset_type_by_coll(coll_type)
+        ? is_utf8mb4_casedown_noop(src_str.ptr(), src_str.length())
+        : (is_ascii_compatible_charset(coll_type)
+           && is_ascii_casedown_noop(src_str.ptr(), src_str.length()))) {
       dst = src;
     } else {
       ObString dst_str;
