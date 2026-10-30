@@ -387,7 +387,19 @@ struct ObDatumStrCmp : public ObDefined<SupportedCollection<CS_TYPE>::defined_>
 {
   inline static int cmp(const ObDatum &l, const ObDatum &r, int &cmp_ret)
   {
-    return ObDatumStrCmpImpl::cmp(l, r, cmp_ret, CS_TYPE, WITH_END_SPACE);
+    int ret = OB_SUCCESS;
+    if (CS_TYPE == CS_TYPE_BINARY) {
+      // Same result as ob_strnncollsp_binary, without the charset dispatch.
+      const uint32_t min_len = l.len_ < r.len_ ? l.len_ : r.len_;
+      const int mem_ret = 0 == min_len ? 0 : MEMCMP(l.ptr_, r.ptr_, min_len);
+      cmp_ret = mem_ret > 0 ? 1 : (mem_ret < 0 ? -1 : (l.len_ > r.len_ ? 1 : (l.len_ < r.len_ ? -1 : 0)));
+    } else if (l.len_ == r.len_ && (l.ptr_ == r.ptr_ || 0 == l.len_ || 0 == MEMCMP(l.ptr_, r.ptr_, l.len_))) {
+      // Byte-identical strings are equal under every collation.
+      cmp_ret = 0;
+    } else {
+      ret = ObDatumStrCmpImpl::cmp(l, r, cmp_ret, CS_TYPE, WITH_END_SPACE);
+    }
+    return ret;
   }
 };
 

@@ -22,7 +22,6 @@
 #include "data_plane/fts/dict/ob_gen_dic_loader.h"
 #include "data_plane/fts/dict/ob_dic_lock_service.h"
 #include "share/ob_server_struct.h"
-#include "lib/cpu/ob_cpu_topology.h"
 #include "data_plane/fts/ob_fts_parser_helper.h"
 #include "share/schema/ob_multi_version_schema_service.h"
 #include "share/schema/ob_schema_utils.h"
@@ -1032,9 +1031,6 @@ int ObFtsIndexBuilderUtil::generate_doc_id_column(
   return ret;
 }
 
-// upper bound of the automatic degree used to build fulltext aux index tables
-static constexpr int64_t FTS_AUTO_BUILD_MAX_PARALLELISM = 4;
-
 int ObFtsIndexBuilderUtil::decide_parallelism(
     const share::schema::ObIndexType index_type,
     const int64_t original_parallelism,
@@ -1049,21 +1045,9 @@ int ObFtsIndexBuilderUtil::decide_parallelism(
         decided_parallelism = MAX(original_parallelism, 1L);
         break;
       case share::schema::ObIndexType::INDEX_TYPE_DOC_ID_ROWKEY_LOCAL:
-        decided_parallelism = MAX(original_parallelism, 1L);
-        break;
       case share::schema::ObIndexType::INDEX_TYPE_FTS_INDEX_LOCAL:
       case share::schema::ObIndexType::INDEX_TYPE_FTS_DOC_WORD_LOCAL:
-        // Word segmentation dominates fulltext aux index builds. When neither a hint nor the
-        // session asks for a degree, scan and segment the base table with a small automatic
-        // degree so the CPU-bound tokenization is spread over several PX workers. The degree is
-        // bounded by half of the server cpu count (at most 4), which keeps the concurrently
-        // built word-doc and doc-word aux tables within the default PX worker target.
-        if (1 == original_parallelism) {
-          const int64_t cpu_cnt = common::get_cpu_count();
-          decided_parallelism = MIN(MAX(cpu_cnt / 2, 1L), FTS_AUTO_BUILD_MAX_PARALLELISM);
-        } else {
-          decided_parallelism = MAX(original_parallelism, 1L);
-        }
+        decided_parallelism = MAX(original_parallelism, 1L);
         break;
       case share::schema::ObIndexType::INDEX_TYPE_NORMAL_MULTIVALUE_LOCAL:
       case share::schema::ObIndexType::INDEX_TYPE_UNIQUE_MULTIVALUE_LOCAL:

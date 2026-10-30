@@ -571,7 +571,13 @@ int ObCharset::strcmpsp(ObCollationType collation_type,
                         bool cmp_endspace)
 {
   int result = 0;
-  if (is_argument_valid(collation_type, str1, str1_len, str2, str2_len)) {
+  if (!is_argument_valid(collation_type, str1, str1_len, str2, str2_len)) {
+  } else if (CS_TYPE_BINARY == collation_type) {
+    // Same result as ob_strnncollsp_binary, without the charset dispatch.
+    const int64_t min_len = str1_len < str2_len ? str1_len : str2_len;
+    const int mem_ret = 0 == min_len ? 0 : MEMCMP(str1, str2, min_len);
+    result = 0 != mem_ret ? mem_ret : static_cast<int>(str1_len - str2_len);
+  } else {
     const ObCharsetInfo *cs = get_charset(collation_type);
     result = cs->coll->strnncollsp(cs,
                                 reinterpret_cast<const unsigned char *>(str1),
