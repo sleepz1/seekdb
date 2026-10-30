@@ -1,0 +1,1 @@
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist

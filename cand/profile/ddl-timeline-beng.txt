@@ -1,0 +1,544 @@
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:39.792372377
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:39.821777423
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:39.850575240
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:39.879139427
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:39.907835410
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:39.936298568
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:39.965118943
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:39.993962411
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.022633868
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.051371308
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.079938488
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.108996167
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.137583334
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.166297416
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.195216957
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.223936428
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.252825959
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.281381241
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.309903844
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.338844397
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.367570895
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.396343351
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.424904096
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.453518412
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.482408159
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.511043691
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.539804447
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.568615843
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.597357866
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.625985693
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.654921355
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.683675110
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.712108679
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.740819310
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.769026284
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.797081111
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.824954588
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.852935934
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.881387374
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.909447524
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.937750286
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.965993928
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:40.993983526
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.022128584
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.050283260
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.078801565
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.107387449
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.135982538
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.164419862
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.193078019
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.221976919
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.250450842
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.279838972
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.308873735
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.338912143
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.367921703
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.396404194
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.424958921
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.453611598
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.482232495
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.511121272
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.539847073
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.568394889
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.597211178
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.625868052
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.654537960
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.682754399
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.710830811
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.738967303
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.767464559
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.795921247
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.824635338
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.855383998
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.887989316
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.923405010
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.957780002
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:41.992283255
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.028428373
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.064944179
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.100422837
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.136716429
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.177003396
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.212583373
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.246624692
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.278245908
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.311183000
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.342230167
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.374777709
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.406174074
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.437421728
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.470560713
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.502747684
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.534558177
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.567352973
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.598879108
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.628736743
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.662044588
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.692628151
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.724880522
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.756784682
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.789475249
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.825302095
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.861829963
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.896874059
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.929555892
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.964216782
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:42.997553750
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.031579080
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.070949518
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.106838034
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.143129090
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.178970335
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.213699934
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.247173857
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.281300199
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.316137428
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.349967096
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.385262622
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.420220384
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.453453317
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.487914897
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.523613662
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.558942520
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.595045925
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.630766666
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.667425729
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.704222770
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.741417914
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.773823331
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.803067462
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.834283618
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.863880565
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.895328373
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.926276019
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.956164915
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:43.987216701
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.017383706
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.047767048
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.077432386
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.106948823
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.136801291
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.169144504
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.200858781
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.229879235
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.258944508
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.287273301
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.316088048
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.344307968
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.373873798
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.402604470
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.431158717
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.459700892
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.489324988
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.517590028
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.545553978
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.573796738
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.601954780
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.629840987
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.657979784
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.686649269
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.714945682
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.743095882
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.771733440
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.800137628
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.828845049
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.857166366
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.885263645
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.913281103
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.941175232
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.969349456
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:44.997563553
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.025574571
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.053560828
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.082061785
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.110442043
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.138890046
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.167300232
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.195365582
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.223430710
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.252008046
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.280347437
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.308986177
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.337457946
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.366127313
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.394651229
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.423331705
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.451572840
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.481197542
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.510389140
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.539694894
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.569621052
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.598601149
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.627668891
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.656358507
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.685444222
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.714369267
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.743063390
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.772203838
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.800622758
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.828808542
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.856800303
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.885173608
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.914018032
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.942742250
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:45.971687716
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.000546304
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.029051305
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.057563922
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.086199266
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.115221252
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.143900197
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.172747157
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.201446570
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.229965577
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.258172811
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.287010040
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.316062042
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.344750006
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.373162043
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.401466710
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.430851924
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.460765476
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.489959982
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.518894297
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.547681092
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.576303822
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.604995341
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.634298272
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.664275923
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.695126977
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.725020243
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.754200903
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.783446860
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.812348579
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.841183776
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.869558724
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.898320754
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.926698327
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.955845980
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:46.984439827
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.012486040
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.041084773
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.069876630
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.099003151
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.128395301
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.157083502
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.185808375
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.214464007
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.243398447
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.272177502
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.301107113
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.330481147
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.359808646
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.388693827
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.417150107
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.445931133
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.474882004
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.503330731
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.531677614
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.560652294
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.590015245
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.618988911
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.648164987
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.676425281
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.704988290
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.733525979
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.762285808
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.791691922
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.820675135
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.849268531
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.877561555
+ERROR 1146 (42S02) at line 1: Table 'oceanbase.__all_virtual_ddl_task_status' doesn't exist
+-- 08:16:47.906265688

@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/home/runner/work/seekdb/seekdb/unittest/storage/fts/test_contest_semantics.py", line 24, in <module>
+    assert not different, 'Full semantic output differs: '+str(different)
+AssertionError: Full semantic output differs: ['shape/alias', 'shape/order-only']
