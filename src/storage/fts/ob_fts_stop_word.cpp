@@ -93,19 +93,19 @@ int ObStopWordChecker::check_stopword(const ObFTWord &word, bool &is_stopword)
     ret = OB_INVALID_ARGUMENT;
   } else {
     ObFTWord cmp_word = word;
-    common::ObArenaAllocator allocator(lib::ObMemAttr("ChkStopWord"));
-    common::ObString cmp_str;
     // stopword set is utf8mb4_general_ci: skip convert/alloc when collation matches.
-    if (word.get_collation_type() == stopword_type_.get_collation_type()) {
-      cmp_word = word;
-    } else if (OB_FAIL(common::ObCharset::charset_convert(
+    if (word.get_collation_type() != stopword_type_.get_collation_type()) {
+      common::ObArenaAllocator allocator(lib::ObMemAttr("ChkStopWord"));
+      common::ObString cmp_str;
+      if (OB_FAIL(common::ObCharset::charset_convert(
                                        allocator,
                                        word.get_word().get_string(),
                                        word.get_collation_type(),
                                        stopword_type_.get_collation_type(),
                                        cmp_str))) {
-    } else {
-      cmp_word = ObFTWord(cmp_str.length(), cmp_str.ptr(), stopword_type_);
+      } else {
+        cmp_word = ObFTWord(cmp_str.length(), cmp_str.ptr(), stopword_type_);
+      }
     }
     if (OB_SUCC(ret)) {
       ret = stopword_set_.exist_refactored(cmp_word);
@@ -151,19 +151,22 @@ int ObAddWord::process_word(
 {
   int ret = OB_SUCCESS;
   bool is_stopword = false;
-  ObFTWord src_word(word_len, word, word_meta_);
-  ObFTWord dst_word;
   if (OB_ISNULL(word) || OB_UNLIKELY(0 >= word_len || 0 >= char_cnt || 0 >= word_freq)) {
     ret = OB_INVALID_ARGUMENT;
   } else if (is_min_max_word(char_cnt)) {
+    // Early exit before ObFTWord / casedown / stopword work (yuque §2.3 short-circuit).
     ++min_max_word_cnt_;
-  } else if (OB_FAIL(casedown_word(src_word, dst_word))) {
-  } else if (OB_FAIL(check_stopword(dst_word, is_stopword))) {
-  } else if (OB_UNLIKELY(is_stopword)) {
-    ++stopword_cnt_;
-  } else if (OB_FAIL(groupby_word(dst_word, word_freq))) {
   } else {
-    non_stopword_cnt_ += word_freq;
+    ObFTWord src_word(word_len, word, word_meta_);
+    ObFTWord dst_word;
+    if (OB_FAIL(casedown_word(src_word, dst_word))) {
+    } else if (OB_FAIL(check_stopword(dst_word, is_stopword))) {
+    } else if (OB_UNLIKELY(is_stopword)) {
+      ++stopword_cnt_;
+    } else if (OB_FAIL(groupby_word(dst_word, word_freq))) {
+    } else {
+      non_stopword_cnt_ += word_freq;
+    }
   }
   return ret;
 }
