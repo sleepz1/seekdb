@@ -1,0 +1,61 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'task-clock:ppp'
+# Event count (approx.): 2044044042
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+# ........  ................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+     8.23%  [.] oceanbase::blocksstable::ObStringDiffDecoder::batch_decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::blocksstable::ObIRowIndex const*, int const*, char const**, long, oceanbase::common::ObDatum*) const
+     7.15%  [.] oceanbase::common::ObIArrayWrap<oceanbase::common::hash::ObHashSet<unsigned long, oceanbase::common::hash::NoPthreadDefendMode, oceanbase::common::hash::hash_func<unsigned long>, oceanbase::common::hash::equal_to<unsigned long>, oceanbase::common::hash::SimpleAllocer<oceanbase::common::hash::ObHashTableNode<oceanbase::common::hash::HashMapPair<unsigned long, oceanbase::common::hash::HashNullObj> >, 108, oceanbase::common::hash::SpinMutexDefendMode, oceanbase::common::hash::DefaultSimpleAllocerAllocator>, oceanbase::common::hash::NormalPointer, oceanbase::common::ObMalloc, 1l>*>::at(long)
+     5.73%  [.] oceanbase::storage::ObSRDaaTIterImpl::filter_on_demand(long, double, bool&)
+     4.36%  [.] oceanbase::storage::ObSRDaaTIterImpl::fill_merge_heap()
+     4.21%  [.] oceanbase::storage::ObSimpleRowsMerger<oceanbase::storage::ObSRMergeItem, oceanbase::storage::ObSRMergeCmp>::push(oceanbase::storage::ObSRMergeItem const&)
+     3.82%  [.] oceanbase::storage::ObSRDaaTIterImpl::collect_dims_by_id(oceanbase::common::ObDatum const*&, double&, bool&)
+     3.77%  [.] oceanbase::storage::ObSRDaaTIterImpl::project_results(long)
+     2.99%  [.] oceanbase::storage::ObSimpleRowsMerger<oceanbase::storage::ObBlockStatIterator::ObBlockStatKeyItem, oceanbase::storage::ObBlockStatIterator::ObBlockStatKeyCmp>::empty() const
+     2.69%  [.] oceanbase::blocksstable::ObIntegerBaseDiffDecoder::batch_get_bitpacked_values(oceanbase::blocksstable::ObColumnDecoderCtx const&, int const*, long, long, long, oceanbase::common::ObDatum*) const
+     2.64%  [.] oceanbase::common::ObIArrayWrap<oceanbase::data_plane::ObSparseRetrievalId>::at(long)
+     2.50%  [.] memcpy@plt
+     2.40%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::set(long)
+     2.01%  [.] oceanbase::common::ObIArrayWrap<int (*)(oceanbase::common::ObDatum const&, oceanbase::common::ObDatum const&, int&, oceanbase::common::ObDatumAccessContext const*)>::at(long) const
+     1.96%  [.] oceanbase::storage::ObSimpleRowsMerger<oceanbase::storage::ObSRMergeItem, oceanbase::storage::ObSRMergeCmp>::pop()
+     1.91%  [.] oceanbase::common::ObNullSafeDatumStrCmp<(oceanbase::common::ObCollationType)63, false, true>::cmp(oceanbase::common::ObDatum const&, oceanbase::common::ObDatum const&, int&, oceanbase::common::ObDatumAccessContext const*)
+     1.91%  [.] oceanbase::storage::ObSRDaaTIterImpl::cache_result(long&, oceanbase::common::ObDatum const&, double)
+     1.71%  [.] oceanbase::storage::ObSRDaaTIterImpl::do_one_merge_round(long&)
+     1.52%  [.] oceanbase::sql::ObDocIdExt::from_datum(oceanbase::common::ObDatum const&)
+     1.47%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::get_next_row()
+     1.27%  [.] oceanbase::storage::ObSimpleRowsMerger<oceanbase::storage::ObSRMergeItem, oceanbase::storage::ObSRMergeCmp>::top(oceanbase::storage::ObSRMergeItem const*&)
+     1.22%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::get_curr_id(oceanbase::common::ObDatum const*&) const
+     1.18%  [.] oceanbase::common::ObIArrayWrap<oceanbase::data_plane::ObSparseRetrievalId>::at(long) const
+     1.13%  [.] 0x00000000001ae8de
+     1.08%  [.] 0x00000000001aef05
+     1.03%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::at(long) const
+     1.03%  [.] oceanbase::storage::ObSRDaaTInnerProductRelevanceCollector::collect_one_dim(long, double)
+     1.03%  [.] oceanbase::storage::ObSRDaaTInnerProductRelevanceCollector::get_result(double&, bool&)
+     1.03%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::get_curr_score(double&) const
+     0.98%  [.] 0x00000000001aeeea
+     0.93%  [.] oceanbase::storage::ObSimpleRowsMerger<oceanbase::storage::ObBlockStatIterator::ObBlockStatKeyItem, oceanbase::storage::ObBlockStatIterator::ObBlockStatKeyCmp>::is_unique_champion() const
+     0.83%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::save_docids()
+     0.73%  [.] oceanbase::storage::ObSRMergeCmp::get_id_datum(long)
+     0.69%  [.] oceanbase::common::ObIOService::get_io_config()
+     0.64%  [.] 0x00000000001ae8e5
+     0.59%  [.] oceanbase::blocksstable::ObConstDecoder::batch_decode_without_dict(oceanbase::blocksstable::ObColumnDecoderCtx const&, long, oceanbase::common::ObDatum*) const
+     0.49%  [k] finish_task_switch.isra.0
+     0.49%  [.] int oceanbase::sql::ObAggregateProcessor::process_aggr_batch_result<oceanbase::sql::ObAggregateProcessor::ObBatchRowsSlice>(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const*, oceanbase::sql::ObAggregateProcessor::AggrCell&, oceanbase::sql::ObAggrInfo const&, oceanbase::sql::ObAggregateProcessor::ObBatchRowsSlice const&)
+     0.44%  [.] oceanbase::storage::ObBlockBatchedRowStore::get_row_ids(oceanbase::blocksstable::ObIMicroBlockReader*, long&, long, long&, bool, oceanbase::storage::ObFilterResult const&)
+     0.44%  [.] oceanbase::storage::ObSRDaaTIterImpl::get_next_rows(long, long&)
+     0.44%  [.] 0x00000000001aef0b
+     0.39%  [k] _raw_spin_unlock_irqrestore
+     0.39%  [.] 0x00000000001aeef0
+     0.34%  [.] 0x00000000001ae8f8
+     0.34%  [.] 0x00000000001aeeb4
+     0.34%  [.] 0x00000000001aeee3
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
