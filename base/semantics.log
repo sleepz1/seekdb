@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/home/runner/work/seekdb/seekdb/unittest/storage/fts/test_contest_semantics.py", line 139, in <module>
+    cur.execute(sql,params)
+  File "/home/runner/work/_temp/sdb07-venv/lib/python3.10/site-packages/pymysql/cursors.py", line 151, in execute
+    query = self.mogrify(query, args)
+  File "/home/runner/work/_temp/sdb07-venv/lib/python3.10/site-packages/pymysql/cursors.py", line 129, in mogrify
+    query = query % self._escape_args(args, conn)
+TypeError: not enough arguments for format string
