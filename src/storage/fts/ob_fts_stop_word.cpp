@@ -38,6 +38,63 @@ inline bool is_ascii_casedown_noop(const char *str, const int64_t len)
   }
   return true;
 }
+
+// Stop words are compared under utf8mb4_general_ci, which maps every character to
+// exactly one weight (no expansions) and ignores trailing spaces. All built-in stop
+// words are short ASCII words, so:
+//  - a pure ASCII token can be checked with a case-insensitive exact comparison;
+//  - a token containing a 3/4-byte UTF-8 sequence (>= U+0800) can never be equal,
+//    because those characters never share a weight with ASCII letters;
+// Everything else (e.g. Latin-1 accents such as "thé") still uses the hash set.
+enum class ObStopWordFastResult { NOT_STOPWORD, STOPWORD, UNKNOWN };
+
+inline ObStopWordFastResult fast_check_utf8_stopword(const char *str, int64_t len)
+{
+  ObStopWordFastResult res = ObStopWordFastResult::UNKNOWN;
+  bool is_ascii = true;
+  for (int64_t i = 0; i < len; ++i) {
+    const unsigned char c = static_cast<unsigned char>(str[i]);
+    if (c >= 0xE0) {
+      return ObStopWordFastResult::NOT_STOPWORD;
+    } else if (c >= 0x80) {
+      is_ascii = false;
+    }
+  }
+  if (is_ascii) {
+    while (len > 0 && ' ' == str[len - 1]) {
+      --len;
+    }
+    if (len <= 0) {
+      // leave unusual inputs to the generic path
+    } else if (len >= FTS_STOP_WORD_MAX_LENGTH) {
+      res = ObStopWordFastResult::NOT_STOPWORD;
+    } else {
+      char lower[FTS_STOP_WORD_MAX_LENGTH];
+      for (int64_t i = 0; i < len; ++i) {
+        const char c = str[i];
+        lower[i] = (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
+      }
+      res = ObStopWordFastResult::NOT_STOPWORD;
+      const int64_t stopword_count = sizeof(ob_stop_word_list) / sizeof(ob_stop_word_list[0]);
+      for (int64_t i = 0; i < stopword_count; ++i) {
+        const char *sw = ob_stop_word_list[i];
+        if (0 == MEMCMP(sw, lower, len) && '\0' == sw[len]) {
+          res = ObStopWordFastResult::STOPWORD;
+          break;
+        }
+      }
+    }
+  }
+  return res;
+}
+
+inline bool is_ascii_compatible_charset(const ObCollationType coll_type)
+{
+  const ObCharsetType cs_type = ObCharset::charset_type_by_coll(coll_type);
+  return CHARSET_UTF8MB4 == cs_type || CHARSET_BINARY == cs_type
+      || CHARSET_GBK == cs_type || CHARSET_GB18030 == cs_type || CHARSET_GB18030_2022 == cs_type
+      || CHARSET_LATIN1 == cs_type || CHARSET_ASCII == cs_type;
+}
 } // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -107,7 +164,16 @@ int ObStopWordChecker::check_stopword(const ObFTWord &word, bool &is_stopword)
     } else {
       cmp_word = ObFTWord(cmp_str.length(), cmp_str.ptr(), stopword_type_);
     }
-    if (OB_SUCC(ret)) {
+    const ObStopWordFastResult fast_res = OB_SUCC(ret)
+        ? fast_check_utf8_stopword(cmp_word.get_word().get_string().ptr(),
+                                   cmp_word.get_word().get_string().length())
+        : ObStopWordFastResult::UNKNOWN;
+    if (OB_FAIL(ret)) {
+    } else if (ObStopWordFastResult::NOT_STOPWORD == fast_res) {
+      is_stopword = false;
+    } else if (ObStopWordFastResult::STOPWORD == fast_res) {
+      is_stopword = true;
+    } else if (OB_SUCC(ret)) {
       ret = stopword_set_.exist_refactored(cmp_word);
       if (OB_HASH_NOT_EXIST == ret) {
         is_stopword = false;
@@ -180,7 +246,8 @@ int ObAddWord::casedown_word(const ObFTWord &src, ObFTWord &dst)
     ret = OB_INVALID_ARGUMENT;
   } else if (flag_.casedown()) {
     const ObString src_str = src.get_word().get_string();
-    if (is_ascii_casedown_noop(src_str.ptr(), src_str.length())) {
+    if (is_ascii_compatible_charset(word_meta_.get_collation_type())
+        && is_ascii_casedown_noop(src_str.ptr(), src_str.length())) {
       dst = src;
     } else {
       ObString dst_str;
@@ -215,23 +282,33 @@ int ObAddWord::check_stopword(const ObFTWord &ft_word, bool &is_stopword)
   return ret;
 }
 
+namespace
+{
+struct ObFTWordFreqAccumulator final
+{
+  explicit ObFTWordFreqAccumulator(const int64_t freq) : freq_(freq) {}
+  int operator()(common::hash::HashMapPair<ObFTWord, int64_t> &entry)
+  {
+    entry.second += freq_;
+    return OB_SUCCESS;
+  }
+  int64_t freq_;
+};
+} // namespace
+
 int ObAddWord::groupby_word(const ObFTWord &word, const int64_t word_freq)
 {
   int ret = OB_SUCCESS;
-  int64_t word_count = 0;
   if (OB_UNLIKELY(word.empty() || word_freq <= 0)) {
     ret = OB_INVALID_ARGUMENT;
   } else if (!flag_.groupby_word()) {
     if (OB_FAIL(word_map_.set_refactored(word, 1/*word count*/))) {
     }
-  } else if (OB_FAIL(word_map_.get_refactored(word, word_count)) && OB_HASH_NOT_EXIST != ret) {
   } else {
-    if (OB_HASH_NOT_EXIST == ret) {
-      word_count = 1;
-    } else {
-      word_count += word_freq;
-    }
-    if (OB_FAIL(word_map_.set_refactored(word, word_count, 1/*overwrite*/))) {
+    // One hash probe: insert with count 1 or add the frequency to the existing entry.
+    // (The original get + overwrite path hashed and compared each token twice.)
+    ObFTWordFreqAccumulator accumulator(word_freq);
+    if (OB_FAIL(word_map_.set_or_update(word, 1/*first occurrence*/, accumulator))) {
     }
   }
   return ret;

@@ -31,14 +31,19 @@ perf_cmd() {
   local name=$1; shift
   local pid
   pid=$(pgrep -f "$ROOT/build_release/src/observer/seekdb" | head -1)
-  if command -v perf >/dev/null 2>&1 && [[ -n "$pid" ]]; then
-    sudo perf record -F 1999 -g -p "$pid" -o "$PROF/$name.data" >/dev/null 2>&1 &
-    local ppid=$!
-    sleep 1
+  if command -v perf >/dev/null 2>&1 && sudo perf --version >/dev/null 2>&1 && [[ -n "$pid" ]]; then
+    # exec keeps the recorded pid equal to perf itself, so SIGINT reaches perf directly
+    # (sudo does not relay signals sent from its own process group).
+    sudo rm -f "$PROF/$name.pid"
+    sudo sh -c "echo \$\$ > '$PROF/$name.pid'; exec perf record -F 999 -g -p $pid -o '$PROF/$name.data'" >/dev/null 2>&1 &
+    sleep 2
     "$@"
-    sudo kill -INT $ppid; wait $ppid 2>/dev/null
-    sudo perf report -i "$PROF/$name.data" --no-children --sort sym --stdio -g none --percent-limit 0.3 2>/dev/null | head -150 > "$PROF/$name.flat.txt"
-    sudo perf report -i "$PROF/$name.data" --children --sort sym --stdio -g none --percent-limit 1 2>/dev/null | head -200 > "$PROF/$name.children.txt"
+    local ppid; ppid=$(cat "$PROF/$name.pid" 2>/dev/null || true)
+    [[ -n "$ppid" ]] && sudo kill -INT "$ppid" 2>/dev/null || true
+    for _ in $(seq 1 60); do [[ -n "$ppid" ]] && sudo kill -0 "$ppid" 2>/dev/null || break; sleep 1; done
+    [[ -n "$ppid" ]] && sudo kill -9 "$ppid" 2>/dev/null || true
+    sudo timeout 600 perf report -i "$PROF/$name.data" --no-children --sort sym --stdio -g none --percent-limit 0.3 2>/dev/null | head -150 > "$PROF/$name.flat.txt" || true
+    sudo timeout 600 perf report -i "$PROF/$name.data" --children --sort sym --stdio -g none --percent-limit 1 2>/dev/null | head -200 > "$PROF/$name.children.txt" || true
     sudo rm -f "$PROF/$name.data"
   else
     "$@"
