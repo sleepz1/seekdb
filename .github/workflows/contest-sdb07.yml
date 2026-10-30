@@ -9,16 +9,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Contest SDB07 same-runner FTS comparison
+name: SDB07 FTS baseline profile
 on:
   push:
-    branches: [contest/sdb07-fts-repair]
+    branches: [contest/sdb07-fts-build-profile]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
   group: contest-sdb07-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   compare:
     runs-on: ubuntu-22.04
@@ -66,8 +66,8 @@ jobs:
           echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
           python3 -m venv "$RUNNER_TEMP/sdb07-venv"
           "$RUNNER_TEMP/sdb07-venv/bin/pip" install PyMySQL==1.1.1
-      - name: Compile and compare unchanged parent, original submission, and repair
-        run: bash unittest/storage/fts/run_contest_comparison.sh
+      - name: Compile and profile the official 7.116 baseline
+        run: bash unittest/storage/fts/run_contest_profile.sh
       - name: Stop disposable instance
         if: always()
         run: |
@@ -84,7 +84,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: sdb07-fts-comparison
+          name: sdb07-fts-profile
           path: |
             configure.log
             sdb07-evidence/
