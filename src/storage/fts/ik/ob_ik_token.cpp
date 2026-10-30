@@ -25,7 +25,8 @@ namespace oceanbase
 {
 namespace storage
 {
-int ObFTSortList::add_token(const ObIKToken &token)
+template <typename ListType>
+int ObFTSortList<ListType>::add_token(const ObIKToken &token)
 {
   int ret = OB_SUCCESS;
 
@@ -41,7 +42,8 @@ int ObFTSortList::add_token(const ObIKToken &token)
     if (OB_FAIL(tokens_.push_front(token))) {
     }
   } else {
-    for (ObFTSortList::CellIter iter = tokens_.last(); OB_SUCC(ret) && iter != tokens_.end();
+    for (typename ObFTSortList<ListType>::CellIter iter = tokens_.last();
+         OB_SUCC(ret) && iter != tokens_.end();
          --iter) {
       if (token < *iter) {
         continue;
@@ -58,6 +60,27 @@ int ObFTSortList::add_token(const ObIKToken &token)
 
   return ret;
 }
+
+template <typename ListType>
+int64_t ObFTSortList<ListType>::max()
+{
+  if (tokens_.empty()) {
+    return 0;
+  }
+  return tokens_.get_last().offset_ + tokens_.get_last().length_;
+}
+
+template <typename ListType>
+int64_t ObFTSortList<ListType>::min()
+{
+  if (tokens_.empty()) {
+    return 0;
+  }
+  return tokens_.get_first().offset_;
+}
+
+template class ObFTSortList<ObList<ObIKToken, ObIAllocator>>;
+template class ObFTSortList<ObFastList<ObIKToken, HANDLE_SIZE_LIMIT>>;
 
 int ObIKTokenChain::add_token_if_conflict(const ObIKToken &token, bool &added)
 {
@@ -115,36 +138,30 @@ bool ObIKTokenChain::better_than(const ObIKTokenChain &other) const
   if (this == &other) {
     return false;
   }
-  // more valid text length
   if (payload_ != other.payload_) {
     return payload_ > other.payload_;
   }
 
-  // less words
   int64_t token_count = list_.tokens().size();
   int64_t other_token_count = other.list_.tokens().size();
   if (token_count != other_token_count) {
     return token_count < other_token_count;
   }
 
-  // more distance
   if (offset_len() != other.offset_len()) {
     return offset_len() > other.offset_len();
   }
 
-  // inverse cut is better
   if (max_offset_ != other.max_offset_) {
     return max_offset_ > other.max_offset_;
   }
 
-  // more average distance is better
   int64_t this_x_weight = x_weight();
   int64_t other_x_weight = other.x_weight();
   if (this_x_weight != other_x_weight) {
     return this_x_weight > other_x_weight;
   }
 
-  // position
   int64_t this_p_weight = p_weight();
   int64_t other_p_weight = other.p_weight();
   return this_p_weight > other_p_weight;
@@ -160,7 +177,7 @@ int ObIKTokenChain::copy(ObIKTokenChain *other)
     min_offset_ = other->min_offset_;
     max_offset_ = other->max_offset_;
     payload_ = other->payload_;
-    ObFTSortList::CellIter iter = other->list().tokens().begin();
+    ObFTLightSortList::CellIter iter = other->list().tokens().begin();
 
     for (; OB_SUCC(ret) && iter != other->list().tokens().end(); ++iter) {
       bool added = false;
@@ -204,25 +221,10 @@ int ObIKTokenChain::pop_back(ObIKToken &token)
   } else {
     payload_ -= token.length_;
     ObIKToken new_last = list_.tokens().get_last();
-    // only for not conflict case
     max_offset_ = new_last.offset_ + new_last.length_;
   }
   return ret;
 }
 
-int64_t ObFTSortList::max()
-{
-  if (tokens_.empty()) {
-    return 0;
-  }
-  return tokens_.get_last().offset_ + tokens_.get_last().length_;
-}
-int64_t ObFTSortList::min()
-{
-  if (tokens_.empty()) {
-    return 0;
-  }
-  return tokens_.get_first().offset_;
-}
 } //  namespace storage
 } //  namespace oceanbase

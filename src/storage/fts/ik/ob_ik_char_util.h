@@ -52,6 +52,19 @@ public:
                                  const uint8_t char_len,
                                  CharType &type);
 
+  // Combine first_valid_char + classify_first_char; uses cached well_formed_len.
+  static int classify_first_valid_char(ObCharsetType cs_type,
+                                       const char *buf,
+                                       int64_t buf_size,
+                                       size_t (*well_formed_len_fn)(const struct ObCharsetInfo *,
+                                                                    const char *,
+                                                                    const char *,
+                                                                    size_t,
+                                                                    int *),
+                                       const ObCharsetInfo *cs,
+                                       int64_t &char_len,
+                                       CharType &type);
+
   static int check_cn_number(ObCollationType coll_type,
                              const char *input,
                              const uint8_t char_len,
@@ -554,6 +567,47 @@ inline int ObFTCharUtil::classify_first_char(ObCollationType coll_type,
     ret = OB_NOT_SUPPORTED;
     STORAGE_FTS_LOG(WARN, "Not supported charset type", K(ret), K(cs_type));
     break;
+  }
+  return ret;
+}
+
+
+inline int ObFTCharUtil::classify_first_valid_char(ObCharsetType cs_type,
+                                                   const char *buf,
+                                                   int64_t buf_size,
+                                                   size_t (*well_formed_len_fn)(const struct ObCharsetInfo *,
+                                                                                const char *,
+                                                                                const char *,
+                                                                                size_t,
+                                                                                int *),
+                                                   const ObCharsetInfo *cs,
+                                                   int64_t &char_len,
+                                                   CharType &type)
+{
+  int ret = OB_SUCCESS;
+  char_len = 0;
+  type = CharType::USELESS;
+  if (OB_UNLIKELY(buf_size <= 0)) {
+  } else if (OB_ISNULL(well_formed_len_fn) || OB_ISNULL(cs) || OB_ISNULL(buf)) {
+    ret = OB_INVALID_ARGUMENT;
+  } else {
+    int error = 0;
+    const int64_t len = static_cast<int64_t>(well_formed_len_fn(cs, buf, buf + buf_size, 1, &error));
+    if (OB_LIKELY(0 == error)) {
+      char_len = len;
+      if (OB_LIKELY(CHARSET_UTF8MB4 == cs_type)) {
+        ret = do_classify<CHARSET_UTF8MB4>(buf, static_cast<uint8_t>(char_len), type);
+      } else if (CHARSET_UTF16 == cs_type) {
+        ret = do_classify<CHARSET_UTF16>(buf, static_cast<uint8_t>(char_len), type);
+      } else if (CHARSET_UTF16LE == cs_type) {
+        ret = do_classify<CHARSET_UTF16LE>(buf, static_cast<uint8_t>(char_len), type);
+      } else {
+        ret = OB_NOT_SUPPORTED;
+        STORAGE_FTS_LOG(WARN, "Not supported charset type", K(ret), K(cs_type));
+      }
+    } else {
+      ret = OB_ITER_END;
+    }
   }
   return ret;
 }

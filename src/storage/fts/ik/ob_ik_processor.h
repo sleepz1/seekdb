@@ -20,6 +20,7 @@
 #include "lib/allocator/ob_allocator.h"
 #include "lib/charset/ob_charset.h"
 #include "lib/utility/ob_macro_utils.h"
+#include "storage/fts/ik/ob_fast_segment_array.h"
 #include "storage/fts/ik/ob_ik_char_util.h"
 #include "storage/fts/ik/ob_ik_token.h"
 
@@ -45,8 +46,8 @@ public:
 
   int compound(ObIKToken &result);
 
-  int current_char(const char *&ch, uint8_t &char_len);
-  int current_char_type(ObFTCharUtil::CharType &type);
+  // Merged hot-path accessor: avoids separate current_char + current_char_type calls.
+  int current_char_and_type(const char *&ch, uint8_t &char_len, ObFTCharUtil::CharType &type);
 
   int step_next();
 
@@ -59,19 +60,21 @@ public:
   bool is_last() const;
   bool iter_end() const;
   bool is_smart() const;
+  bool is_results_exhaust() const { return result_idx_ >= results_.count(); }
 
-  int add_chain(ObIKTokenChain *chain);
   int add_token(const char *fulltext,
                 int64_t offset,
                 int64_t length,
                 int64_t char_cnt,
                 ObIKTokenType type);
 
-  ObFTSortList &token_list() { return token_list_; }
+  ObFTFastSortList &token_list() { return token_list_; }
 
-  ObList<ObIKToken, ObIAllocator> &result_list() { return result_list_; }
+  ObFastSegmentArray<ObIKToken> &get_results() { return results_; }
 
   int32_t handle_size() const { return handle_size_; }
+
+  const ObCharsetInfo *get_cs() const { return cs_; }
 
 private:
   int prepare_next_char();
@@ -87,8 +90,16 @@ private:
   uint32_t handle_size_;
   bool is_smart_;
 
-  ObFTSortList token_list_;
-  ObList<ObIKToken, ObIAllocator> result_list_;
+  ObFTFastSortList token_list_;
+  ObFastSegmentArray<ObIKToken> results_;
+  int64_t result_idx_;
+  const ObCharsetInfo *cs_;
+  size_t (*well_formed_len_)(const ObCharsetInfo *,
+                             const char *,
+                             const char *,
+                             size_t,
+                             int *);
+  ObCharsetType cs_type_;
 
 private:
   DISALLOW_COPY_AND_ASSIGN(TokenizeContext);

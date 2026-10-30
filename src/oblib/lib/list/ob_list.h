@@ -473,6 +473,11 @@ public:
   {
     clear();
   };
+  // Alias for containers that prefer reuse() semantics (e.g. FTS ObFTSortList).
+  OB_INLINE void reuse()
+  {
+    clear();
+  };
 
   int serialize(char *buf, const int64_t buf_len, int64_t &pos) const
   {
