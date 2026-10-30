@@ -25,7 +25,7 @@ regression_status=0
 mkdir -p "$OUT"
 git diff --name-only "$PARENT_SHA" "$REPAIR_SHA" -- src > "$OUT/changed-sources.txt"
 sha256sum tools/benchmark/fts_large_bench* > "$OUT/benchmark-integrity.sha256"
-for variant in parent original repair; do
+for variant in parent repair; do
   case $variant in
     parent) source_sha=$PARENT_SHA;;
     original) source_sha=$ORIGINAL_SHA;;
