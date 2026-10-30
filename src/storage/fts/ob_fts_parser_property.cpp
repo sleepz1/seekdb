@@ -1013,200 +1013,54 @@ int ObFTParserJsonProps::show_parser_properties(const ObFTParserJsonProps &prope
 
 #undef __FT_PARSER_PROPERTY_SHOW_COMMA
 
-namespace
-{
-// Contest / hot-path helper: empty or "{}" means "use parser defaults".
-// Avoid allocating and parsing a JSON tree on TOKENIZE and MATCH membership
-// paths that never override parser properties.
-inline bool is_empty_or_empty_object_json(const ObString &json_str)
-{
-  if (json_str.empty()) {
-    return true;
-  }
-  const char *p = json_str.ptr();
-  const int64_t len = json_str.length();
-  int64_t i = 0;
-  while (i < len && (p[i] == ' ' || p[i] == '\t' || p[i] == '\n' || p[i] == '\r')) {
-    ++i;
-  }
-  if (i >= len || p[i] != '{') {
-    return false;
-  }
-  ++i;
-  while (i < len && (p[i] == ' ' || p[i] == '\t' || p[i] == '\n' || p[i] == '\r')) {
-    ++i;
-  }
-  if (i >= len || p[i] != '}') {
-    return false;
-  }
-  ++i;
-  while (i < len && (p[i] == ' ' || p[i] == '\t' || p[i] == '\n' || p[i] == '\r')) {
-    ++i;
-  }
-  return i == len;
-}
-
-inline void apply_ik_default_name_placeholders(ObFTParserProperty &property)
-{
-  // Historical helper semantics: store config *key* names, not table names.
-  property.dict_table_ = ObString(ObFTSLiteral::CONFIG_NAME_DICT_TABLE);
-  property.stopword_table_ = ObString(ObFTSLiteral::CONFIG_NAME_STOPWORD_TABLE);
-  property.quantifier_table_ = ObString(ObFTSLiteral::CONFIG_NAME_QUANTIFIER_TABLE);
-  property.ik_mode_smart_ = true;
-}
-
-// Compact JSON by dropping ASCII whitespace so we can match DDL-rebuilt
-// default property payloads without paying for ObJsonParser.
-inline bool compact_ascii_json_eq(const ObString &json_str, const char *compact_literal)
-{
-  const char *p = json_str.ptr();
-  const int64_t len = json_str.length();
-  int64_t i = 0;
-  const char *q = compact_literal;
-  while (*q != '\0') {
-    while (i < len && (p[i] == ' ' || p[i] == '\t' || p[i] == '\n' || p[i] == '\r')) {
-      ++i;
-    }
-    if (i >= len || p[i] != *q) {
-      return false;
-    }
-    ++i;
-    ++q;
-  }
-  while (i < len && (p[i] == ' ' || p[i] == '\t' || p[i] == '\n' || p[i] == '\r')) {
-    ++i;
-  }
-  return i == len;
-}
-
-inline bool is_default_parser_properties_json(const ObFTParser &parser, const ObString &json_str)
-{
-  if (is_empty_or_empty_object_json(json_str)) {
-    return true;
-  }
-  // Exact rebuilt defaults from ObFTParserJsonProps::rebuild_props_for_ddl +
-  // to_format_json (whitespace-insensitive). Keep this list tight: only the
-  // payloads produced for WITH PARSER <name> with no user overrides.
-  if (parser.is_ik()) {
-    // Observed rebuilt payload from seekdb logs (key order + spacing).
-    static const char *k_ik_default =
-        "{\"ik_mode\":\"smart\","
-        "\"dict_table\":\"oceanbase.__ft_dict_ik_utf8\","
-        "\"quanitfier_table\":\"oceanbase.__ft_quantifier_ik_utf8\"}";
-    static const char *k_ik_mode_only = "{\"ik_mode\":\"smart\"}";
-    return compact_ascii_json_eq(json_str, k_ik_default)
-           || compact_ascii_json_eq(json_str, k_ik_mode_only);
-  }
-  if (parser.is_beng() || parser.is_space()) {
-    // rebuild_props prints max_token_size before min_token_size.
-    static const char *k_token_default =
-        "{\"max_token_size\":84,\"min_token_size\":3}";
-    return compact_ascii_json_eq(json_str, k_token_default);
-  }
-  if (parser.is_ngram()) {
-    static const char *k_ngram_default = "{\"ngram_token_size\":2}";
-    return compact_ascii_json_eq(json_str, k_ngram_default);
-  }
-  if (parser.is_ngram2()) {
-    static const char *k_ngram2_default =
-        "{\"max_ngram_size\":3,\"min_ngram_size\":2}";
-    return compact_ascii_json_eq(json_str, k_ngram2_default);
-  }
-  return false;
-}
-} // namespace
-
 int ObFTParserProperty::parse_for_parser_helper(const ObFTParser &parser, const ObString &json_str)
 {
   int ret = OB_SUCCESS;
-  // Fast path: constructor already filled numeric defaults and ik_mode_smart_=true.
-  // Skip ObFTParserJsonProps arena + JSON parse for empty / rebuilt-default props
-  // (TOKENIZE without arg3, and WITH PARSER <name> without user overrides).
-  if (is_default_parser_properties_json(parser, json_str)) {
-    if (parser.is_ik()) {
-      apply_ik_default_name_placeholders(*this);
-    }
-    // space / ngram / beng / ngram2: ctor defaults already match FT_DEFAULT_*.
-    return ret;
-  }
-
   ObFTParserJsonProps props;
   if (OB_FAIL(props.init())) {
   } else if (OB_FAIL(props.parse_from_valid_str(json_str))) {
-  } else if (props.is_empty()) {
-    // Non-empty input that parsed to an empty object: treat as defaults.
-    if (parser.is_ik()) {
-      apply_ik_default_name_placeholders(*this);
-    }
   } else {
     if (parser.is_ik()) {
       // set dict tables and copy dict name
-      apply_ik_default_name_placeholders(*this);
+      dict_table_ = ObString(ObFTSLiteral::CONFIG_NAME_DICT_TABLE);
+      stopword_table_ = ObString(ObFTSLiteral::CONFIG_NAME_STOPWORD_TABLE);
+      quantifier_table_ = ObString(ObFTSLiteral::CONFIG_NAME_QUANTIFIER_TABLE);
       ObString ik_smart;
       if (OB_FAIL(props.config_get_ik_mode(ik_smart))) {
-        if (OB_SEARCH_NOT_FOUND == ret) {
-          // Missing ik_mode means smart, same as DDL rebuild_props_for_ddl.
-          ret = OB_SUCCESS;
-          ik_mode_smart_ = true;
-        }
-      } else if (0 == ik_smart.case_compare(ObString(ObFTSLiteral::FT_IK_MODE_SMART))) {
-        ik_mode_smart_ = true;
-      } else if (0 == ik_smart.case_compare(ObString(ObFTSLiteral::FT_IK_MODE_MAX_WORD))) {
-        ik_mode_smart_ = false;
       } else {
-        ret = OB_INVALID_ARGUMENT;
+        if (0 == ik_smart.case_compare(ObString(ObFTSLiteral::FT_IK_MODE_SMART))) {
+          ik_mode_smart_ = true;
+        } else if (0 == ik_smart.case_compare(ObString(ObFTSLiteral::FT_IK_MODE_MAX_WORD))) {
+          ik_mode_smart_ = false;
+        } else {
+          ret = OB_INVALID_ARGUMENT;
+        }
       }
     } else if (parser.is_space()) {
-      if (OB_FAIL(props.config_get_min_token_size(min_token_size_))) {
-        if (OB_SEARCH_NOT_FOUND == ret) {
-          ret = OB_SUCCESS;
-          min_token_size_ = ObFTSLiteral::FT_DEFAULT_MIN_TOKEN_SIZE;
-        }
-      }
-      if (OB_SUCC(ret)) {
-        if (OB_FAIL(props.config_get_max_token_size(max_token_size_))) {
-          if (OB_SEARCH_NOT_FOUND == ret) {
-            ret = OB_SUCCESS;
-            max_token_size_ = ObFTSLiteral::FT_DEFAULT_MAX_TOKEN_SIZE;
-          }
-        }
+      if (json_str.empty()) {
+        min_token_size_ = ObFTSLiteral::FT_DEFAULT_MIN_TOKEN_SIZE;
+        max_token_size_ = ObFTSLiteral::FT_DEFAULT_MAX_TOKEN_SIZE;
+      } else if (OB_FAIL(props.config_get_min_token_size(min_token_size_))) {
+      } else if (OB_FAIL(props.config_get_max_token_size(max_token_size_))) {
       }
     } else if (parser.is_ngram()) {
-      if (OB_FAIL(props.config_get_ngram_token_size(ngram_token_size_))) {
-        if (OB_SEARCH_NOT_FOUND == ret) {
-          ret = OB_SUCCESS;
-          ngram_token_size_ = ObFTSLiteral::FT_DEFAULT_NGRAM_TOKEN_SIZE;
-        }
+      if (json_str.empty()) {
+        ngram_token_size_ = ObFTSLiteral::FT_DEFAULT_NGRAM_TOKEN_SIZE;
+      } else if (OB_FAIL(props.config_get_ngram_token_size(ngram_token_size_))) {
       }
     } else if (parser.is_beng()) {
-      if (OB_FAIL(props.config_get_min_token_size(min_token_size_))) {
-        if (OB_SEARCH_NOT_FOUND == ret) {
-          ret = OB_SUCCESS;
-          min_token_size_ = ObFTSLiteral::FT_DEFAULT_MIN_TOKEN_SIZE;
-        }
-      }
-      if (OB_SUCC(ret)) {
-        if (OB_FAIL(props.config_get_max_token_size(max_token_size_))) {
-          if (OB_SEARCH_NOT_FOUND == ret) {
-            ret = OB_SUCCESS;
-            max_token_size_ = ObFTSLiteral::FT_DEFAULT_MAX_TOKEN_SIZE;
-          }
-        }
+      if (json_str.empty()) {
+        min_token_size_ = ObFTSLiteral::FT_DEFAULT_MIN_TOKEN_SIZE;
+        max_token_size_ = ObFTSLiteral::FT_DEFAULT_MAX_TOKEN_SIZE;
+      } else if (OB_FAIL(props.config_get_min_token_size(min_token_size_))) {
+      } else if (OB_FAIL(props.config_get_max_token_size(max_token_size_))) {
       }
     } else if (parser.is_ngram2()) {
-      if (OB_FAIL(props.config_get_min_ngram_token_size(min_ngram_token_size_))) {
-        if (OB_SEARCH_NOT_FOUND == ret) {
-          ret = OB_SUCCESS;
-          min_ngram_token_size_ = ObFTSLiteral::FT_DEFAULT_MIN_NGRAM_SIZE;
-        }
-      }
-      if (OB_SUCC(ret)) {
-        if (OB_FAIL(props.config_get_max_ngram_token_size(max_ngram_token_size_))) {
-          if (OB_SEARCH_NOT_FOUND == ret) {
-            ret = OB_SUCCESS;
-            max_ngram_token_size_ = ObFTSLiteral::FT_DEFAULT_MAX_NGRAM_SIZE;
-          }
-        }
+      if (json_str.empty()) {
+        min_ngram_token_size_ = ObFTSLiteral::FT_DEFAULT_MIN_NGRAM_SIZE;
+        max_ngram_token_size_ = ObFTSLiteral::FT_DEFAULT_MAX_NGRAM_SIZE;
+      } else if (OB_FAIL(props.config_get_min_ngram_token_size(min_ngram_token_size_))) {
+      } else if (OB_FAIL(props.config_get_max_ngram_token_size(max_ngram_token_size_))) {
       }
     }
   }
