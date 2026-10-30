@@ -52,6 +52,25 @@ perf_cmd() {
 
 run_sql_file() { $MYSQL < "$1" > /dev/null; }
 
+rebuild_with_timeline() {
+  local prof=$1 name=$2 idx=$3 def=$4
+  $MYSQL -e "USE fts_large_bench; ALTER TABLE docs DROP INDEX $idx;" 2>&1 | tail -2
+  sleep 3
+  rm -f "$prof/stop-$name"
+  ( while [[ ! -f "$prof/stop-$name" ]]; do
+      $MYSQL -e "SELECT NOW(6), t.* FROM oceanbase.__all_virtual_ddl_task_status t" 2>&1
+      echo "-- $(date +%T.%N)"
+      sleep 0.02
+    done ) > "$prof/ddl-timeline-$name.txt" &
+  local tl=$!
+  local s e
+  s=$(date +%s%N)
+  perf_cmd "build_$name" $MYSQL -e "SET ob_query_timeout = 100000000000; SET ob_trx_timeout = 100000000000; USE fts_large_bench; ALTER TABLE docs ADD FULLTEXT INDEX $def;"
+  e=$(date +%s%N)
+  touch "$prof/stop-$name"; wait $tl 2>/dev/null || true
+  echo "rebuild_${name}_ms $(( (e-s)/1000000 )) start_ns $s end_ns $e" >> "$prof/rebuild.txt"
+}
+
 profile_variant() {
   PROF=$OUT/$1/profile; mkdir -p "$PROF"
   local tok="$PROF/tok.sql" q="$PROF/q.sql"
@@ -63,15 +82,8 @@ profile_variant() {
   { echo "SET NAMES utf8mb4;"; for i in $(seq 1 1000); do echo "SELECT COUNT(*) FROM (SELECT id FROM fts_large_bench.docs WHERE MATCH(content) AGAINST('倒排索引 tokenizer') LIMIT 20) t;"; done; } > "$q"
   perf_cmd query_limit run_sql_file "$q"
   $MYSQL -e "SET NAMES utf8mb4; EXPLAIN EXTENDED SELECT COUNT(*) FROM fts_large_bench.docs WHERE MATCH(title, content) AGAINST('全文索引 分词器'); EXPLAIN EXTENDED SELECT COUNT(*) FROM (SELECT id FROM fts_large_bench.docs WHERE MATCH(content) AGAINST('倒排索引 tokenizer') LIMIT 20) t;" > "$PROF/plans.txt" 2>&1
-  $MYSQL -e "USE fts_large_bench; ALTER TABLE docs DROP INDEX fti_all;" 2>&1 | tail -2
-  sleep 3
-  local mark; mark=$($MYSQL -e "SELECT NOW(6)")
-  local s e
-  s=$(date +%s%N)
-  perf_cmd build_ik_all $MYSQL -e "SET ob_query_timeout = 100000000000; SET ob_trx_timeout = 100000000000; USE fts_large_bench; ALTER TABLE docs ADD FULLTEXT INDEX fti_all(title, content) WITH PARSER ik;"
-  e=$(date +%s%N)
-  echo "rebuild_ik_all_sec $(( (e-s)/1000000 ))ms" > "$PROF/rebuild.txt"
-  $MYSQL_VERBOSE -e "SELECT gmt_create, module, event, name1, value1, name2, value2, name3, value3, name4, value4 FROM oceanbase.__all_server_event_history WHERE gmt_create >= '$mark' ORDER BY gmt_create" > "$PROF/server-events.txt" 2>&1
+  rebuild_with_timeline "$PROF" ik_all fti_all "fti_all(title, content) WITH PARSER ik"
+  rebuild_with_timeline "$PROF" beng fti_en_beng "fti_en_beng(title_en, content_en) WITH PARSER beng"
   $MYSQL_VERBOSE -e "SELECT * FROM oceanbase.__all_virtual_ddl_task_status" > "$PROF/ddl-task-status.txt" 2>&1 || true
   $MYSQL_VERBOSE -e "SELECT * FROM oceanbase.__all_ddl_task_status" >> "$PROF/ddl-task-status.txt" 2>&1 || true
 }
