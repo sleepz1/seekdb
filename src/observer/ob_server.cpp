@@ -93,6 +93,7 @@ int ObServer::get_lower_bound_freeze_info(const int64_t snapshot_version, share:
 #include "observer/change_stream/ob_change_stream_mgr.h"
 #include "share/roaringbitmap/ob_rb_memory_mgr.h"
 #include "storage/fts/dict/ob_ft_cache.h"
+#include "storage/fts/ob_ik_ft_parser.h"
 #include "lib/utility/ob_target_specific.h"
 #include "storage/fts/dict/ob_gen_dic_loader.h"
 #include "data_plane/fts/ob_fts_parser_helper.h"
@@ -1077,6 +1078,8 @@ void ObServer::destroy()
     startup_accel_handler_.destroy();
     FLOG_INFO("server startup task handler destroyed");
 
+    // fulltext IK dictionaries shared by parsers pin dict cache entries
+    storage::ObIKFTParser::release_shared_dicts();
     FLOG_INFO("begin to destroy dict cache");
     ObDictCache::get_instance().destroy();
     FLOG_INFO("dict cache destroyed");

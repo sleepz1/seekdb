@@ -159,7 +159,6 @@ public:
         const share::schema::ObIndexType index_type,
         const int64_t original_parallelism,
         int64_t &decided_parallelism);
-  static constexpr int64_t FTS_AUTO_BUILD_MAX_PARALLELISM = 4;
 private:
   static int build_fts_aux_index_name(
     const ObIndexType type,

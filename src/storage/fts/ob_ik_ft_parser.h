@@ -47,13 +47,18 @@ public:
         cache_stop_(allocator),
         dict_main_(nullptr),
         dict_quan_(nullptr),
-        dict_stop_(nullptr)
+        dict_stop_(nullptr),
+        owns_dicts_(false)
   {
   }
 
   virtual ~ObIKFTParser() { reset(); }
 
   int init(const ObFTParserParam &param);
+
+  // Release the process wide IK dictionaries pinned in the dict cache. It must be called
+  // before the dict cache is destroyed and after all IK parsers are gone.
+  static void release_shared_dicts();
 
   int get_next_token(const char *&word,
                      int64_t &word_len,
@@ -89,6 +94,8 @@ private:
                             ObFTCacheRangeContainer &container,
                             ObIFTDict *&dict);
 
+  int build_private_dicts();
+
 private:
   static constexpr int SEGMENT_LIMIT = 1000;
   ObIAllocator &allocator_;
@@ -109,6 +116,8 @@ private:
   ObIFTDict *dict_main_;
   ObIFTDict *dict_quan_;
   ObIFTDict *dict_stop_;
+  // false when the dictionaries above are borrowed from the shared read-only instance
+  bool owns_dicts_;
 
   DISABLE_COPY_ASSIGN(ObIKFTParser);
 };

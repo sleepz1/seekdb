@@ -225,6 +225,7 @@ int ObFTParseData::init_dict_hub()
 
 void ObFTParseData::destroy()
 {
+  ObIKFTParser::release_shared_dicts();
   if (OB_NOT_NULL(stop_word_checker_)) {
     stop_word_checker_->destroy();
     OB_DELETEx(ObStopWordChecker, &handler_allocator_, stop_word_checker_);

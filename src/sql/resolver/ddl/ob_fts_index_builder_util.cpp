@@ -1032,6 +1032,9 @@ int ObFtsIndexBuilderUtil::generate_doc_id_column(
   return ret;
 }
 
+// upper bound of the automatic degree used to build fulltext aux index tables
+static constexpr int64_t FTS_AUTO_BUILD_MAX_PARALLELISM = 4;
+
 int ObFtsIndexBuilderUtil::decide_parallelism(
     const share::schema::ObIndexType index_type,
     const int64_t original_parallelism,

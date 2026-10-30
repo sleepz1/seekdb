@@ -1,1 +1,0 @@
-perf(fts): share read-only IK dictionaries across parsers; keep word map type unchanged

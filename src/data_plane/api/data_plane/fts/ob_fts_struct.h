@@ -51,18 +51,7 @@ private:
   ObObjMeta meta_;
 };
 
-// Word maps are always owned by a single tokenization call, so bucket locks are
-// pure overhead on the tokenize / index-build hot path.
-typedef common::hash::ObHashMap<
-    ObFTWord,
-    int64_t,
-    common::hash::NoPthreadDefendMode,
-    common::hash::hash_func<ObFTWord>,
-    common::hash::equal_to<ObFTWord>,
-    common::hash::SimpleAllocer<
-        typename common::hash::HashMapTypes<ObFTWord, int64_t>::AllocType,
-        common::hash::NodeNumTraits<typename common::hash::HashMapTypes<ObFTWord, int64_t>::AllocType>::NODE_NUM,
-        common::hash::NoPthreadDefendMode>> ObFTWordMap;
+typedef common::hash::ObHashMap<ObFTWord, int64_t> ObFTWordMap;
 
 class ObAddWordFlag final
 {
