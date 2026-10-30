@@ -26,6 +26,7 @@
 | --- | --- | --- |
 | IK 词典（主词典、量词词典等）在进程内共享，解析器实例只持有只读引用；退出时在词典缓存销毁前释放 | `ob_ik_ft_parser.*`、`ob_fts_parser_helper.cpp`、`ob_server.cpp` | 建索引和 TOKENIZE 不再为每个解析器实例重复准备词典 |
 | 停用词检查快路径：内置停用词均为短 ASCII 词，纯 ASCII token 做大小写无关的精确比较，含 3/4 字节字符的 token 直接判非停用词，其余仍走原 hash 集合 | `ob_fts_stop_word.cpp` | 分词每 token 少一次字符集转换与 hash 查找 |
+| 分组计数单次 hash 探测（`set_or_update` 代替 get + 覆盖写）；命中时同时用最新 token 覆盖键，保持原覆盖写“同 collation 等价的不同拼写保留最后一次出现”的语义（如希腊词尾 σ/ς） | `ob_fts_stop_word.cpp` | 每 token 少一次 hash 与比较 |
 | 已是小写的 ASCII 与格式正确的 U+4000–U+9FFF 汉字跳过 casedown（这些码位在 `ob_unicase_default` 中无大小写映射，结果逐字节不变） | `ob_fts_stop_word.cpp` | 分词与建索引减少逐字符转换 |
 | `utf8mb4_general_ci` 比较内联前缀快路径：ASCII 与 3 字节汉字直接查 collation 自身的 sort 表，遇到其他字符或较短串结束时把剩余后缀交回 `ObCharset::strcmpsp`；`binary` 直接 memcmp；字节完全相同的串直接判等 | `ob_datum_cmp_func_def.h`、`ob_charset.cpp` | 建索引排序比较大幅减负 |
 | `BOOL(relevance)` 过滤在 DaaT 中直接判断 relevance 是否非零，与表达式求值结果相同 | `ob_sparse_daat_iter.cpp` | 计数类查询每文档少一次表达式求值 |
@@ -43,6 +44,8 @@
   * `cmp-fts/*`：在上述数据上用 ik/beng/ngram/space 建全文索引并查询（覆盖建索排序路径）；
   * `casedown/*`：大小写混合的 ASCII/汉字/全角/特殊大小写字母 TOKENIZE；
   * `boolfilter/*`：MATCH 与 OR/NOT/AND/IS TRUE/布尔负词/LIMIT 组合。
+  * 回归发现：`casedown/{beng,ngram,space}/6`（`ΣΊΣΥΦΟΣ σίσυφος`）曾暴露分组键保留首次拼写的差异，
+    已修复为与基线一致（保留最后一次拼写）。
 * `sdb07_utf8mb4_cmp_equiv.cpp`：600 万组随机串（含非法 UTF-8、截断多字节、代理区、
   增补平面字符）对比内联前缀算法与原 `ob_strnncollsp_utf8mb4`，两种尾空格模式，要求 0 差异。
 * 原生 mysqltest：`fts_index/tokenize_function`、`fts_index/parser_properties` 均 PASS。

@@ -313,12 +313,16 @@ namespace
 {
 struct ObFTWordFreqAccumulator final
 {
-  explicit ObFTWordFreqAccumulator(const int64_t freq) : freq_(freq) {}
+  ObFTWordFreqAccumulator(const ObFTWord &word, const int64_t freq) : word_(word), freq_(freq) {}
   int operator()(common::hash::HashMapPair<ObFTWord, int64_t> &entry)
   {
+    // The original overwrite path replaced the whole pair, so the stored key is the
+    // latest collation-equal spelling (e.g. final sigma); keep that behaviour.
+    entry.first = word_;
     entry.second += freq_;
     return OB_SUCCESS;
   }
+  const ObFTWord &word_;
   int64_t freq_;
 };
 } // namespace
@@ -334,7 +338,7 @@ int ObAddWord::groupby_word(const ObFTWord &word, const int64_t word_freq)
   } else {
     // One hash probe: insert with count 1 or add the frequency to the existing entry.
     // (The original get + overwrite path hashed and compared each token twice.)
-    ObFTWordFreqAccumulator accumulator(word_freq);
+    ObFTWordFreqAccumulator accumulator(word, word_freq);
     if (OB_FAIL(word_map_.set_or_update(word, 1/*first occurrence*/, accumulator))) {
     }
   }
