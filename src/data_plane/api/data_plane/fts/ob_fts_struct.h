@@ -30,12 +30,31 @@ namespace storage
 class ObFTWord final
 {
 public:
-  ObFTWord() : word_(), meta_() {}
-  ObFTWord(const int64_t length, const char *ptr, const ObObjMeta &meta) : meta_(meta)
+  ObFTWord()
+    : is_calc_hash_val_(false),
+      hash_val_(0),
+      hash_func_(nullptr),
+      cmp_func_(nullptr),
+      word_(),
+      meta_()
+  {}
+  ObFTWord(const int64_t length, const char *ptr, const ObObjMeta &meta)
+    : is_calc_hash_val_(false),
+      hash_val_(0),
+      hash_func_(nullptr),
+      cmp_func_(nullptr),
+      meta_(meta)
   {
     word_.set_string(ptr, length);
   }
   ~ObFTWord() = default;
+
+  // Optional: bind pre-resolved hash/cmp funcs (TokenProcessor / StopTokenChecker hot path).
+  int init(const char *ptr,
+           const int64_t length,
+           const ObObjMeta &meta,
+           const common::ObDatumHashFuncType hash_func,
+           const common::ObDatumCmpFuncType cmp_func);
 
   OB_INLINE const ObDatum &get_word() const { return word_; }
   OB_INLINE ObCollationType get_collation_type() const { return meta_.get_collation_type(); }
@@ -44,9 +63,16 @@ public:
   bool operator==(const ObFTWord &other) const;
   OB_INLINE bool operator !=(const ObFTWord &other) const { return !(other == *this); }
 
-  TO_STRING_KV(K_(meta), K_(word));
+  TO_STRING_KV(K_(is_calc_hash_val), K_(hash_val), KP_(hash_func), KP_(cmp_func), K_(meta), K_(word));
 
 private:
+  int do_compare(const ObFTWord &other, bool &is_equal) const;
+
+private:
+  mutable bool is_calc_hash_val_;
+  mutable uint64_t hash_val_;
+  common::ObDatumHashFuncType hash_func_;
+  common::ObDatumCmpFuncType cmp_func_;
   ObDatum word_;
   ObObjMeta meta_;
 };

@@ -272,6 +272,8 @@ int ObFTParseHelper::segment(
     ObFTParserParam param;
     ObITokenIterator *iter = nullptr;
     param.allocator_ = &allocator;
+    param.metadata_alloc_ = &allocator;
+    param.scratch_alloc_ = &allocator;
     param.cs_ = cs;
     param.fulltext_ = ft;
     param.ft_length_ = ft_len;
@@ -315,7 +317,9 @@ ObFTParseHelper::ObFTParseHelper()
     parser_name_(),
     add_word_flag_(),
     parser_property_(),
-    is_inited_(false)
+    is_inited_(false),
+    cached_iter_(nullptr),
+    parser_cache_alloc_(common::ObMemAttr("FTParseCache"))
 {
 }
 
@@ -350,8 +354,27 @@ int ObFTParseHelper::init(
   return ret;
 }
 
+void ObFTParseHelper::free_cached_iter() const
+{
+  if (OB_NOT_NULL(cached_iter_)) {
+    ObFTParserParam param;
+    param.allocator_ = &parser_cache_alloc_;
+    param.metadata_alloc_ = &parser_cache_alloc_;
+    param.scratch_alloc_ = &parser_cache_alloc_;
+    if (OB_NOT_NULL(parser_desc_)) {
+      parser_desc_->free_token_iter(&param, cached_iter_);
+    } else {
+      cached_iter_->~ObITokenIterator();
+      parser_cache_alloc_.free(cached_iter_);
+    }
+    cached_iter_ = nullptr;
+    parser_cache_alloc_.reset();
+  }
+}
+
 void ObFTParseHelper::reset()
 {
+  free_cached_iter();
   parser_desc_ = nullptr;
   allocator_ = nullptr;
   add_word_flag_.clear();
@@ -379,15 +402,9 @@ int ObFTParseHelper::segment(
   } else {
     words.reuse();
     ObAddWord add_word(parser_property_, meta, add_word_flag_, *allocator_, words);
-    if (OB_FAIL(segment(
-                    parser_property_,
-                    parser_name_.get_parser_version(),
-                    parser_desc_,
-                    cs,
-                    fulltext,
-                    fulltext_len,
-                    *allocator_,
-                    add_word))) {
+    // Re-enable reuse_parser now that groupby overwrite=1 is restored and
+    // same-runner CI is green on 3875c66 (Lost-connection / ERROR 4200 fixed).
+    if (OB_FAIL(segment_with_cache(cs, fulltext, fulltext_len, add_word))) {
     } else {
       doc_length = add_word.get_add_word_count();
     }
@@ -501,6 +518,66 @@ int ObFTParseHelper::make_token_array_json(
     json_root = token_array;
   } else {
     OB_DELETEx(ObJsonArray, allocator_, token_array);
+  }
+  return ret;
+}
+
+
+int ObFTParseHelper::segment_with_cache(
+    const ObCharsetInfo *cs,
+    const char *fulltext,
+    const int64_t fulltext_len,
+    ObAddWord &add_word) const
+{
+  int ret = OB_SUCCESS;
+  // Cached parser must live on parser_cache_alloc_: callers (FT DML /
+  // FTIndexRowCache) reuse() their arenas between documents.
+  ObFTParserParam param;
+  param.allocator_ = &parser_cache_alloc_;
+  param.metadata_alloc_ = &parser_cache_alloc_;
+  param.scratch_alloc_ = &parser_cache_alloc_;
+  param.cs_ = cs;
+  param.fulltext_ = fulltext;
+  param.ft_length_ = fulltext_len;
+  param.parser_version_ = parser_name_.get_parser_version();
+  param.ngram_token_size_ = parser_property_.ngram_token_size_;
+  param.ik_param_.mode_
+      = (parser_property_.ik_mode_smart_ ? ObFTIKParam::Mode::SMART : ObFTIKParam::Mode::MAX_WORD);
+  param.min_ngram_size_ = parser_property_.min_ngram_token_size_;
+  param.max_ngram_size_ = parser_property_.max_ngram_token_size_;
+
+  if (OB_NOT_NULL(cached_iter_)) {
+    ObIFTParser *reusable = cached_iter_->as_reusable_parser();
+    if (OB_ISNULL(reusable)) {
+      free_cached_iter();
+    } else if (OB_FAIL(reusable->reuse_parser(fulltext, fulltext_len))) {
+      free_cached_iter();
+      ret = OB_SUCCESS; // fall through to recreate
+    }
+  }
+  if (OB_SUCC(ret) && OB_ISNULL(cached_iter_)) {
+    if (OB_FAIL(parser_desc_->segment(&param, cached_iter_))) {
+      cached_iter_ = nullptr;
+    }
+  }
+  if (OB_FAIL(ret)) {
+  } else if (OB_ISNULL(cached_iter_)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    const char *word = nullptr;
+    int64_t word_len = 0;
+    int64_t char_cnt = 0;
+    int64_t word_freq = 0;
+    while (OB_SUCC(ret)) {
+      if (OB_FAIL(cached_iter_->get_next_token(word, word_len, char_cnt, word_freq))) {
+        if (OB_ITER_END != ret) {
+        }
+      } else if (OB_FAIL(add_word.process_word(word, word_len, char_cnt, word_freq))) {
+      }
+    }
+    if (OB_ITER_END == ret) {
+      ret = OB_SUCCESS;
+    }
   }
   return ret;
 }

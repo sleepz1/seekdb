@@ -27,7 +27,7 @@ namespace oceanbase
 namespace storage
 {
 
-class ObBEngFTParser final : public ObITokenIterator
+class ObBEngFTParser final : public ObIFTParser
 {
 public:
   static const int64_t FT_MIN_WORD_LEN = 3;
@@ -45,6 +45,7 @@ public:
 
   int init(ObFTParserParam *param);
   void reset();
+  int reuse_parser(const char *fulltext, const int64_t fulltext_len) override;
   virtual int get_next_token(
       const char *&word,
       int64_t &word_len,

@@ -18,6 +18,7 @@
 #define OB_FTS_PARSER_HELPER_H_
 
 #include "lib/allocator/ob_fifo_allocator.h"
+#include "lib/allocator/page_arena.h"
 #include "lib/charset/ob_charset.h"
 #include "lib/string/ob_string.h"
 #include "object/ob_object.h"
@@ -218,12 +219,25 @@ private:
       ObAddWord &add_word);
   int set_add_word_flag(const ObIFTParserDesc &ftparser_desc);
 private:
+  // Prefer reusing a long-lived parser across documents (build / multi-row tokenize).
+  int segment_with_cache(
+      const ObCharsetInfo *cs,
+      const char *fulltext,
+      const int64_t fulltext_len,
+      ObAddWord &add_word) const;
+  void free_cached_iter() const;
+
+private:
   common::ObIAllocator *allocator_;
   const ObIFTParserDesc *parser_desc_;
   ObFTParser parser_name_;
   ObAddWordFlag add_word_flag_;
   ObFTParserProperty parser_property_;
   bool is_inited_;
+  mutable ObITokenIterator *cached_iter_;
+  // Owns cached parser lifetime; must NOT share ObDomainDMLIterator /
+  // ObFTIndexRowCache arenas that reuse() between documents.
+  mutable common::ObArenaAllocator parser_cache_alloc_;
 
 private:
   static constexpr const char *ENTRY_NAME_DOC_LEN = "doc_len";

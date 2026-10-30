@@ -378,24 +378,49 @@ int ObFTRangeDict::match_with_hit(const ObString &single_word,
   return last_hit.dict_->match_with_hit(single_word, last_hit, hit);
 }
 
+namespace
+{
+// utf8mb4_bin ordering is raw unsigned byte order + length: avoid ObCharset::strcmp
+// on the per-character range lookup hot path during IK build/tokenize.
+inline int utf8mb4_bin_cmp(const ObString &left, const ObString &right)
+{
+  const int64_t min_len = left.length() < right.length() ? left.length() : right.length();
+  int cmp = 0;
+  if (min_len > 0) {
+    cmp = MEMCMP(left.ptr(), right.ptr(), static_cast<size_t>(min_len));
+  }
+  if (0 == cmp) {
+    cmp = left.length() < right.length() ? -1 : (left.length() > right.length() ? 1 : 0);
+  }
+  return cmp;
+}
+} // namespace
+
 int ObFTRangeDict::find_first_char_range(const ObString &single_word, ObIFTDict *&dict) const
 {
   int ret = OB_SUCCESS;
   bool found = false;
-  for (int i = 0; OB_SUCC(ret) && !found && i < range_dicts_.size(); ++i) {
-    if (ObCharset::strcmp(ObCollationType::CS_TYPE_UTF8MB4_BIN,
-                          range_dicts_[i].start_.get_word(),
-                          single_word)
-            <= 0
-        && ObCharset::strcmp(ObCollationType::CS_TYPE_UTF8MB4_BIN,
-                             range_dicts_[i].end_.get_word(),
-                             single_word)
-               >= 0) {
-      dict = range_dicts_[i].dict_;
+  // ranges are ordered by start word and do not overlap: binary-search the last
+  // range whose start is not greater than the input, then check the end bound.
+  int64_t left = 0;
+  int64_t right = range_dicts_.size() - 1;
+  int64_t candidate = -1;
+  while (OB_SUCC(ret) && left <= right) {
+    const int64_t mid = left + (right - left) / 2;
+    if (utf8mb4_bin_cmp(range_dicts_[mid].start_.get_word(), single_word) <= 0) {
+      candidate = mid;
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+  if (OB_SUCC(ret) && candidate >= 0) {
+    if (utf8mb4_bin_cmp(range_dicts_[candidate].end_.get_word(), single_word) >= 0) {
+      dict = range_dicts_[candidate].dict_;
       found = true;
     }
   }
-  if (!found) {
+  if (OB_SUCC(ret) && !found) {
     // not found, dis match
     ret = OB_ENTRY_NOT_EXIST;
   }
