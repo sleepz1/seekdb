@@ -43,9 +43,9 @@ for variant in parent repair; do
   if [[ $variant != parent ]]; then
     "$RUNNER_TEMP/sdb07-venv/bin/python" unittest/storage/fts/test_contest_semantics.py --compare "$OUT/parent/semantics.json" "$OUT/$variant/semantics.json"
   fi
-  "$RUNNER_TEMP/sdb07-venv/bin/python" unittest/storage/fts/verify_scoreless_modes.py "$OUT/$variant/query-modes"
+  "$RUNNER_TEMP/sdb07-venv/bin/python" unittest/storage/fts/verify_scoreless_modes.py "$OUT/$variant/query-modes" || regression_status=1
   if [[ $variant != parent ]]; then
-    cmp "$OUT/parent/query-modes/outputs.json" "$OUT/$variant/query-modes/outputs.json"
+    cmp "$OUT/parent/query-modes/outputs.json" "$OUT/$variant/query-modes/outputs.json" || regression_status=1
   fi
   $MYSQL -e 'CREATE DATABASE IF NOT EXISTS test'
   for test_case in tokenize_function parser_properties; do

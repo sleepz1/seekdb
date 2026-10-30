@@ -25,6 +25,7 @@ connection = pymysql.connect(host='127.0.0.1', port=2881, user='root',
 cur = connection.cursor()
 cur.execute('SET ob_query_timeout=1000000000')
 results = {}
+differences = {}
 def distinct_word(number):
     return 'missingterm'+''.join(chr(97+(number//(26**power))%26) for power in [2, 1, 0])
 
@@ -66,8 +67,13 @@ for batch_size in [0, 256]:
             if shape == 'count' and term_idx != 1:
                 assert rows and rows[0][0] > 0, 'Expected successful nonempty count: '+key
             if batch_size == 256:
-                assert results[f'0-{term_idx}-{shape}'] == rows, 'Scalar/vector output differs: '+key
+                scalar = results[f'0-{term_idx}-{shape}']
+                if scalar != rows:
+                    differences[key] = {'scalar': scalar, 'vector': rows}
             results[key] = rows
+            (out / 'outputs.json').write_text(json.dumps(results, ensure_ascii=False, sort_keys=True), encoding='utf-8')
 connection.close()
 (out / 'outputs.json').write_text(json.dumps(results, ensure_ascii=False, sort_keys=True), encoding='utf-8')
+(out / 'scalar-vector-differences.json').write_text(json.dumps(differences, ensure_ascii=False, sort_keys=True), encoding='utf-8')
+assert not differences, 'Scalar/vector output differs: ' + ', '.join(differences)
 print(f'Scalar/vector plans and all {len(results)} full outputs verified')
