@@ -47,6 +47,8 @@ public:
 
   int current_char(const char *&ch, uint8_t &char_len);
   int current_char_type(ObFTCharUtil::CharType &type);
+  // Merged hot-path accessor: one call instead of current_char + current_char_type.
+  int current_char_and_type(const char *&ch, uint8_t &char_len, ObFTCharUtil::CharType &type);
 
   int step_next();
 
@@ -89,6 +91,11 @@ private:
 
   ObFTSortList token_list_;
   ObList<ObIKToken, ObIAllocator> result_list_;
+
+  // Cached charset pointers for prepare_next_char hot path (yuque §2.2).
+  const ObCharsetInfo *cs_;
+  size_t (*well_formed_len_)(const struct ObCharsetInfo *, const char *, const char *, size_t, int *);
+  ObCharsetType cs_type_;
 
 private:
   DISALLOW_COPY_AND_ASSIGN(TokenizeContext);

@@ -151,19 +151,22 @@ int ObAddWord::process_word(
 {
   int ret = OB_SUCCESS;
   bool is_stopword = false;
-  ObFTWord src_word(word_len, word, word_meta_);
-  ObFTWord dst_word;
   if (OB_ISNULL(word) || OB_UNLIKELY(0 >= word_len || 0 >= char_cnt || 0 >= word_freq)) {
     ret = OB_INVALID_ARGUMENT;
   } else if (is_min_max_word(char_cnt)) {
+    // Early exit before ObFTWord / casedown / stopword work (yuque §2.3 short-circuit).
     ++min_max_word_cnt_;
-  } else if (OB_FAIL(casedown_word(src_word, dst_word))) {
-  } else if (OB_FAIL(check_stopword(dst_word, is_stopword))) {
-  } else if (OB_UNLIKELY(is_stopword)) {
-    ++stopword_cnt_;
-  } else if (OB_FAIL(groupby_word(dst_word, word_freq))) {
   } else {
-    non_stopword_cnt_ += word_freq;
+    ObFTWord src_word(word_len, word, word_meta_);
+    ObFTWord dst_word;
+    if (OB_FAIL(casedown_word(src_word, dst_word))) {
+    } else if (OB_FAIL(check_stopword(dst_word, is_stopword))) {
+    } else if (OB_UNLIKELY(is_stopword)) {
+      ++stopword_cnt_;
+    } else if (OB_FAIL(groupby_word(dst_word, word_freq))) {
+    } else {
+      non_stopword_cnt_ += word_freq;
+    }
   }
   return ret;
 }
