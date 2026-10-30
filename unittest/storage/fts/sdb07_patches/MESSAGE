@@ -1,0 +1,1 @@
+Skip collation dispatch for identical and binary string compares; keep serial FTS aux build

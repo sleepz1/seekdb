@@ -1,0 +1,89 @@
+diff --git a/src/oblib/lib/charset/ob_charset.cpp b/src/oblib/lib/charset/ob_charset.cpp
+index 934e0952..aa35484c 100644
+--- a/src/oblib/lib/charset/ob_charset.cpp
++++ b/src/oblib/lib/charset/ob_charset.cpp
+@@ -571,7 +571,13 @@ int ObCharset::strcmpsp(ObCollationType collation_type,
+                         bool cmp_endspace)
+ {
+   int result = 0;
+-  if (is_argument_valid(collation_type, str1, str1_len, str2, str2_len)) {
++  if (!is_argument_valid(collation_type, str1, str1_len, str2, str2_len)) {
++  } else if (CS_TYPE_BINARY == collation_type) {
++    // Same result as ob_strnncollsp_binary, without the charset dispatch.
++    const int64_t min_len = str1_len < str2_len ? str1_len : str2_len;
++    const int mem_ret = 0 == min_len ? 0 : MEMCMP(str1, str2, min_len);
++    result = 0 != mem_ret ? mem_ret : static_cast<int>(str1_len - str2_len);
++  } else {
+     const ObCharsetInfo *cs = get_charset(collation_type);
+     result = cs->coll->strnncollsp(cs,
+                                 reinterpret_cast<const unsigned char *>(str1),
+diff --git a/src/share/datum/ob_datum_cmp_func_def.h b/src/share/datum/ob_datum_cmp_func_def.h
+index 63de689e..38a2543c 100644
+--- a/src/share/datum/ob_datum_cmp_func_def.h
++++ b/src/share/datum/ob_datum_cmp_func_def.h
+@@ -387,7 +387,19 @@ struct ObDatumStrCmp : public ObDefined<SupportedCollection<CS_TYPE>::defined_>
+ {
+   inline static int cmp(const ObDatum &l, const ObDatum &r, int &cmp_ret)
+   {
+-    return ObDatumStrCmpImpl::cmp(l, r, cmp_ret, CS_TYPE, WITH_END_SPACE);
++    int ret = OB_SUCCESS;
++    if (CS_TYPE == CS_TYPE_BINARY) {
++      // Same result as ob_strnncollsp_binary, without the charset dispatch.
++      const uint32_t min_len = l.len_ < r.len_ ? l.len_ : r.len_;
++      const int mem_ret = 0 == min_len ? 0 : MEMCMP(l.ptr_, r.ptr_, min_len);
++      cmp_ret = mem_ret > 0 ? 1 : (mem_ret < 0 ? -1 : (l.len_ > r.len_ ? 1 : (l.len_ < r.len_ ? -1 : 0)));
++    } else if (l.len_ == r.len_ && (l.ptr_ == r.ptr_ || 0 == l.len_ || 0 == MEMCMP(l.ptr_, r.ptr_, l.len_))) {
++      // Byte-identical strings are equal under every collation.
++      cmp_ret = 0;
++    } else {
++      ret = ObDatumStrCmpImpl::cmp(l, r, cmp_ret, CS_TYPE, WITH_END_SPACE);
++    }
++    return ret;
+   }
+ };
+ 
+diff --git a/src/sql/resolver/ddl/ob_fts_index_builder_util.cpp b/src/sql/resolver/ddl/ob_fts_index_builder_util.cpp
+index 55d384f3..65342c70 100644
+--- a/src/sql/resolver/ddl/ob_fts_index_builder_util.cpp
++++ b/src/sql/resolver/ddl/ob_fts_index_builder_util.cpp
+@@ -22,7 +22,6 @@
+ #include "data_plane/fts/dict/ob_gen_dic_loader.h"
+ #include "data_plane/fts/dict/ob_dic_lock_service.h"
+ #include "share/ob_server_struct.h"
+-#include "lib/cpu/ob_cpu_topology.h"
+ #include "data_plane/fts/ob_fts_parser_helper.h"
+ #include "share/schema/ob_multi_version_schema_service.h"
+ #include "share/schema/ob_schema_utils.h"
+@@ -1032,9 +1031,6 @@ int ObFtsIndexBuilderUtil::generate_doc_id_column(
+   return ret;
+ }
+ 
+-// upper bound of the automatic degree used to build fulltext aux index tables
+-static constexpr int64_t FTS_AUTO_BUILD_MAX_PARALLELISM = 4;
+-
+ int ObFtsIndexBuilderUtil::decide_parallelism(
+     const share::schema::ObIndexType index_type,
+     const int64_t original_parallelism,
+@@ -1049,21 +1045,9 @@ int ObFtsIndexBuilderUtil::decide_parallelism(
+         decided_parallelism = MAX(original_parallelism, 1L);
+         break;
+       case share::schema::ObIndexType::INDEX_TYPE_DOC_ID_ROWKEY_LOCAL:
+-        decided_parallelism = MAX(original_parallelism, 1L);
+-        break;
+       case share::schema::ObIndexType::INDEX_TYPE_FTS_INDEX_LOCAL:
+       case share::schema::ObIndexType::INDEX_TYPE_FTS_DOC_WORD_LOCAL:
+-        // Word segmentation dominates fulltext aux index builds. When neither a hint nor the
+-        // session asks for a degree, scan and segment the base table with a small automatic
+-        // degree so the CPU-bound tokenization is spread over several PX workers. The degree is
+-        // bounded by half of the server cpu count (at most 4), which keeps the concurrently
+-        // built word-doc and doc-word aux tables within the default PX worker target.
+-        if (1 == original_parallelism) {
+-          const int64_t cpu_cnt = common::get_cpu_count();
+-          decided_parallelism = MIN(MAX(cpu_cnt / 2, 1L), FTS_AUTO_BUILD_MAX_PARALLELISM);
+-        } else {
+-          decided_parallelism = MAX(original_parallelism, 1L);
+-        }
++        decided_parallelism = MAX(original_parallelism, 1L);
+         break;
+       case share::schema::ObIndexType::INDEX_TYPE_NORMAL_MULTIVALUE_LOCAL:
+       case share::schema::ObIndexType::INDEX_TYPE_UNIQUE_MULTIVALUE_LOCAL:

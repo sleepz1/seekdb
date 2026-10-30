@@ -56,19 +56,18 @@ rebuild_with_timeline() {
   local prof=$1 name=$2 idx=$3 def=$4
   $MYSQL -e "USE fts_large_bench; ALTER TABLE docs DROP INDEX $idx;" 2>&1 | tail -2
   sleep 3
-  rm -f "$prof/stop-$name"
-  ( while [[ ! -f "$prof/stop-$name" ]]; do
-      $MYSQL -e "SELECT NOW(6), t.* FROM oceanbase.__all_virtual_ddl_task_status t" 2>&1
-      echo "-- $(date +%T.%N)"
-      sleep 0.02
-    done ) > "$prof/ddl-timeline-$name.txt" &
-  local tl=$!
-  local s e
+  local s e s_ts e_ts
+  s_ts=$(date '+%Y-%m-%d %H:%M:%S.%6N')
   s=$(date +%s%N)
   perf_cmd "build_$name" $MYSQL -e "SET ob_query_timeout = 100000000000; SET ob_trx_timeout = 100000000000; USE fts_large_bench; ALTER TABLE docs ADD FULLTEXT INDEX $def;"
   e=$(date +%s%N)
-  touch "$prof/stop-$name"; wait $tl 2>/dev/null || true
-  echo "rebuild_${name}_ms $(( (e-s)/1000000 )) start_ns $s end_ns $e" >> "$prof/rebuild.txt"
+  e_ts=$(date '+%Y-%m-%d %H:%M:%S.%6N')
+  echo "rebuild_${name}_ms $(( (e-s)/1000000 )) start $s_ts end $e_ts" >> "$prof/rebuild.txt"
+  # Server log lines inside the DDL window: state switches, child tasks and waits.
+  cat "$INSTANCE"/log/seekdb.log* 2>/dev/null | awk -v s="[$s_ts" -v e="[$e_ts" 'substr($0,1,28) >= s && substr($0,1,28) <= e' \
+    | grep -v "ddl_task_status" | head -400000 | gzip > "$prof/ddllog-$name.gz" || true
+  zcat "$prof/ddllog-$name.gz" | grep -E "switch_status|switch status|task_status|ObFtsIndexBuildTask|ObIndexBuildTask|wait_trans_end|finish|succ to" \
+    | cut -c1-400 | head -3000 > "$prof/ddl-timeline-$name.txt" || true
 }
 
 profile_variant() {
@@ -84,8 +83,6 @@ profile_variant() {
   $MYSQL -e "SET NAMES utf8mb4; EXPLAIN EXTENDED SELECT COUNT(*) FROM fts_large_bench.docs WHERE MATCH(title, content) AGAINST('全文索引 分词器'); EXPLAIN EXTENDED SELECT COUNT(*) FROM (SELECT id FROM fts_large_bench.docs WHERE MATCH(content) AGAINST('倒排索引 tokenizer') LIMIT 20) t;" > "$PROF/plans.txt" 2>&1
   rebuild_with_timeline "$PROF" ik_all fti_all "fti_all(title, content) WITH PARSER ik"
   rebuild_with_timeline "$PROF" beng fti_en_beng "fti_en_beng(title_en, content_en) WITH PARSER beng"
-  $MYSQL_VERBOSE -e "SELECT * FROM oceanbase.__all_virtual_ddl_task_status" > "$PROF/ddl-task-status.txt" 2>&1 || true
-  $MYSQL_VERBOSE -e "SELECT * FROM oceanbase.__all_ddl_task_status" >> "$PROF/ddl-task-status.txt" 2>&1 || true
 }
 
 run_variant() {
