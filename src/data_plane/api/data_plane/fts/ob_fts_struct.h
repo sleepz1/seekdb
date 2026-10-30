@@ -77,11 +77,7 @@ private:
   ObObjMeta meta_;
 };
 
-// Single-threaded per-document word map: lock-free defend mode.
-typedef common::hash::ObHashMap<
-    ObFTWord,
-    int64_t,
-    common::hash::NoPthreadDefendMode> ObFTWordMap;
+typedef common::hash::ObHashMap<ObFTWord, int64_t> ObFTWordMap;
 
 class ObAddWordFlag final
 {

@@ -195,19 +195,6 @@ public:
 
 private:
   static constexpr int64_t MAX_CHAR_COUNT_PER_TOKEN = 1024;
-  class UpdateWordCountCallBack final
-  {
-  public:
-    explicit UpdateWordCountCallBack(const int64_t word_freq) : word_freq_(word_freq) {}
-    // ObHashMap::set_or_update passes the pair (hashtable default preproc).
-    int operator()(common::hash::HashMapPair<ObFTWord, int64_t> &pair)
-    {
-      pair.second += word_freq_;
-      return OB_SUCCESS;
-    }
-  private:
-    int64_t word_freq_;
-  };
 
 private:
   bool is_min_max_word(const int64_t c_len) const;

@@ -25,6 +25,16 @@ regression_status=0
 mkdir -p "$OUT"
 git diff --name-only "$PARENT_SHA" "$REPAIR_SHA" -- src > "$OUT/changed-sources.txt"
 sha256sum tools/benchmark/fts_large_bench* > "$OUT/benchmark-integrity.sha256"
+preserve_instance_log() {
+  local variant=$1
+  mkdir -p "$OUT/$variant"
+  if [[ -f "$INSTANCE/log/seekdb.log" ]]; then
+    cp "$INSTANCE/log/seekdb.log" "$OUT/$variant/seekdb.log" || true
+    # Keep a short crash signature for the artifact root.
+    grep -nE "SIGNAL|sigsegv|SIGABRT|assert|ERROR|crash|ObFast|StopToken|abort"       "$OUT/$variant/seekdb.log" 2>/dev/null | tail -80       > "$OUT/$variant/seekdb-crash-signature.txt" || true
+  fi
+  python3 .github/script/seekdb/sdb.py stop --base-dir "$INSTANCE" 2>/dev/null || true
+}
 for variant in parent original repair; do
   case $variant in
     parent) source_sha=$PARENT_SHA;;
@@ -61,6 +71,8 @@ for variant in parent original repair; do
   cmake --build build_release --target seekdb -j4 2>&1 | tee "$OUT/$variant/build.log"
   python3 .github/script/seekdb/sdb.py start --binary "$ROOT/build_release/src/observer/seekdb" --base-dir "$INSTANCE" --port 2881 --parameter memory_limit=4G --parameter datafile_size=2G --parameter log_disk_size=2G
   python3 .github/script/seekdb/sdb.py wait-ready --client "$CLIENT" --base-dir "$INSTANCE" --host 127.0.0.1 --port 2881 --user root --timeout 180
+  # Preserve seekdb.log if bench/mysqltest/crash kills the instance (set -e).
+  trap 'preserve_instance_log "$variant"; rm -rf "$INSTANCE"; trap - ERR' ERR
   LABEL=$variant ROWS=20000 BATCH=500 ROUNDS=3000 QUERY_ROUNDS=200 SAMPLES=3 WARMUP=30 SKIP_LOAD=0 OUTPUT="$OUT/$variant/report.txt" bash tools/benchmark/fts_large_bench.sh 2>&1 | tee "$OUT/$variant/benchmark.log"
   python3 tools/benchmark/fts_large_bench_score.py "$OUT/$variant/report.txt" --json > "$OUT/$variant/repository-score.json"
   "$RUNNER_TEMP/sdb07-venv/bin/python" unittest/storage/fts/test_contest_semantics.py "$OUT/$variant/semantics.json"
@@ -86,8 +98,8 @@ for variant in parent original repair; do
     fi
     sha256sum --check "$test_out/source.sha256"
   done
-  python3 .github/script/seekdb/sdb.py stop --base-dir "$INSTANCE"
-  cp "$INSTANCE/log/seekdb.log" "$OUT/$variant/seekdb.log" || true
+  trap - ERR
+  preserve_instance_log "$variant"
   rm -rf "$INSTANCE"
 done
 sha256sum --check "$OUT/benchmark-integrity.sha256"

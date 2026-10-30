@@ -402,7 +402,16 @@ int ObFTParseHelper::segment(
   } else {
     words.reuse();
     ObAddWord add_word(parser_property_, meta, add_word_flag_, *allocator_, words);
-    if (OB_FAIL(segment_with_cache(cs, fulltext, fulltext_len, add_word))) {
+    // Avoid cached reuse_parser during FTS build until CI proves it stable;
+    // TOKENIZE can re-enable segment_with_cache after green tip.
+    if (OB_FAIL(segment(parser_property_,
+                        parser_name_.get_parser_version(),
+                        parser_desc_,
+                        cs,
+                        fulltext,
+                        fulltext_len,
+                        *allocator_,
+                        add_word))) {
     } else {
       doc_length = add_word.get_add_word_count();
     }

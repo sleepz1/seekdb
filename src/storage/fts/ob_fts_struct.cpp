@@ -78,8 +78,9 @@ bool ObFTWord::operator==(const ObFTWord &other) const
 {
   bool is_equal = false;
   int ret = OB_SUCCESS;
+  // Never abort in hash paths: a failed compare must not kill seekdb mid-build.
   if (OB_FAIL(do_compare(other, is_equal))) {
-    ob_abort();
+    is_equal = false;
   }
   return is_equal;
 }
