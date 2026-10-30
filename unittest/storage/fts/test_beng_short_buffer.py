@@ -41,8 +41,8 @@ for charset, collation in charset_collations:
         expression = f'CONVERT(%s USING {charset}) COLLATE {collation}'
         metadata_key = f'input/{collation}/{index}'
         try:
-            cursor.execute(f'SELECT CHARSET({expression}), COLLATION({expression}), '
-                           f'LENGTH({expression}), HEX({expression})', (text,) * 4)
+            cursor.execute(f'SELECT CHARSET({expression}) AS input_charset, COLLATION({expression}) AS input_collation, '
+                           f'LENGTH({expression}) AS input_length, HEX({expression}) AS input_hex', (text,) * 4)
             metadata = list(cursor.fetchone())
             assert metadata[0] == charset and metadata[1] == collation, metadata
             results[metadata_key] = metadata
@@ -51,6 +51,7 @@ for charset, collation in charset_collations:
         for detail in [False, True]:
             sql = f'SELECT TOKENIZE({expression}, %s'
             sql += ", '[{\"output\":\"all\"}]')" if detail else ')'
+            sql += ' AS tokens'
             key = f'{collation}/{index}/{detail}'
             try:
                 cursor.execute(sql, (text, 'beng'))
