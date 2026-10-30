@@ -27,6 +27,8 @@
 #include "sql/das/ob_das_dml_vec_iter.h"
 #include "sql/engine/expr/ob_expr_lob_utils.h"
 #include "share/geo/ob_srs_provider.h"
+#include "lib/utility/ob_sort.h"
+#include "lib/charset/ob_charset.h"
 
 using namespace oceanbase::common;
 
@@ -308,7 +310,15 @@ int ObDASDomainUtils::build_ft_doc_word_infos(
     ret = OB_ALLOCATE_MEMORY_FAILED;
   } else {
     int64_t i = 0;
-    rows = new (rows_buf) blocksstable::ObDatumRow[ft_word_map.size()];
+    const int64_t word_cnt_rows = ft_word_map.size();
+    rows = new (rows_buf) blocksstable::ObDatumRow[word_cnt_rows];
+    // index row format
+    //  -    FTS_INDEX: [WORD], [DOC_ID], [WORD_COUNT], [DOC_LENGTH]
+    //  - FTS_DOC_WORD: [DOC_ID], [WORD], [WORD_COUNT], [DOC_LENGTH]
+    const int64_t word_idx = is_fts_index_aux ? 0 : 1;
+    const int64_t doc_id_idx = is_fts_index_aux ? 1 : 0;
+    const int64_t word_cnt_idx = 2;
+    const int64_t doc_len_idx = 3;
     for (ObFTWordMap::const_iterator iter = ft_word_map.begin();
          OB_SUCC(ret) && iter != ft_word_map.end();
          ++iter) {
@@ -316,20 +326,49 @@ int ObDASDomainUtils::build_ft_doc_word_infos(
       } else {
         const ObFTWord &ft_word = iter->first;
         const int64_t word_cnt = iter->second;
-        // index row format
-        //  -    FTS_INDEX: [WORD], [DOC_ID], [WORD_COUNT], [DOC_LENGTH]
-        //  - FTS_DOC_WORD: [DOC_ID], [WORD], [WORD_COUNT], [DOC_LENGTH]
-        const int64_t word_idx = is_fts_index_aux ? 0 : 1;
-        const int64_t doc_id_idx = is_fts_index_aux ? 1 : 0;
-        const int64_t word_cnt_idx = 2;
-        const int64_t doc_len_idx = 3;
         rows[i].storage_datums_[word_idx].set_datum(ft_word.get_word());
         rows[i].storage_datums_[doc_id_idx].shallow_copy_from_datum(doc_id_datum);
         rows[i].storage_datums_[word_cnt_idx].set_uint(word_cnt);
         rows[i].storage_datums_[doc_len_idx].set_uint(doc_length);
-        if (OB_FAIL(word_rows.push_back(&rows[i]))) {
-        } else {
-          ++i;
+        ++i;
+      }
+    }
+    // ObFtsSegmentSort-lite: emit WORD-ordered rows so FTS_DOC_WORD is
+    // fully sorted within a doc and FTS_INDEX produces sorted runs that
+    // merge cheaper downstream. DOC_ID is constant in this call.
+    if (OB_SUCC(ret) && i > 1) {
+      const ObCollationType cs_type = ft_obj_meta.get_collation_type();
+      struct WordRowCmp {
+        explicit WordRowCmp(const int64_t word_idx, const ObCollationType cs)
+          : word_idx_(word_idx), cs_(cs) {}
+        bool operator()(const blocksstable::ObDatumRow *l,
+                        const blocksstable::ObDatumRow *r) const
+        {
+          const ObString ls = l->storage_datums_[word_idx_].get_string();
+          const ObString rs = r->storage_datums_[word_idx_].get_string();
+          return ObCharset::strcmp(cs_, ls.ptr(), ls.length(), rs.ptr(), rs.length()) < 0;
+        }
+        int64_t word_idx_;
+        ObCollationType cs_;
+      };
+      ObSEArray<blocksstable::ObDatumRow *, 16> ptrs;
+      if (OB_FAIL(ptrs.reserve(i))) {
+      } else {
+        for (int64_t j = 0; OB_SUCC(ret) && j < i; ++j) {
+          if (OB_FAIL(ptrs.push_back(&rows[j]))) {
+          }
+        }
+        if (OB_SUCC(ret)) {
+          lib::ob_sort(ptrs.begin(), ptrs.end(), WordRowCmp(word_idx, cs_type));
+          for (int64_t j = 0; OB_SUCC(ret) && j < ptrs.count(); ++j) {
+            if (OB_FAIL(word_rows.push_back(ptrs.at(j)))) {
+            }
+          }
+        }
+      }
+    } else {
+      for (int64_t j = 0; OB_SUCC(ret) && j < i; ++j) {
+        if (OB_FAIL(word_rows.push_back(&rows[j]))) {
         }
       }
     }
