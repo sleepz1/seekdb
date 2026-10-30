@@ -93,19 +93,19 @@ int ObStopWordChecker::check_stopword(const ObFTWord &word, bool &is_stopword)
     ret = OB_INVALID_ARGUMENT;
   } else {
     ObFTWord cmp_word = word;
+    common::ObArenaAllocator allocator(lib::ObMemAttr("ChkStopWord"));
+    common::ObString cmp_str;
     // stopword set is utf8mb4_general_ci: skip convert/alloc when collation matches.
-    if (word.get_collation_type() != stopword_type_.get_collation_type()) {
-      common::ObArenaAllocator allocator(lib::ObMemAttr("ChkStopWord"));
-      common::ObString cmp_str;
-      if (OB_FAIL(common::ObCharset::charset_convert(
+    if (word.get_collation_type() == stopword_type_.get_collation_type()) {
+      cmp_word = word;
+    } else if (OB_FAIL(common::ObCharset::charset_convert(
                                        allocator,
                                        word.get_word().get_string(),
                                        word.get_collation_type(),
                                        stopword_type_.get_collation_type(),
                                        cmp_str))) {
-      } else {
-        cmp_word = ObFTWord(cmp_str.length(), cmp_str.ptr(), stopword_type_);
-      }
+    } else {
+      cmp_word = ObFTWord(cmp_str.length(), cmp_str.ptr(), stopword_type_);
     }
     if (OB_SUCC(ret)) {
       ret = stopword_set_.exist_refactored(cmp_word);

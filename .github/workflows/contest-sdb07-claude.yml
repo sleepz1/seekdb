@@ -1,0 +1,93 @@
+# Copyright (c) 2026 OceanBase.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: SDB07 Claude profile and comparison
+on:
+  push:
+    branches: ['contest/sdb07-claude*']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: sdb07-claude-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  bench:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+    env:
+      CCACHE_MAXSIZE: 4G
+      CCACHE_COMPILERCHECK: content
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git wget curl rpm rpm2cpio cpio make build-essential binutils m4 file python3 python3-venv libncurses5 libtool-bin libaio1 ccache linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y git wget curl rpm rpm2cpio cpio make build-essential binutils m4 file python3 python3-venv libncurses5 libtool-bin libaio1 ccache
+          echo "CCACHE_DIR=$RUNNER_TEMP/sdb07-ccache" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/sdb07-ccache"
+          sudo sysctl -w kernel.perf_event_paranoid=-1 || true
+          sudo sysctl -w kernel.kptr_restrict=0 || true
+          nproc; free -h
+      - name: Restore pinned dependencies
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: |
+            deps/3rd
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: sdb04-deps-${{ runner.os }}-${{ hashFiles('deps/init/**', 'rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+      - name: Restore compiler cache
+        id: compiler-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/sdb07-ccache
+          key: sdb07-ccache-v1-${{ runner.os }}-${{ hashFiles('deps/init/**') }}-${{ github.sha }}
+          restore-keys: |
+            sdb07-ccache-v1-${{ runner.os }}-${{ hashFiles('deps/init/**') }}-
+            sdb04-ccache-v1-${{ runner.os }}-${{ hashFiles('deps/init/**') }}-
+      - name: Configure release
+        run: |
+          set -o pipefail
+          export CCACHE_BASEDIR="$GITHUB_WORKSPACE"
+          bash build.sh release --init -DCMAKE_C_COMPILER_LAUNCHER=/usr/bin/ccache -DCMAKE_CXX_COMPILER_LAUNCHER=/usr/bin/ccache 2>&1 | tail -50
+          echo "$GITHUB_WORKSPACE/deps/3rd/usr/local/oceanbase/devtools/bin" >> "$GITHUB_PATH"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          python3 -m venv "$RUNNER_TEMP/sdb07-venv"
+          "$RUNNER_TEMP/sdb07-venv/bin/pip" install PyMySQL==1.1.1
+      - name: Build, benchmark and profile
+        run: bash unittest/storage/fts/sdb07_claude_bench.sh
+      - name: Publish evidence branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          mkdir -p sdb07-evidence
+          cp -r sdb07-evidence "$RUNNER_TEMP/ev"
+          cd "$RUNNER_TEMP/ev"
+          find . -type f -size +40M -delete
+          git init -q -b main .
+          git config user.email "actions@github.com"; git config user.name "sdb07-bot"
+          git add -A && git commit -q -m "evidence ${{ github.sha }} run ${{ github.run_id }}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/evidence/sdb07-claude-${{ github.run_id }}"
+      - name: Stop instance
+        if: always()
+        run: |
+          if test -d "$RUNNER_TEMP/sdb07-instance"; then python3 .github/script/seekdb/sdb.py stop --base-dir "$RUNNER_TEMP/sdb07-instance" || true; fi
+      - name: Save compiler cache
+        if: always()
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/sdb07-ccache
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
