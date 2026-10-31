@@ -1,0 +1,48 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'task-clock:ppp'
+# Event count (approx.): 1369369368
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+# ........  ...........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    19.37%  [.] oceanbase::blocksstable::ObStringDiffDecoder::batch_decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::blocksstable::ObIRowIndex const*, int const*, char const**, long, oceanbase::common::ObDatum*) const
+    15.06%  [.] oceanbase::storage::ObTextDaaTIter::linear_merge_round(long&)
+     4.24%  [.] oceanbase::sql::ObDocIdExt::from_datum(oceanbase::common::ObDatum const&)
+     3.44%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::set(long)
+     3.29%  [.] oceanbase::common::ObIArrayWrap<oceanbase::data_plane::ObSparseRetrievalId>::at(long)
+     2.70%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::save_docids()
+     2.12%  [.] oceanbase::common::ObIOService::get_io_config()
+     1.83%  [.] oceanbase::sql::(anonymous namespace)::set_doc_id_shallow(oceanbase::common::ObDatum&, oceanbase::sql::ObDocIdExt const&)
+     1.61%  [.] oceanbase::storage::ObSRDaaTIterImpl::project_results(long)
+     1.61%  [.] 0x00000000001a0905
+     1.54%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::at(long) const
+     1.39%  [.] 0x0000000000199e43
+     1.24%  [.] 0x00000000001a08e6
+     1.10%  [.] 0x0000000000199e3d
+     1.02%  [.] oceanbase::storage::ObBlockBatchedRowStore::get_row_ids(oceanbase::blocksstable::ObIMicroBlockReader*, long&, long, long&, bool, oceanbase::storage::ObFilterResult const&)
+     0.95%  [.] int oceanbase::sql::ObAggregateProcessor::process_aggr_batch_result<oceanbase::sql::ObAggregateProcessor::ObBatchRowsSlice>(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const*, oceanbase::sql::ObAggregateProcessor::AggrCell&, oceanbase::sql::ObAggrInfo const&, oceanbase::sql::ObAggregateProcessor::ObBatchRowsSlice const&)
+     0.95%  [.] 0x00000000001a08f6
+     0.88%  [.] 0x00000000001a08c6
+     0.80%  [.] memcpy@plt
+     0.80%  [.] oceanbase::sql::ObExpr::locate_datums_for_update(oceanbase::sql::ObEvalCtx&, long) const
+     0.80%  [.] oceanbase::sql::ObOperator::get_next_batch(long, oceanbase::sql::ObBatchRows const*&)
+     0.73%  [k] _raw_spin_unlock_irqrestore
+     0.66%  [k] finish_task_switch.isra.0
+     0.66%  [.] 0x00000000001a08d9
+     0.51%  [k] __raw_spin_unlock_irq
+     0.51%  [.] 0x00000000001a0880
+     0.51%  [.] 0x00000000001a0884
+     0.44%  [.] 0x0000000000199e39
+     0.44%  [.] 0x00000000001a08b3
+     0.37%  [.] 0x0000000000199b44
+     0.37%  [.] 0x00000000001a08bd
+     0.37%  [.] 0x00000000001a08c2
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
