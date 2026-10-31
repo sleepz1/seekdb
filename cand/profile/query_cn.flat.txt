@@ -1,0 +1,58 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 844  of event 'task-clock:ppp'
+# Event count (approx.): 844844844
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+# ........  ...............................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    16.00%  [.] oceanbase::blocksstable::ObStringDiffDecoder::batch_decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::blocksstable::ObIRowIndex const*, int const*, char const**, long, oceanbase::common::ObDatum*) const
+    12.56%  [.] oceanbase::storage::ObTextDaaTIter::linear_merge_round(long&)
+     7.58%  [.] oceanbase::storage::ObSRDaaTIterImpl::project_results(long)
+     6.28%  [.] oceanbase::blocksstable::batch_load_data_to_datum(oceanbase::common::ObObjType const&, char const**, long, long, oceanbase::common::ObDatum*)
+     4.50%  [.] oceanbase::common::ObIArrayWrap<oceanbase::data_plane::ObSparseRetrievalId>::at(long)
+     4.27%  [.] oceanbase::sql::ObDocIdExt::from_datum(oceanbase::common::ObDatum const&)
+     2.84%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::set(long)
+     2.49%  [.] oceanbase::common::ObNullSafeDatumStrCmp<(oceanbase::common::ObCollationType)63, false, true>::cmp(oceanbase::common::ObDatum const&, oceanbase::common::ObDatum const&, int&, oceanbase::common::ObDatumAccessContext const*)
+     2.25%  [.] 0x00000000001a6880
+     1.78%  [.] oceanbase::blocksstable::ObDictDecoder::batch_get_bitpacked_refs(int const*, long, unsigned char const*, oceanbase::common::ObDatum*) const
+     1.78%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::at(long) const
+     1.54%  [.] oceanbase::storage::ObTextDaaTIter::do_one_merge_round(long&)
+     1.30%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::save_docids()
+     1.18%  [.] oceanbase::blocksstable::ObConstDecoder::batch_decode_without_dict(oceanbase::blocksstable::ObColumnDecoderCtx const&, long, oceanbase::common::ObDatum*) const
+     1.18%  [.] oceanbase::storage::ObSRDaaTInnerProductRelevanceCollector::collect_one_dim(long, double)
+     1.18%  [.] 0x00000000001a6884
+     1.18%  [.] 0x00000000001a6937
+     1.07%  [.] oceanbase::blocksstable::ObIntegerBaseDiffDecoder::batch_get_bitpacked_values(oceanbase::blocksstable::ObColumnDecoderCtx const&, int const*, long, long, long, oceanbase::common::ObDatum*) const
+     1.07%  [.] 0x00000000001a68bc
+     1.07%  [.] 0x00000000001a6904
+     1.07%  [.] 0x00000000001ae8e5
+     0.95%  [.] oceanbase::storage::ObSRDaaTInnerProductRelevanceCollector::get_result(double&, bool&)
+     0.83%  [.] 0x00000000001ae8c4
+     0.71%  [.] oceanbase::blocksstable::ObDictDecoder::batch_decode_dict(oceanbase::common::ObObjType const&, char const**, long, long, oceanbase::common::ObDatum*) const
+     0.71%  [.] oceanbase::common::ObIOService::get_io_config()
+     0.71%  [.] oceanbase::sql::(anonymous namespace)::set_doc_id_shallow(oceanbase::common::ObDatum&, oceanbase::sql::ObDocIdExt const&)
+     0.71%  [.] 0x00000000001ae8f8
+     0.59%  [.] int oceanbase::sql::ObAggregateProcessor::process_aggr_batch_result<oceanbase::sql::ObAggregateProcessor::ObBatchRowsSlice>(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const*, oceanbase::sql::ObAggregateProcessor::AggrCell&, oceanbase::sql::ObAggrInfo const&, oceanbase::sql::ObAggregateProcessor::ObBatchRowsSlice const&)
+     0.59%  [.] 0x00000000001a690a
+     0.47%  [.] 0x00000000001a68dd
+     0.47%  [.] 0x00000000001a68e8
+     0.47%  [.] 0x00000000001ae8eb
+     0.36%  [k] __raw_spin_unlock_irq
+     0.36%  [k] _raw_spin_unlock_irqrestore
+     0.36%  [.] je_free
+     0.36%  [.] je_te_event_trigger
+     0.36%  [.] oceanbase::common::ObIArrayWrap<int (*)(oceanbase::common::ObDatum const&, oceanbase::common::ObDatum const&, int&, oceanbase::common::ObDatumAccessContext const*)>::at(long) const
+     0.36%  [.] oceanbase::common::ObIArrayWrap<oceanbase::common::hash::ObHashSet<unsigned long, oceanbase::common::hash::NoPthreadDefendMode, oceanbase::common::hash::hash_func<unsigned long>, oceanbase::common::hash::equal_to<unsigned long>, oceanbase::common::hash::SimpleAllocer<oceanbase::common::hash::ObHashTableNode<oceanbase::common::hash::HashMapPair<unsigned long, oceanbase::common::hash::HashNullObj> >, 108, oceanbase::common::hash::SpinMutexDefendMode, oceanbase::common::hash::DefaultSimpleAllocerAllocator>, oceanbase::common::hash::NormalPointer, oceanbase::common::ObMalloc, 1l>*>::at(long)
+     0.36%  [.] oceanbase::storage::ObSRDaaTIterImpl::get_next_rows(long, long&)
+     0.36%  [.] oceanbase::storage::ObTextRetrievalTokenIter::get_next_batch(long, long&)
+     0.36%  [.] 0x00000000001a688b
+     0.36%  [.] 0x00000000001ae8de
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
