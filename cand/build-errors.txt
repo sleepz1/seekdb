@@ -1,0 +1,6 @@
+[1m/home/runner/work/seekdb/seekdb/src/sql/optimizer/ob_join_order.cpp:16721:40: [0m[0;1;31merror: [0m[1mno matching member function for call to 'segment'[0m
+[0m1 error generated.
+gmake[3]: *** [src/sql/CMakeFiles/ob_sql.dir/build.make:174: src/sql/CMakeFiles/ob_sql.dir/Unity/unity_ob_sql_ob_sql_optimizer_0_c___cxx.cxx.o] Error 1
+gmake[2]: *** [CMakeFiles/Makefile2:1086: src/sql/CMakeFiles/ob_sql.dir/all] Error 2
+gmake[1]: *** [CMakeFiles/Makefile2:1754: src/observer/CMakeFiles/seekdb.dir/rule] Error 2
+gmake: *** [Makefile:671: seekdb] Error 2
