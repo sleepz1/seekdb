@@ -1,0 +1,1 @@
+sdb07: membership-only MATCH scans read only the doc id column of the posting lists (BM25 inputs are scanned only when the score is needed); use the latch-free word map type at every tokenize call site (patch materialized by CI)
