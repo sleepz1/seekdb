@@ -1,0 +1,503 @@
+diff --git a/src/storage/retrieval/ob_sparse_bmw_iter.h b/src/storage/retrieval/ob_sparse_bmw_iter.h
+index 11ccf85..6c7e010 100644
+--- a/src/storage/retrieval/ob_sparse_bmw_iter.h
++++ b/src/storage/retrieval/ob_sparse_bmw_iter.h
+@@ -57,7 +57,7 @@ protected:
+ private:
+   ObISRDimBlockMaxIter *get_iter(const int64_t iter_idx) const
+   {
+-    return static_cast<ObISRDimBlockMaxIter *>(dim_iters_->at(iter_idx));
++    return static_cast<ObISRDimBlockMaxIter *>(dim_iters_->get_data()[iter_idx]);
+   }
+   int fill_merge_heap_with_shallow_dims(const ObDatum *last_range_border_id, const bool inclusive);
+   int try_generate_next_range_from_merge_heap(
+diff --git a/src/storage/retrieval/ob_sparse_daat_iter.cpp b/src/storage/retrieval/ob_sparse_daat_iter.cpp
+index 7385592..bf1fc31 100644
+--- a/src/storage/retrieval/ob_sparse_daat_iter.cpp
++++ b/src/storage/retrieval/ob_sparse_daat_iter.cpp
+@@ -26,6 +26,7 @@ namespace storage
+ ObSRMergeCmp::ObSRMergeCmp()
+   : cmp_func_(nullptr),
+     iter_ids_(nullptr),
++    binary_id_(false),
+     is_inited_(false)
+ {
+ }
+@@ -39,6 +40,7 @@ int ObSRMergeCmp::init(
+     ret = OB_ERR_UNEXPECTED;
+   } else {
+     iter_ids_ = iter_ids;
++    binary_id_ = ObStringTC == ob_obj_type_class(id_meta.type_) && CS_TYPE_BINARY == id_meta.cs_type_;
+     common::ObDatumBasicFuncs *basic_funcs = ObDatumFuncs::get_basic_func(id_meta.type_, id_meta.cs_type_);
+     cmp_func_ = basic_funcs->null_first_cmp_;
+     if (OB_ISNULL(cmp_func_)) {
+@@ -60,8 +62,14 @@ int ObSRMergeCmp::cmp(
+     ret = OB_NOT_INIT;
+   } else {
+     int tmp_ret = 0;
+-    if (OB_FAIL(cmp_func_(
+-            get_id_datum(l.iter_idx_), get_id_datum(r.iter_idx_), tmp_ret, nullptr))) {
++    const ObDatum &l_id = get_id_datum(l.iter_idx_);
++    const ObDatum &r_id = get_id_datum(r.iter_idx_);
++    if (binary_id_ && OB_LIKELY(!l_id.is_null() && !r_id.is_null())) {
++      // same result as the binary collation compare function: memcmp, then length
++      const uint32_t min_len = l_id.len_ < r_id.len_ ? l_id.len_ : r_id.len_;
++      const int mem_ret = 0 == min_len ? 0 : MEMCMP(l_id.ptr_, r_id.ptr_, min_len);
++      cmp_ret = mem_ret > 0 ? 1 : (mem_ret < 0 ? -1 : (l_id.len_ > r_id.len_ ? 1 : (l_id.len_ < r_id.len_ ? -1 : 0)));
++    } else if (OB_FAIL(cmp_func_(l_id, r_id, tmp_ret, nullptr))) {
+     } else {
+       cmp_ret = tmp_ret;
+     }
+@@ -422,7 +430,30 @@ int ObSRDaaTIterImpl::project_results(const int64_t count)
+   ObEvalCtx *eval_ctx = iter_param_->eval_ctx_;
+   ObEvalCtx::BatchInfoScopeGuard guard(*eval_ctx);
+ 
+-  if (eval_ctx->is_vectorized()) {
++  if (eval_ctx->is_vectorized() && count > 0 && id_proj_expr->is_batch_result()
++      && (!iter_param_->need_project_relevance() || relevance_proj_expr->is_batch_result())) {
++    // Same writes as the row-by-row loop below: for batch result expressions
++    // locate_datum_for_write() at batch index i is element i of locate_datums_for_update(),
++    // and set_evaluated_projected() only sets two per-expression flags.
++    const ObDocIdExt *buffered_ids = buffered_domain_ids_.get_data();
++    ObDatum *id_datums = id_proj_expr->locate_datums_for_update(*eval_ctx, count);
++    sql::ObBitVector &id_evaluated_flags = id_proj_expr->get_evaluated_flags(*eval_ctx);
++    for (int64_t i = 0; i < count; ++i) {
++      set_datum_func_(id_datums[i], buffered_ids[i]);
++      id_evaluated_flags.set(i);
++    }
++    id_proj_expr->set_evaluated_projected(*eval_ctx);
++    if (iter_param_->need_project_relevance()) {
++      const double *buffered_relevances = buffered_relevances_.get_data();
++      ObDatum *relevance_datums = relevance_proj_expr->locate_datums_for_update(*eval_ctx, count);
++      sql::ObBitVector &relevance_evaluated_flags = relevance_proj_expr->get_evaluated_flags(*eval_ctx);
++      for (int64_t i = 0; i < count; ++i) {
++        relevance_datums[i].set_double(buffered_relevances[i]);
++        relevance_evaluated_flags.set(i);
++      }
++      relevance_proj_expr->set_evaluated_projected(*eval_ctx);
++    }
++  } else if (eval_ctx->is_vectorized()) {
+     sql::ObBitVector &id_evaluated_flags = id_proj_expr->get_evaluated_flags(*eval_ctx);
+     for (int64_t i = 0; i < count; ++i) {
+       guard.set_batch_idx(i);
+diff --git a/src/storage/retrieval/ob_sparse_daat_iter.h b/src/storage/retrieval/ob_sparse_daat_iter.h
+index 11fdd0b..8c8f06f 100644
+--- a/src/storage/retrieval/ob_sparse_daat_iter.h
++++ b/src/storage/retrieval/ob_sparse_daat_iter.h
+@@ -48,7 +48,7 @@ struct ObSRMergeCmp
+ private:
+   inline const ObDatum &get_id_datum(const int64_t iter_idx)
+   {
+-    const ObDatum *datum = iter_ids_->at(iter_idx);
++    const ObDatum *datum = iter_ids_->get_data()[iter_idx];
+     OB_ASSERT(nullptr != datum);
+     return *datum;
+   }
+@@ -57,6 +57,7 @@ private:
+   // TODO: if memory lifetime of docid datum is guaranteed by dim_iters, we can use pointer to datum directly
+   //       and avoid deep copy into merge heap here
+   const ObFixedArray<const ObDatum *, ObIAllocator> *iter_ids_;
++  bool binary_id_;
+   bool is_inited_;
+ };
+ 
+diff --git a/src/storage/retrieval/ob_sparse_utils.h b/src/storage/retrieval/ob_sparse_utils.h
+index f076bce..2998133 100644
+--- a/src/storage/retrieval/ob_sparse_utils.h
++++ b/src/storage/retrieval/ob_sparse_utils.h
+@@ -37,6 +37,9 @@ struct ObSRDaaTRelevanceCollector
+   virtual void reuse() = 0;
+   virtual int collect_one_dim(const int64_t dim_idx, const double relevance) = 0;
+   virtual int get_result(double &relevance, bool &is_valid) = 0;
++  // true when the result is exactly "sum of the collected relevances, valid iff at least
++  // should_match dimensions were collected", so a caller may compute it inline
++  virtual bool is_plain_inner_product(int64_t &should_match) const { UNUSED(should_match); return false; }
+ };
+ 
+ struct ObSRDaaTInnerProductRelevanceCollector : ObSRDaaTRelevanceCollector
+@@ -52,6 +55,11 @@ struct ObSRDaaTInnerProductRelevanceCollector : ObSRDaaTRelevanceCollector
+   virtual void reuse() override;
+   virtual int collect_one_dim(const int64_t dim_idx, const double) override;
+   virtual int get_result(double &relevance, bool &is_valid) override;
++  virtual bool is_plain_inner_product(int64_t &should_match) const override
++  {
++    should_match = should_match_;
++    return true;
++  }
+ private:
+   double total_relevance_;
+   int64_t matched_cnt_;
+diff --git a/src/storage/retrieval/ob_text_daat_iter.cpp b/src/storage/retrieval/ob_text_daat_iter.cpp
+index 64ca43c..4f6fcb9 100644
+--- a/src/storage/retrieval/ob_text_daat_iter.cpp
++++ b/src/storage/retrieval/ob_text_daat_iter.cpp
+@@ -71,6 +71,9 @@ void ObTextDaaTIter::prepare_linear_merge()
+ {
+   linear_dim_cnt_ = 0;
+   linear_pending_cnt_ = 0;
++  linear_binary_id_ = false;
++  linear_sum_relevance_ = false;
++  linear_should_match_ = 0;
+   if (use_linear_merge_) {
+     linear_dim_cnt_ = dim_iters_->count();
+     for (int64_t i = 0; i < linear_dim_cnt_; ++i) {
+@@ -82,6 +85,11 @@ void ObTextDaaTIter::prepare_linear_merge()
+       }
+     }
+     linear_pending_cnt_ = linear_dim_cnt_;
++    const sql::ObDatumMeta &id_meta = iter_param_->id_proj_expr_->datum_meta_;
++    linear_binary_id_ = ObStringTC == ob_obj_type_class(id_meta.type_) && CS_TYPE_BINARY == id_meta.cs_type_;
++    linear_should_match_ = 0;
++    linear_sum_relevance_ = OB_NOT_NULL(relevance_collector_)
++        && relevance_collector_->is_plain_inner_product(linear_should_match_);
+     const sql::ObExpr *filter_expr = iter_param_->filter_expr_;
+     const sql::ObExpr *relevance_proj_expr = iter_param_->relevance_proj_expr_;
+     linear_bool_filter_ = OB_NOT_NULL(filter_expr) && OB_NOT_NULL(relevance_proj_expr)
+@@ -93,6 +101,14 @@ void ObTextDaaTIter::prepare_linear_merge()
+   }
+ }
+ 
++int ObTextDaaTIter::get_next_rows(const int64_t capacity, int64_t &count)
++{
++  // remember how many rows the base loop wants, so that the linear merge can fill the whole
++  // batch in one do_one_merge_round() call (the base loop then stops at the same row)
++  linear_capacity_ = (is_inited_ && OB_NOT_NULL(iter_param_)) ? MIN(capacity, iter_param_->max_batch_size_) : 0;
++  return ObSRDaaTIterImpl::get_next_rows(capacity, count);
++}
++
+ int ObTextDaaTIter::do_one_merge_round(int64_t &count)
+ {
+   return use_linear_merge_ ? linear_merge_round(count) : ObSRDaaTIterImpl::do_one_merge_round(count);
+@@ -101,84 +117,107 @@ int ObTextDaaTIter::do_one_merge_round(int64_t &count)
+ int ObTextDaaTIter::linear_merge_round(int64_t &count)
+ {
+   int ret = OB_SUCCESS;
+-  // 1. advance the cursors consumed by the previous round (all cursors on the first round)
+-  for (int64_t i = 0; OB_SUCC(ret) && i < linear_pending_cnt_; ++i) {
+-    const int64_t iter_idx = linear_pending_[i];
+-    if (OB_FAIL(linear_dims_[iter_idx]->next_id(linear_ids_[iter_idx]))) {
+-      if (OB_ITER_END == ret) {
+-        ret = OB_SUCCESS;
+-        linear_ids_[iter_idx] = nullptr;
+-      } else {
+-        LOG_WARN("fail to get next row from dimension iter", K(ret), K(iter_idx));
++  const ObIArray<double> *dim_weights = iter_param_->dim_weights_;
++  const double field_boost = iter_param_->field_boost_;
++  const bool no_limit = !iter_param_->limit_param_->is_valid();
++  const int64_t buffer_cnt = MIN(buffered_domain_ids_.count(), buffered_relevances_.count());
++  ObDocIdExt *buffered_ids = buffered_domain_ids_.get_data();
++  double *buffered_relevances = buffered_relevances_.get_data();
++  // Each iteration is exactly one round of the original one-row-per-call merge; iterating
++  // until the requested batch is full only saves the per-row virtual dispatch.
++  do {
++    // 1. advance the cursors consumed by the previous round (all cursors on the first round)
++    for (int64_t i = 0; OB_SUCC(ret) && i < linear_pending_cnt_; ++i) {
++      const int64_t iter_idx = linear_pending_[i];
++      if (OB_FAIL(linear_dims_[iter_idx]->next_id(linear_ids_[iter_idx]))) {
++        if (OB_ITER_END == ret) {
++          ret = OB_SUCCESS;
++          linear_ids_[iter_idx] = nullptr;
++        } else {
++          LOG_WARN("fail to get next row from dimension iter", K(ret), K(iter_idx));
++        }
+       }
+     }
+-  }
+-  // 2. pick the smallest doc id and every cursor positioned on it
+-  const ObDatum *min_id = nullptr;
+-  if (OB_SUCC(ret)) {
+-    linear_pending_cnt_ = 0;
+-    for (int64_t i = 0; OB_SUCC(ret) && i < linear_dim_cnt_; ++i) {
+-      const ObDatum *id = linear_ids_[i];
+-      int cmp_ret = 0;
+-      if (nullptr == id) {
+-      } else if (nullptr == min_id) {
+-        min_id = id;
+-        linear_pending_[linear_pending_cnt_++] = i;
+-      } else if (OB_FAIL(id_cmp_func_(*id, *min_id, cmp_ret, nullptr))) {
+-        LOG_WARN("fail to compare doc id", K(ret));
+-      } else if (cmp_ret < 0) {
+-        min_id = id;
+-        linear_pending_cnt_ = 0;
+-        linear_pending_[linear_pending_cnt_++] = i;
+-      } else if (0 == cmp_ret) {
+-        linear_pending_[linear_pending_cnt_++] = i;
++    // 2. pick the smallest doc id and every cursor positioned on it
++    const ObDatum *min_id = nullptr;
++    if (OB_SUCC(ret)) {
++      linear_pending_cnt_ = 0;
++      for (int64_t i = 0; OB_SUCC(ret) && i < linear_dim_cnt_; ++i) {
++        const ObDatum *id = linear_ids_[i];
++        int cmp_ret = 0;
++        if (nullptr == id) {
++        } else if (nullptr == min_id) {
++          min_id = id;
++          linear_pending_[linear_pending_cnt_++] = i;
++        } else if (OB_FAIL(linear_cmp_id(*id, *min_id, cmp_ret))) {
++          LOG_WARN("fail to compare doc id", K(ret));
++        } else if (cmp_ret < 0) {
++          min_id = id;
++          linear_pending_cnt_ = 0;
++          linear_pending_[linear_pending_cnt_++] = i;
++        } else if (0 == cmp_ret) {
++          linear_pending_[linear_pending_cnt_++] = i;
++        }
++      }
++      if (OB_SUCC(ret) && nullptr == min_id) {
++        ret = OB_ITER_END;
+       }
+     }
+-    if (OB_SUCC(ret) && nullptr == min_id) {
+-      ret = OB_ITER_END;
+-    }
+-  }
+-  // 3. collect relevance, filter and buffer the row exactly as the heap based merge does
+-  if (OB_SUCC(ret)) {
+-    double relevance = 0.0;
+-    bool need_project = false;
+-    const ObIArray<double> *dim_weights = iter_param_->dim_weights_;
+-    for (int64_t i = 0; OB_SUCC(ret) && i < linear_pending_cnt_; ++i) {
+-      const int64_t iter_idx = linear_pending_[i];
+-      double score = linear_dims_[iter_idx]->curr_score();
+-      if (OB_NOT_NULL(dim_weights)) {
+-        score = score * iter_param_->field_boost_ * dim_weights->at(iter_idx);
++    // 3. collect relevance, filter and buffer the row exactly as the heap based merge does
++    if (OB_SUCC(ret)) {
++      double relevance = 0.0;
++      bool need_project = false;
++      if (linear_sum_relevance_) {
++        // ObSRDaaTInnerProductRelevanceCollector: sum in the same order, valid iff enough dims
++        for (int64_t i = 0; i < linear_pending_cnt_; ++i) {
++          const int64_t iter_idx = linear_pending_[i];
++          double score = linear_dims_[iter_idx]->curr_score();
++          if (OB_NOT_NULL(dim_weights)) {
++            score = score * field_boost * dim_weights->at(iter_idx);
++          }
++          relevance += score;
++        }
++        need_project = linear_pending_cnt_ >= linear_should_match_;
++      } else {
++        for (int64_t i = 0; OB_SUCC(ret) && i < linear_pending_cnt_; ++i) {
++          const int64_t iter_idx = linear_pending_[i];
++          double score = linear_dims_[iter_idx]->curr_score();
++          if (OB_NOT_NULL(dim_weights)) {
++            score = score * field_boost * dim_weights->at(iter_idx);
++          }
++          if (OB_FAIL(relevance_collector_->collect_one_dim(iter_idx, score))) {
++            LOG_WARN("fail to collect dimension", K(ret), K(iter_idx));
++          }
++        }
++        if (OB_FAIL(ret)) {
++        } else if (OB_FAIL(relevance_collector_->get_result(relevance, need_project))) {
++          LOG_WARN("fail to get collected relevance", K(ret));
++        }
+       }
+-      if (OB_FAIL(relevance_collector_->collect_one_dim(iter_idx, score))) {
+-        LOG_WARN("fail to collect dimension", K(ret), K(iter_idx));
++      if (OB_FAIL(ret)) {
++      } else if (need_project && OB_FAIL(process_collected_row(*min_id, relevance))) {
++      } else if (!need_project) {
++      } else if (linear_bool_filter_) {
++        // BOOL(<non-null double relevance>) is exactly (relevance != 0); the relevance of every
++        // buffered row is projected by project_results(), so nothing has to be evaluated here.
++        need_project = 0 != relevance;
++      } else if (OB_FAIL(filter_on_demand(count, relevance, need_project))) {
+       }
+-    }
+-    if (OB_FAIL(ret)) {
+-    } else if (OB_FAIL(relevance_collector_->get_result(relevance, need_project))) {
+-      LOG_WARN("fail to get collected relevance", K(ret));
+-    } else if (need_project && OB_FAIL(process_collected_row(*min_id, relevance))) {
+-    } else if (!need_project) {
+-    } else if (linear_bool_filter_) {
+-      // BOOL(<non-null double relevance>) is exactly (relevance != 0); the relevance of every
+-      // buffered row is projected by project_results(), so nothing has to be evaluated here.
+-      need_project = 0 != relevance;
+-    } else if (OB_FAIL(filter_on_demand(count, relevance, need_project))) {
+-    }
+-    if (OB_FAIL(ret) || !need_project) {
+-    } else if (!iter_param_->limit_param_->is_valid()
+-               && OB_LIKELY(count < buffered_domain_ids_.count() && count < buffered_relevances_.count())) {
+-      // same as cache_result() without limit/offset
+-      ++input_row_cnt_;
+-      buffered_domain_ids_.get_data()[count].from_datum(*min_id);
+-      buffered_relevances_.get_data()[count] = relevance;
+-      ++count;
+-      ++output_row_cnt_;
+-    } else if (OB_FAIL(cache_result(count, *min_id, relevance))) {
+-      if (OB_UNLIKELY(OB_ITER_END != ret)) {
+-        LOG_WARN("fail to cache result", K(ret));
++      if (OB_FAIL(ret) || !need_project) {
++      } else if (no_limit && OB_LIKELY(count < buffer_cnt)) {
++        // same as cache_result() without limit/offset
++        ++input_row_cnt_;
++        buffered_ids[count].from_datum(*min_id);
++        buffered_relevances[count] = relevance;
++        ++count;
++        ++output_row_cnt_;
++      } else if (OB_FAIL(cache_result(count, *min_id, relevance))) {
++        if (OB_UNLIKELY(OB_ITER_END != ret)) {
++          LOG_WARN("fail to cache result", K(ret));
++        }
+       }
+     }
+-  }
++  } while (OB_SUCC(ret) && count < linear_capacity_);
+   return ret;
+ }
+ 
+diff --git a/src/storage/retrieval/ob_text_daat_iter.h b/src/storage/retrieval/ob_text_daat_iter.h
+index 0d8272f..d3bc737 100644
+--- a/src/storage/retrieval/ob_text_daat_iter.h
++++ b/src/storage/retrieval/ob_text_daat_iter.h
+@@ -60,12 +60,17 @@ public:
+       id_cmp_func_(nullptr),
+       linear_dim_cnt_(0),
+       linear_pending_cnt_(0),
+-      linear_bool_filter_(false) {}
++      linear_bool_filter_(false),
++      linear_binary_id_(false),
++      linear_sum_relevance_(false),
++      linear_should_match_(0),
++      linear_capacity_(0) {}
+   virtual ~ObTextDaaTIter() { reset(); }
+ 
+   int init(const ObTextDaaTParam &param);
+   virtual void reuse(const bool switch_tablet = false) override;
+   virtual void reset() override;
++  virtual int get_next_rows(const int64_t capacity, int64_t &count) override;
+ protected:
+   virtual int pre_process() override;
+   virtual int do_one_merge_round(int64_t &count) override;
+@@ -76,6 +81,19 @@ private:
+   bool can_use_linear_merge() const;
+   void prepare_linear_merge();
+   int linear_merge_round(int64_t &count);
++  OB_INLINE int linear_cmp_id(const ObDatum &l, const ObDatum &r, int &cmp_ret) const
++  {
++    int ret = common::OB_SUCCESS;
++    if (linear_binary_id_ && OB_LIKELY(!l.is_null() && !r.is_null())) {
++      // same result as the binary collation compare function (memcmp, then length)
++      const uint32_t min_len = l.len_ < r.len_ ? l.len_ : r.len_;
++      const int mem_ret = 0 == min_len ? 0 : MEMCMP(l.ptr_, r.ptr_, min_len);
++      cmp_ret = 0 != mem_ret ? mem_ret : (l.len_ > r.len_ ? 1 : (l.len_ < r.len_ ? -1 : 0));
++    } else {
++      ret = id_cmp_func_(l, r, cmp_ret, nullptr);
++    }
++    return ret;
++  }
+ protected:
+   ObBM25ParamEstimator bm25_param_estimator_;
+   sql::ObMatchAgainstMode mode_flag_;
+@@ -87,6 +105,13 @@ protected:
+   int64_t linear_pending_cnt_;
+   // the pushed down filter is BOOL(relevance) on the projected double relevance
+   bool linear_bool_filter_;
++  // doc id is a binary-collation string: compare inline
++  bool linear_binary_id_;
++  // the relevance collector is the plain inner product one: sum the scores inline
++  bool linear_sum_relevance_;
++  int64_t linear_should_match_;
++  // rows wanted by the current get_next_rows() call
++  int64_t linear_capacity_;
+   ObTextRetrievalDaaTTokenIter *linear_dims_[LINEAR_MERGE_MAX_DIM_CNT];
+   const ObDatum *linear_ids_[LINEAR_MERGE_MAX_DIM_CNT];
+   int64_t linear_pending_[LINEAR_MERGE_MAX_DIM_CNT];
+diff --git a/src/storage/retrieval/ob_text_retrieval_token_iter.cpp b/src/storage/retrieval/ob_text_retrieval_token_iter.cpp
+index c928fd3..0868ecc 100644
+--- a/src/storage/retrieval/ob_text_retrieval_token_iter.cpp
++++ b/src/storage/retrieval/ob_text_retrieval_token_iter.cpp
+@@ -418,6 +418,7 @@ ObTextRetrievalDaaTTokenIter::ObTextRetrievalDaaTTokenIter()
+     relevance_(),
+     doc_id_(),
+     cmp_func_(nullptr),
++    binary_id_(false),
+     is_inited_(false)
+ {
+ }
+@@ -441,6 +442,7 @@ int ObTextRetrievalDaaTTokenIter::init(const ObTextRetrievalScanIterParam &iter_
+       max_batch_size_ = OB_MAX(iter_param.eval_ctx_->max_batch_size_, 1);
+       common::ObDatumBasicFuncs *basic_funcs = ObDatumFuncs::get_basic_func(inv_scan_domain_id_col_->datum_meta_.type_, CS_TYPE_BINARY);
+       cmp_func_ = basic_funcs->null_first_cmp_;
++      binary_id_ = ObStringTC == ob_obj_type_class(inv_scan_domain_id_col_->datum_meta_.type_);
+       if (OB_ISNULL(cmp_func_)) {
+         ret = OB_ERR_UNEXPECTED;
+       } else if (FALSE_IT(relevance_.set_allocator(allocator_))) {
+@@ -548,19 +550,33 @@ int ObTextRetrievalDaaTTokenIter::advance_to(const ObDatum &id_datum)
+   int ret = OB_SUCCESS;
+   int result = 0;
+   bool find = false;
++  bool next_batch_tried = false;
+ 
+   if (cur_idx_ < 0) {
+     ret = OB_ERR_UNEXPECTED;
+   }
+   while (OB_SUCC(ret) && !find) {
+     if (cur_idx_ < count_) {
+-      if (OB_FAIL(cmp_func_(
+-              id_datum, doc_id_[cur_idx_].get_datum(), result, nullptr))) {
++      if (OB_FAIL(cmp_id(id_datum, doc_id_[cur_idx_].get_datum(), result))) {
+       } else if (result <= 0) {
+         find = true;
+       } else {
+         ++cur_idx_;
+       }
++    } else if (!next_batch_tried && count_ > 0) {
++      // The buffered batch is used up. The target is usually close to it (pivots advance in
++      // doc id order), so first read the following batch of the same posting scan; the
++      // range seek below is only needed when the target lies beyond that batch as well.
++      // Either way the cursor stops at the first posting with doc id >= target.
++      next_batch_tried = true;
++      if (OB_FAIL(get_next_row())) {
++        if (OB_UNLIKELY(OB_ITER_END != ret)) {
++        } else {
++          find = true;
++        }
++      } else if (cur_idx_ != 0) {
++        ret = OB_ERR_UNEXPECTED;
++      }
+     } else if (OB_FAIL(token_iter_->advance_to(id_datum))) {
+     } else if (OB_FAIL(get_next_row())) {
+       if (OB_UNLIKELY(OB_ITER_END != ret)) {
+@@ -569,8 +585,7 @@ int ObTextRetrievalDaaTTokenIter::advance_to(const ObDatum &id_datum)
+       }
+     } else if (cur_idx_ != 0) {
+       ret = OB_ERR_UNEXPECTED;
+-    } else if (OB_FAIL(cmp_func_(
+-                   id_datum, doc_id_[cur_idx_].get_datum(), result, nullptr))) {
++    } else if (OB_FAIL(cmp_id(id_datum, doc_id_[cur_idx_].get_datum(), result))) {
+     } else if (result <= 0) {
+       find = true;
+     } else {
+diff --git a/src/storage/retrieval/ob_text_retrieval_token_iter.h b/src/storage/retrieval/ob_text_retrieval_token_iter.h
+index 96c00f3..08a1b9d 100644
+--- a/src/storage/retrieval/ob_text_retrieval_token_iter.h
++++ b/src/storage/retrieval/ob_text_retrieval_token_iter.h
+@@ -164,6 +164,19 @@ public:
+ private:
+   int save_relevances_and_docids();
+   int save_docids();
++  OB_INLINE int cmp_id(const ObDatum &l, const ObDatum &r, int &cmp_ret) const
++  {
++    int ret = common::OB_SUCCESS;
++    if (binary_id_ && OB_LIKELY(!l.is_null() && !r.is_null())) {
++      // same result as cmp_func_ (binary collation): memcmp, then length
++      const uint32_t min_len = l.len_ < r.len_ ? l.len_ : r.len_;
++      const int mem_ret = 0 == min_len ? 0 : MEMCMP(l.ptr_, r.ptr_, min_len);
++      cmp_ret = 0 != mem_ret ? mem_ret : (l.len_ > r.len_ ? 1 : (l.len_ < r.len_ ? -1 : 0));
++    } else {
++      ret = cmp_func_(l, r, cmp_ret, nullptr);
++    }
++    return ret;
++  }
+   ObArenaAllocator *allocator_;
+   ObTextRetrievalTokenIter *token_iter_;
+   sql::ObEvalCtx *eval_ctx_;
+@@ -175,6 +188,7 @@ private:
+   ObFixedArray<double, ObIAllocator> relevance_; // when ~ObFixedArray(), wikll destory itself
+   ObFixedArray<ObDocIdExt, ObIAllocator> doc_id_;
+   common::ObDatumCmpFuncType cmp_func_;
++  bool binary_id_; // doc id is a string compared with the binary collation
+   bool is_inited_;
+   DISALLOW_COPY_AND_ASSIGN(ObTextRetrievalDaaTTokenIter);
+ };
