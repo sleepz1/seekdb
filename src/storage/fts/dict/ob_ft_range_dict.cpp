@@ -378,6 +378,17 @@ int ObFTRangeDict::match_with_hit(const ObString &single_word,
   return last_hit.dict_->match_with_hit(single_word, last_hit, hit);
 }
 
+// Sign-equivalent to ObCharset::strcmp(CS_TYPE_UTF8MB4_BIN, l, r) (ob_strnncoll_mb_bin:
+// memcmp of the common prefix, then the length difference; empty strings sort first).
+static OB_INLINE int range_word_cmp(const ObString &l, const ObString &r)
+{
+  const int64_t l_len = l.length();
+  const int64_t r_len = r.length();
+  const int64_t min_len = l_len < r_len ? l_len : r_len;
+  const int mem_ret = min_len > 0 ? MEMCMP(l.ptr(), r.ptr(), min_len) : 0;
+  return 0 != mem_ret ? mem_ret : (l_len > r_len ? 1 : (l_len < r_len ? -1 : 0));
+}
+
 int ObFTRangeDict::find_first_char_range(const ObString &single_word, ObIFTDict *&dict) const
 {
   int ret = OB_SUCCESS;
@@ -389,10 +400,7 @@ int ObFTRangeDict::find_first_char_range(const ObString &single_word, ObIFTDict 
   int64_t candidate = -1;
   while (OB_SUCC(ret) && left <= right) {
     const int64_t mid = left + (right - left) / 2;
-    if (ObCharset::strcmp(ObCollationType::CS_TYPE_UTF8MB4_BIN,
-                          range_dicts_[mid].start_.get_word(),
-                          single_word)
-        <= 0) {
+    if (range_word_cmp(range_dicts_[mid].start_.get_word(), single_word) <= 0) {
       candidate = mid;
       left = mid + 1;
     } else {
@@ -400,10 +408,7 @@ int ObFTRangeDict::find_first_char_range(const ObString &single_word, ObIFTDict 
     }
   }
   if (OB_SUCC(ret) && candidate >= 0) {
-    if (ObCharset::strcmp(ObCollationType::CS_TYPE_UTF8MB4_BIN,
-                          range_dicts_[candidate].end_.get_word(),
-                          single_word)
-        >= 0) {
+    if (range_word_cmp(range_dicts_[candidate].end_.get_word(), single_word) >= 0) {
       dict = range_dicts_[candidate].dict_;
       found = true;
     }

@@ -302,10 +302,14 @@ ObArrayHashMap *ObFTDAT::get_map() { return reinterpret_cast<ObArrayHashMap *>(b
 int ObArrayHashMap::find(const ObFTSingleWord &word, ObFTWordCode &code) const
 {
   int ret = OB_ENTRY_NOT_EXIST;
-  uint64_t hash = word.get_word().hash();
+  // same value as word.get_word().hash() and the same probing; the entry comparison is
+  // ObFTSingleWord::operator== written inline
+  const uint8_t word_len = word.word_len;
+  uint64_t hash = word_len > 0 ? common::murmurhash(word.word, word_len, 0) : 0;
   uint64_t index = hash % header_.capacity_;
   while (header_.data[index].used) {
-    if (header_.data[index].word == word) {
+    const ObFTSingleWord &entry_word = header_.data[index].word;
+    if (entry_word.word_len == word_len && 0 == MEMCMP(entry_word.word, word.word, word_len)) {
       code = header_.data[index].code;
       ret = OB_SUCCESS;
       break;
