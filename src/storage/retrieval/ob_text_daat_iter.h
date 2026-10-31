@@ -57,7 +57,10 @@ public:
       mode_flag_(sql::ObMatchAgainstMode::NATURAL_LANGUAGE_MODE),
       function_lookup_mode_(false),
       use_linear_merge_(false),
-      id_cmp_func_(nullptr) {}
+      id_cmp_func_(nullptr),
+      linear_dim_cnt_(0),
+      linear_pending_cnt_(0),
+      linear_bool_filter_(false) {}
   virtual ~ObTextDaaTIter() { reset(); }
 
   int init(const ObTextDaaTParam &param);
@@ -71,6 +74,7 @@ private:
   // cursors by a linear minimum scan is cheaper than maintaining the merge heap.
   static const int64_t LINEAR_MERGE_MAX_DIM_CNT = 8;
   bool can_use_linear_merge() const;
+  void prepare_linear_merge();
   int linear_merge_round(int64_t &count);
 protected:
   ObBM25ParamEstimator bm25_param_estimator_;
@@ -78,6 +82,14 @@ protected:
   bool function_lookup_mode_;
   bool use_linear_merge_;
   common::ObDatumCmpFuncType id_cmp_func_;
+  // plain cursor state of the linear merge (valid when use_linear_merge_)
+  int64_t linear_dim_cnt_;
+  int64_t linear_pending_cnt_;
+  // the pushed down filter is BOOL(relevance) on the projected double relevance
+  bool linear_bool_filter_;
+  ObTextRetrievalDaaTTokenIter *linear_dims_[LINEAR_MERGE_MAX_DIM_CNT];
+  const ObDatum *linear_ids_[LINEAR_MERGE_MAX_DIM_CNT];
+  int64_t linear_pending_[LINEAR_MERGE_MAX_DIM_CNT];
 private:
   DISALLOW_COPY_AND_ASSIGN(ObTextDaaTIter);
 };
