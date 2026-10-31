@@ -55,15 +55,15 @@ for parser in ['ik','beng','ngram','space']:
             except pymysql.MySQLError as error:
                 results[key]={'error':error.args[0]}
 long_query='database performance '+' '.join('missingterm'+str(i) for i in range(300))
-for columns,terms in [('title, content',['全文索引 分词器','OceanBase 稳定 database','missingterm','','数据库 数据库']),('title_en, content_en',['database performance audit','DATABASE','the','+database -performance',long_query])]:
+for columns,terms in [('title, content',['全文索引 分词器','OceanBase 稳定 database','missingterm','','数据库 数据库']),('content',['倒排索引 tokenizer','数据库']),('title_en, content_en',['database performance audit','DATABASE','the','+database -performance',long_query])]:
     for text in terms:
         modes=[' IN NATURAL LANGUAGE MODE',' IN BOOLEAN MODE'] if text else [' IN NATURAL LANGUAGE MODE']
         for mode in modes:
             expr=f'MATCH({columns}) AGAINST(%s{mode})'
-            for shape,sql in [('count',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE {expr}'),('ids',f'SELECT id FROM fts_large_bench.docs WHERE {expr} ORDER BY id'),('scores',f'SELECT id, {expr} AS score FROM fts_large_bench.docs ORDER BY score DESC,id LIMIT 32'),('threshold',f'SELECT id FROM fts_large_bench.docs WHERE {expr} > 0.5 ORDER BY id'),('zero',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE {expr} = 0'),('limit',f'SELECT COUNT(*) FROM (SELECT id FROM fts_large_bench.docs WHERE {expr} LIMIT 20) t')]:
+            for shape,sql in [('count',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE {expr}'),('ids',f'SELECT id FROM fts_large_bench.docs WHERE {expr} ORDER BY id'),('scores',f'SELECT id, {expr} AS score FROM fts_large_bench.docs ORDER BY score DESC,id LIMIT 32'),('threshold',f'SELECT id FROM fts_large_bench.docs WHERE {expr} > 0.5 ORDER BY id'),('zero',f'SELECT COUNT(*) FROM fts_large_bench.docs WHERE {expr} = 0'),('limit',f'SELECT COUNT(*) FROM (SELECT id FROM fts_large_bench.docs WHERE {expr} LIMIT 20) t'),('topk-ids',f'SELECT id FROM fts_large_bench.docs WHERE {expr} LIMIT 20'),('topk-scores',f'SELECT id, {expr} AS score FROM fts_large_bench.docs WHERE {expr} LIMIT 20'),('topk-order',f'SELECT id, {expr} AS score FROM fts_large_bench.docs WHERE {expr} ORDER BY {expr} DESC LIMIT 20')]:
                 key=f'match/{columns}/{text}/{mode}/{shape}'
                 try:
-                    cur.execute(sql,(text,))
+                    cur.execute(sql,(text,)*sql.count('%s'))
                     results[key]=normalize(cur.fetchall())
                 except pymysql.MySQLError as error:
                     results[key]={'error':error.args[0]}
