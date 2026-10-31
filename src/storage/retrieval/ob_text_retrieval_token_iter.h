@@ -81,6 +81,13 @@ public:
   sql::ObBitVector *get_skip() { return skip_; }
   int get_token_doc_cnt(int64_t &token_doc_cnt) const;
   double get_max_token_relevance() const { return max_token_relevance_; }
+public:
+  // compute the (estimated) token doc count now instead of when the first posting is read;
+  // the value is the same, it is only computed earlier
+  int prepare_token_doc_cnt()
+  {
+    return (need_calc_relevance() && !token_doc_cnt_calculated_) ? estimate_token_doc_cnt() : common::OB_SUCCESS;
+  }
 private:
   int init_calc_exprs_in_relevance_expr();
   void clear_batch_wise_evaluated_flag(const int64_t count);
@@ -134,6 +141,7 @@ public:
   virtual int get_curr_id(const ObDatum *&id_datum) const override;
 public:
   int get_token_doc_cnt(int64_t &token_doc_cnt) const { return token_iter_->get_token_doc_cnt(token_doc_cnt); }
+  int prepare_token_doc_cnt() { return token_iter_->prepare_token_doc_cnt(); }
   // Cursor helpers for the linear DaaT merge in ObTextDaaTIter: same semantics as
   // get_next_row() + get_curr_id() / get_curr_score(), without virtual dispatch for rows
   // that are already buffered in the current batch.

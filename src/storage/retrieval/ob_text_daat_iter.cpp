@@ -349,7 +349,8 @@ int ObTextBMWIter::try_exhaustive_top_k(bool &done)
     int64_t token_doc_cnt = 0;
     if (OB_ISNULL(iter)) {
       can_use = false;
-    } else if (OB_SUCCESS != iter->get_token_iter().get_token_doc_cnt(token_doc_cnt)
+    } else if (OB_SUCCESS != iter->get_token_iter().prepare_token_doc_cnt()
+               || OB_SUCCESS != iter->get_token_iter().get_token_doc_cnt(token_doc_cnt)
                || token_doc_cnt < 0) {
       can_use = false;
     } else {
