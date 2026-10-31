@@ -80,6 +80,34 @@ fresh_builds() {
   notice "$(basename "$1") fresh-builds" "$(awk '{printf "%s/%s=%s ", $1, $2, $3}' "$dir/times.txt")"
 }
 
+# Diagnosis matrix: identical fresh load + 3 builds under alternative runtime settings, to size
+# the effect of sort memory (dump), temp-file compression and DDL parallelism on build latency.
+config_matrix() {
+  local dir=$1/matrix; mkdir -p "$dir"
+  local reset="SET GLOBAL ob_sql_work_area_percentage=5; ALTER SYSTEM SET _ob_ddl_temp_file_compress_func='AUTO';"
+  for rep in 1 2; do
+    for cfg in "default||" "wa20|SET GLOBAL ob_sql_work_area_percentage=20;|" "nocomp|ALTER SYSTEM SET _ob_ddl_temp_file_compress_func='NONE';|" \
+               "dop2||SET SESSION _force_parallel_ddl_dop=2;" "wa20nocomp|SET GLOBAL ob_sql_work_area_percentage=20; ALTER SYSTEM SET _ob_ddl_temp_file_compress_func='NONE';|"; do
+      local name=${cfg%%|*} rest=${cfg#*|}; local gsql=${rest%%|*} ssql=${rest#*|}
+      [[ -n "$gsql" ]] && $MYSQL -e "$gsql" 2>&1 | tail -2
+      sleep 4
+      $MYSQL_VERBOSE < tools/benchmark/fts_large_bench_setup.sql > /dev/null
+      python3 tools/benchmark/fts_large_bench_gen.py --rows 20000 --batch 500 | $MYSQL_VERBOSE > /dev/null
+      $MYSQL -e "USE fts_large_bench; SELECT COUNT(*) FROM docs;" > /dev/null
+      for spec in "ik_all|fti_all_ik(title, content) WITH PARSER ik" "ik_content|fti_content_ik(content) WITH PARSER ik" "beng|fti_en_beng(title_en, content_en) WITH PARSER beng"; do
+        local iname=${spec%%|*} def=${spec#*|} s e s_ts e_ts dumps
+        s_ts=$(date '+%Y-%m-%d %H:%M:%S.%6N'); s=$(date +%s%N)
+        $MYSQL -e "$ssql USE fts_large_bench; ALTER TABLE docs ADD FULLTEXT INDEX $def;" 2>&1 | tail -2
+        e=$(date +%s%N); e_ts=$(date '+%Y-%m-%d %H:%M:%S.%6N')
+        dumps=$(cat "$INSTANCE"/log/seekdb.log* 2>/dev/null | awk -v s="[$s_ts" -v e="[$e_ts" 'substr($0,1,28) >= s && substr($0,1,28) <= e' | grep -c "dumped=true")
+        echo "rep$rep $name $iname $(( (e-s)/1000000 ))ms dumps=$dumps" >> "$dir/times.txt"
+      done
+      $MYSQL -e "$reset" 2>&1 | tail -2
+    done
+  done
+  notice "$(basename "$1") matrix" "$(awk '{printf "%s/%s/%s=%s(%s) ", $1, $2, $3, $4, $5}' "$dir/times.txt")"
+}
+
 rebuild_with_timeline() {
   local prof=$1 name=$2 idx=$3 def=$4
   $MYSQL -e "USE fts_large_bench; ALTER TABLE docs DROP INDEX $idx;" 2>&1 | tail -2
@@ -162,6 +190,10 @@ run_variant() {
   log_window "$ws" "$we" "$dir/buildwin.log.gz"
   python3 tools/benchmark/fts_large_bench_score.py "$dir/report.txt" --json > "$dir/repository-score.json" 2>&1
   notice "$label metrics" "$(grep -E '_sec:|_avg_ms:|_hits:' "$dir/report.txt" | tr -s ' ' | tr '\n' ';')"
+  if [[ -f "$ROOT/unittest/storage/fts/sdb07_matrix" ]]; then
+    config_matrix "$dir"
+    python3 .github/script/seekdb/sdb.py stop --base-dir "$INSTANCE"; rm -rf "$INSTANCE"; return 0
+  fi
   "$RUNNER_TEMP/sdb07-venv/bin/python" unittest/storage/fts/test_contest_semantics.py "$dir/semantics.json" > "$dir/semantics.log" 2>&1 || { status=1; notice "$label semantics" "capture failed $(tail -c 800 "$dir/semantics.log")"; }
   if [[ "$label" != base && -f "$OUT/base/semantics.json" ]]; then
     if "$RUNNER_TEMP/sdb07-venv/bin/python" unittest/storage/fts/test_contest_semantics.py --compare "$OUT/base/semantics.json" "$dir/semantics.json" > "$dir/semantics-compare.log" 2>&1; then
