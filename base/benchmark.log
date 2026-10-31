@@ -1,0 +1,88 @@
+2026-10-31 05:24:39.009654 === FTS Large Benchmark (label=base) ===
+2026-10-31 05:24:39.011838 rows=20000 batch=500 rounds=3000 query_rounds=200 samples=3
+2026-10-31 05:24:39.013913 [0/5] SQL baseline ...
+2026-10-31 05:24:39.440943   select1: sample=1/3 rounds=3000 total_ms=354.400 avg_ms=0.1181
+2026-10-31 05:24:39.841287   select1: sample=2/3 rounds=3000 total_ms=340.613 avg_ms=0.1135
+2026-10-31 05:24:40.218269   select1: sample=3/3 rounds=3000 total_ms=316.837 avg_ms=0.1056
+2026-10-31 05:24:40.221051 [1/5] setup raw schema ...
+2026-10-31 05:24:40.305437 [2/5] raw bulk load 20000 docs (batch=500) ...
+2026-10-31 05:24:40.640603   raw load done: 0.328s (60975.6 rows/s)
+2026-10-31 05:24:40.658285   table rows: 20000
+2026-10-31 05:24:40.659957 [3/5] build fulltext indexes ...
+2026-10-31 05:24:51.466884   build_ik_all: 10.802s
+2026-10-31 05:24:57.328756   build_ik_content: 5.857s
+2026-10-31 05:25:00.175108   build_beng_en: 2.841s
+2026-10-31 05:25:00.179752 [4/5] TOKENIZE hot-path ...
+2026-10-31 05:25:00.960245   tokenize_ik: sample=1/3 rounds=3000 total_ms=676.423 avg_ms=0.2255
+2026-10-31 05:25:01.727081   tokenize_ik: sample=2/3 rounds=3000 total_ms=678.632 avg_ms=0.2262
+2026-10-31 05:25:02.484905   tokenize_ik: sample=3/3 rounds=3000 total_ms=671.801 avg_ms=0.2239
+2026-10-31 05:25:03.065279   tokenize_beng: sample=1/3 rounds=3000 total_ms=496.813 avg_ms=0.1656
+2026-10-31 05:25:03.616880   tokenize_beng: sample=2/3 rounds=3000 total_ms=485.653 avg_ms=0.1619
+2026-10-31 05:25:04.185351   tokenize_beng: sample=3/3 rounds=3000 total_ms=497.246 avg_ms=0.1657
+2026-10-31 05:25:04.189239 [5/5] MATCH query ...
+2026-10-31 05:25:04.207185   query_cn: warmup_hits=8001
+2026-10-31 05:25:04.712321   query_cn: sample=1/3 rounds=200 total_ms=424.886 avg_ms=2.1244
+2026-10-31 05:25:05.154307   query_cn: sample=2/3 rounds=200 total_ms=428.398 avg_ms=2.1420
+2026-10-31 05:25:05.602952   query_cn: sample=3/3 rounds=200 total_ms=437.108 avg_ms=2.1855
+2026-10-31 05:25:05.627302   query_beng: warmup_hits=11000
+2026-10-31 05:25:06.360771   query_beng: sample=1/3 rounds=200 total_ms=623.007 avg_ms=3.1150
+2026-10-31 05:25:06.993951   query_beng: sample=2/3 rounds=200 total_ms=621.810 avg_ms=3.1090
+2026-10-31 05:25:07.644703   query_beng: sample=3/3 rounds=200 total_ms=637.383 avg_ms=3.1869
+2026-10-31 05:25:07.661317   query_mixed: warmup_hits=7332
+2026-10-31 05:25:08.223438   query_mixed: sample=1/3 rounds=200 total_ms=471.863 avg_ms=2.3593
+2026-10-31 05:25:08.701235   query_mixed: sample=2/3 rounds=200 total_ms=464.542 avg_ms=2.3227
+2026-10-31 05:25:09.179430   query_mixed: sample=3/3 rounds=200 total_ms=464.711 avg_ms=2.3236
+2026-10-31 05:25:09.201391   query_limit: warmup_hits=20
+2026-10-31 05:25:09.929397   query_limit: sample=1/3 rounds=200 total_ms=615.332 avg_ms=3.0767
+2026-10-31 05:25:10.554847   query_limit: sample=2/3 rounds=200 total_ms=614.206 avg_ms=3.0710
+2026-10-31 05:25:11.180836   query_limit: sample=3/3 rounds=200 total_ms=612.305 avg_ms=3.0615
+2026-10-31 05:25:11.208860 ========================================
+2026-10-31 05:25:11.211008 FTS Large Benchmark Report
+2026-10-31 05:25:11.212822 ========================================
+2026-10-31 05:25:11.214514 timestamp:              2026-10-31 05:25:11
+2026-10-31 05:25:11.216183 label:                  base
+2026-10-31 05:25:11.217888 git_head:               9bf34acb4
+2026-10-31 05:25:11.219601 git_dirty:              0
+2026-10-31 05:25:11.221199 rows:                   20000
+2026-10-31 05:25:11.222837 batch:                  500
+2026-10-31 05:25:11.224476 rounds:                 3000
+2026-10-31 05:25:11.226063 query_rounds:           200
+2026-10-31 05:25:11.227720 samples:                3
+2026-10-31 05:25:11.229333 warmup:                 30
+2026-10-31 05:25:11.230990 skip_load:              0
+2026-10-31 05:25:11.232627 ----------------------------------------
+2026-10-31 05:25:11.234301 select1_avg_ms:         0.1124
+2026-10-31 05:25:11.235914 select1_stdev_ms:       0.0052
+2026-10-31 05:25:11.237546 raw_load_sec:           0.328
+2026-10-31 05:25:11.239312 raw_load_rows_per_sec:  60975.6
+2026-10-31 05:25:11.240972 build_ik_all_sec:       10.802
+2026-10-31 05:25:11.242590 build_ik_content_sec:   5.857
+2026-10-31 05:25:11.244182 build_beng_en_sec:      2.841
+2026-10-31 05:25:11.245883 build_total_sec:        19.517
+2026-10-31 05:25:11.247519 ----------------------------------------
+2026-10-31 05:25:11.249136 tokenize_ik_avg_ms:     0.2252
+2026-10-31 05:25:11.250773 tokenize_ik_median_ms:  0.2255
+2026-10-31 05:25:11.252405 tokenize_ik_stdev_ms:   0.0010
+2026-10-31 05:25:11.254026 tokenize_beng_avg_ms:   0.1644
+2026-10-31 05:25:11.255649 tokenize_beng_median_ms:0.1656
+2026-10-31 05:25:11.257230 tokenize_beng_stdev_ms: 0.0018
+2026-10-31 05:25:11.258889 ----------------------------------------
+2026-10-31 05:25:11.260545 query_cn_hits:          8001
+2026-10-31 05:25:11.262121 query_cn_avg_ms:        2.1506
+2026-10-31 05:25:11.263755 query_cn_stdev_ms:      0.0257
+2026-10-31 05:25:11.265334 query_beng_hits:        11000
+2026-10-31 05:25:11.266992 query_beng_avg_ms:      3.1370
+2026-10-31 05:25:11.268718 query_beng_stdev_ms:    0.0354
+2026-10-31 05:25:11.270322 query_mixed_hits:       7332
+2026-10-31 05:25:11.272004 query_mixed_avg_ms:     2.3352
+2026-10-31 05:25:11.273650 query_mixed_stdev_ms:   0.0170
+2026-10-31 05:25:11.275261 query_limit_hits:       20
+2026-10-31 05:25:11.276919 query_limit_avg_ms:     3.0697
+2026-10-31 05:25:11.278691 query_limit_stdev_ms:   0.0063
+2026-10-31 05:25:11.280344 ========================================
+2026-10-31 05:25:11.282101 Report appended to /home/runner/work/seekdb/seekdb/sdb07-evidence/base/report.txt
+2026-10-31 05:25:11.283740 
+2026-10-31 05:25:11.285355 Compare before/after on these fields:
+2026-10-31 05:25:11.287132   build_ik_all_sec, build_ik_content_sec, build_beng_en_sec, build_total_sec
+2026-10-31 05:25:11.288855   tokenize_ik_avg_ms/stdev, tokenize_beng_avg_ms/stdev, select1_avg_ms as SQL-loop baseline
+2026-10-31 05:25:11.290666   query_cn_avg_ms, query_beng_avg_ms, query_mixed_avg_ms, query_limit_avg_ms with *_hits
