@@ -52,6 +52,34 @@ perf_cmd() {
 
 run_sql_file() { $MYSQL < "$1" > /dev/null; }
 
+# All server log lines between two "YYYY-mm-dd HH:MM:SS.ffffff" stamps (noisy pollers dropped).
+log_window() {
+  local s=$1 e=$2 out=$3
+  [[ -z "$s" || -z "$e" ]] && return 0
+  cat "$INSTANCE"/log/seekdb.log* 2>/dev/null | awk -v s="[$s" -v e="[$e" 'substr($0,1,28) >= s && substr($0,1,28) <= e' \
+    | grep -v -E "KV_CACHE_HAZARD_DOMAIN|ddl_task_status" | head -600000 | gzip > "$out" || true
+}
+
+# Diagnosis of first-build latency: recreate + reload the benchmark table and build the three
+# indexes immediately, exactly like fts_large_bench.sh [1/5]..[3/5], with server logs per build.
+fresh_builds() {
+  local dir=$1/fresh; mkdir -p "$dir"
+  for r in 1 2 3; do
+    $MYSQL_VERBOSE < tools/benchmark/fts_large_bench_setup.sql > /dev/null
+    python3 tools/benchmark/fts_large_bench_gen.py --rows 20000 --batch 500 | $MYSQL_VERBOSE > /dev/null
+    $MYSQL -e "USE fts_large_bench; SELECT COUNT(*) FROM docs;" > /dev/null
+    for spec in "ik_all|fti_all_ik(title, content) WITH PARSER ik" "ik_content|fti_content_ik(content) WITH PARSER ik" "beng|fti_en_beng(title_en, content_en) WITH PARSER beng"; do
+      local name=${spec%%|*} def=${spec#*|} s e s_ts e_ts
+      s_ts=$(date '+%Y-%m-%d %H:%M:%S.%6N'); s=$(date +%s%N)
+      $MYSQL -e "USE fts_large_bench; ALTER TABLE docs ADD FULLTEXT INDEX $def;" 2>&1 | tail -2
+      e=$(date +%s%N); e_ts=$(date '+%Y-%m-%d %H:%M:%S.%6N')
+      echo "run$r $name $(( (e-s)/1000000 ))ms start $s_ts end $e_ts" >> "$dir/times.txt"
+      log_window "$s_ts" "$e_ts" "$dir/run$r-$name.log.gz"
+    done
+  done
+  notice "$(basename "$1") fresh-builds" "$(awk '{printf "%s/%s=%s ", $1, $2, $3}' "$dir/times.txt")"
+}
+
 rebuild_with_timeline() {
   local prof=$1 name=$2 idx=$3 def=$4
   $MYSQL -e "USE fts_large_bench; ALTER TABLE docs DROP INDEX $idx;" 2>&1 | tail -2
@@ -126,7 +154,12 @@ run_variant() {
   rm -rf "$INSTANCE"
   python3 .github/script/seekdb/sdb.py start --binary "$ROOT/build_release/src/observer/seekdb" --base-dir "$INSTANCE" --port 2881 --parameter memory_limit=4G --parameter datafile_size=2G --parameter log_disk_size=2G
   python3 .github/script/seekdb/sdb.py wait-ready --client "$CLIENT" --base-dir "$INSTANCE" --host 127.0.0.1 --port 2881 --user root --timeout 180
-  LABEL=$label ROWS=20000 BATCH=500 ROUNDS=3000 QUERY_ROUNDS=200 SAMPLES=3 WARMUP=30 SKIP_LOAD=0 OUTPUT="$dir/report.txt" bash tools/benchmark/fts_large_bench.sh > "$dir/benchmark.log" 2>&1
+  LABEL=$label ROWS=20000 BATCH=500 ROUNDS=3000 QUERY_ROUNDS=200 SAMPLES=3 WARMUP=30 SKIP_LOAD=0 OUTPUT="$dir/report.txt" bash tools/benchmark/fts_large_bench.sh 2>&1 \
+    | while IFS= read -r l; do printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S.%6N')" "$l"; done > "$dir/benchmark.log"
+  # Server log of the official build phase ([2/5] load start .. [4/5] tokenize start).
+  local ws we
+  ws=$(grep -m1 '\[2/5\]' "$dir/benchmark.log" | cut -c1-26); we=$(grep -m1 '\[4/5\]' "$dir/benchmark.log" | cut -c1-26)
+  log_window "$ws" "$we" "$dir/buildwin.log.gz"
   python3 tools/benchmark/fts_large_bench_score.py "$dir/report.txt" --json > "$dir/repository-score.json" 2>&1
   notice "$label metrics" "$(grep -E '_sec:|_avg_ms:|_hits:' "$dir/report.txt" | tr -s ' ' | tr '\n' ';')"
   "$RUNNER_TEMP/sdb07-venv/bin/python" unittest/storage/fts/test_contest_semantics.py "$dir/semantics.json" > "$dir/semantics.log" 2>&1 || { status=1; notice "$label semantics" "capture failed $(tail -c 800 "$dir/semantics.log")"; }
@@ -152,6 +185,7 @@ run_variant() {
   done
   repeat_builds "$dir"
   if [[ "$profile" == 1 ]]; then profile_variant "$label"; fi
+  if [[ -f "$ROOT/unittest/storage/fts/sdb07_fresh_builds" ]]; then fresh_builds "$dir"; fi
   python3 .github/script/seekdb/sdb.py stop --base-dir "$INSTANCE"
   grep -E "ddl|DDL" "$INSTANCE/log/seekdb.log" 2>/dev/null | grep -E "INFO|WARN" | tail -4000 | gzip > "$dir/seekdb-ddl.log.gz" || true
   rm -rf "$INSTANCE"
