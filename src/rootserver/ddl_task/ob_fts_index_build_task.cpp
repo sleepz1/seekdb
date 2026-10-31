@@ -31,6 +31,7 @@
 #include "storage/fts/dict/ob_gen_dic_loader.h"
 #include "storage/fts/dict/ob_dic_loader.h"
 #include "storage/fts/dict/ob_dic_lock.h"
+#include "lib/cpu/ob_cpu_topology.h"
 
 using namespace oceanbase::share;
 
@@ -642,6 +643,29 @@ int ObFtsIndexBuildTask::prepare_aux_index_tables()
   return ret;
 }
 
+namespace
+{
+constexpr int64_t FTS_AUX_PARALLEL_BUILD_MIN_CPU = 4;
+constexpr int64_t FTS_AUX_PARALLEL_BUILD_DOP = 2;
+
+// The inverted index and the doc-word index are built concurrently, and both build
+// plans are dominated by CPU work (tokenization in the scan, then a sort on
+// (word, doc_id) / (doc_id, word) before the sstable is written). When the user did
+// not ask for any parallelism, give each of them a small degree of parallelism if the
+// server has spare cores. Their content is fully determined by the sort keys, so the
+// resulting indexes are identical. The rowkey-doc index assigns the doc ids and the
+// doc-rowkey index is a cheap copy, so both keep the original parallelism.
+void adapt_fts_aux_build_parallelism(obcall::ObCreateIndexArg &arg)
+{
+  if (arg.parallelism_ <= 1
+      && (share::schema::is_fts_index_aux(arg.index_type_)
+          || share::schema::is_fts_doc_word_aux(arg.index_type_))
+      && common::get_cpu_count() >= FTS_AUX_PARALLEL_BUILD_MIN_CPU) {
+    arg.parallelism_ = FTS_AUX_PARALLEL_BUILD_DOP;
+  }
+}
+} // namespace
+
 int ObFtsIndexBuildTask::construct_create_index_arg(
     const ObIndexType index_type,
     obcall::ObCreateIndexArg &arg)
@@ -663,6 +687,9 @@ int ObFtsIndexBuildTask::construct_create_index_arg(
     }
   } else {
     ret = OB_ERR_UNEXPECTED;
+  }
+  if (OB_SUCC(ret) && is_fts_task()) {
+    adapt_fts_aux_build_parallelism(arg);
   }
   return ret;
 }
