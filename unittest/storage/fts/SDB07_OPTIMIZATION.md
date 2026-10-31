@@ -18,7 +18,14 @@
 * **IK 分词**：每个解析器实例重复加载/构建主词典、量词词典与停用词结构；
   `casedown` 对每个 token 走完整的 unicase 转换，即使 token 已全是小写 ASCII 或汉字。
 * **查询**：`COUNT(*) ... WHERE MATCH()` 的计划把 `BOOL(relevance)` 作为下推过滤，
-  DaaT 迭代器对每个候选文档做一次通用表达式求值。
+  DaaT 迭代器对每个候选文档做一次通用表达式求值。进一步对 `query_cn` 采样
+  （CI run 41046215077 的 profile）：约 78% CPU 在 `ObSRDaaTIterImpl` 的多路归并本身
+  （二叉堆 push/pop/rebuild、`is_unique_champion`、relevance collector、过滤、结果缓存、
+  每行若干次虚函数和数组边界检查访问），倒排表扫描与 doc_id 解码约 21%。基准查询只有
+  2～3 个查询词，堆维护的常数开销远大于真正的比较工作。
+* **建索引并行度**：倒排与 doc-word 两个辅助表的构建计划为 dop=1，配置矩阵实验
+  （CI run 41173894842）显示 dop=2 可再快约 10%～15%；客户端以 100ms 轮询 DDL 结果，
+  建索耗时被向上取整到 100ms。
 
 ## 2. 主要修改及影响
 
@@ -30,9 +37,14 @@
 | 已是小写的 ASCII 与格式正确的 U+4000–U+9FFF 汉字跳过 casedown（这些码位在 `ob_unicase_default` 中无大小写映射，结果逐字节不变） | `ob_fts_stop_word.cpp` | 分词与建索引减少逐字符转换 |
 | `utf8mb4_general_ci` 比较内联前缀快路径：ASCII 与 3 字节汉字直接查 collation 自身的 sort 表，遇到其他字符或较短串结束时把剩余后缀交回 `ObCharset::strcmpsp`；`binary` 直接 memcmp；字节完全相同的串直接判等 | `ob_datum_cmp_func_def.h`、`ob_charset.cpp` | 建索引排序比较大幅减负 |
 | `BOOL(relevance)` 过滤在 DaaT 中直接判断 relevance 是否非零，与表达式求值结果相同 | `ob_sparse_daat_iter.cpp` | 计数类查询每文档少一次表达式求值 |
+| 服务器至少 4 核且用户未指定并行度时，倒排索引与 doc-word 辅助表以 dop=2 构建；负责分配 doc_id 的 rowkey-doc 与 doc-rowkey 保持原并行度（索引内容由排序键唯一决定，doc_id 分配不变） | `ob_fts_index_build_task.cpp` | 建索引排序/写入并行，同机重建均值 −20%～−29% |
+| 等待 DDL 完成时前 30 秒每 10ms 查询一次结果，之后恢复 100ms | `ob_ddl_executor_util.cpp` | 去掉建索耗时的 100ms 取整等待 |
+| **线性 DaaT 归并**：不计算 BM25（relevance 仅用于 `BOOL` 过滤或不需要）、非函数回查模式、1～8 个查询词、每个词贡献 `1.0×field_boost×weight` 为可精确表示的整数时，`ObTextDaaTIter` 用游标数组线性取最小 doc_id 代替二叉堆；游标推进内联（批内只做下标自增），无 LIMIT 时直接写入结果缓冲，`BOOL(relevance)` 直接判非零。条件不满足（需要分数、BMW top-k、词数多等）时走原堆归并 | `ob_text_daat_iter.*`、`ob_text_retrieval_token_iter.h` | 输出行集合、doc_id 顺序与 relevance 与堆归并逐位相同（整数加法与访问顺序无关）；计数查询 −30%～−39% |
 
-**评估后未采用**：提高 FTS 辅助表构建 dop。它会改变索引块布局，使 BMW top-k 在同分
-文档上的返回顺序与基线不同（语义对比出现 DIFF），因此保持 `decide_parallelism` 不变。
+**评估后未采用**：把全部 FTS 辅助表（含 rowkey-doc）一起提高 dop。它会改变 doc_id
+分配与索引块布局，使 BMW top-k 在同分文档上的返回顺序与基线不同（语义对比出现 DIFF）；
+因此只对不分配 doc_id 的倒排与 doc-word 表提高 dop。TOKENIZE 结果缓存等与基准重复调用
+相关的捷径不采用。
 
 ## 3. 正确性验证
 
@@ -49,6 +61,11 @@
 * `sdb07_utf8mb4_cmp_equiv.cpp`：600 万组随机串（含非法 UTF-8、截断多字节、代理区、
   增补平面字符）对比内联前缀算法与原 `ob_strnncollsp_utf8mb4`，两种尾空格模式，要求 0 差异。
 * 原生 mysqltest：`fts_index/tokenize_function`、`fts_index/parser_properties` 均 PASS。
+* 分数可复现性：BM25 的总文档数来自优化器对 `docs` 的行数估计；未收集统计信息时，
+  后台异步收集会在抓取过程中改变该值（同一版本前后两次查询分数从 1.19098545 变为
+  1.19107008），导致分数对比偶发不一致。语义抓取开始前先 `DBMS_STATS.GATHER_TABLE_STATS`，
+  并在日志记录收集前后与结束时的诊断分数；之后基线、候选、基线复跑三者 320 项完全一致
+  （CI run 41210121485）。
 
 ## 4. 优化前后性能对比（同一 runner，CI run 41034676026）
 
@@ -72,3 +89,19 @@
 官方明细显示，多次提测中会随机出现某一项建索引多出约 3～3.5s 的情况
 （如 44c0ff5 的 BENG 6.279s、opt3 的 IK 全列 9.868s、483f1bbc 的 BENG 6.233s），
 与改动内容无关；同机 CI 未复现。
+
+## 6. 线性 DaaT 归并前后对比（同一 runner，CI run 41210121485）
+
+基线为 `5ed1fb52`（上一官方提交），候选只增加线性 DaaT 归并；同一 runner 上基线跑两遍
+（base / base2）以观察噪声。
+
+| 指标 | 基线 base / base2 | 候选 | 变化（对两次均值） |
+| --- | --- | --- | --- |
+| query_cn_avg_ms | 1.8841 / 1.9654 | 1.3251 | −31% |
+| query_beng_avg_ms | 2.7242 / 2.7445 | 1.6520 | −40% |
+| query_mixed_avg_ms | 2.1235 / 2.0766 | 1.3123 | −38% |
+| query_limit_avg_ms（BMW，未改） | 2.7163 / 2.7582 | 2.6655 | −3%（噪声） |
+| tokenize_ik / beng (ms) | 0.2172 / 0.2128，0.1624 / 0.1617 | 0.2156，0.1643 | 持平 |
+| 重建均值 IK 全列 / IK 正文 / BENG (ms) | 4745 / 4885，4004 / 3959，2046 / 2035 | 4922，3978，1958 | 持平 |
+
+命中数 8001 / 11000 / 7332 / 20 不变；320 项语义、mysqltest、比较等价测试全部通过。
