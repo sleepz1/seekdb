@@ -1,0 +1,5 @@
+diag before stats: ((3, 1.1909854513049372), (43, 1.1909854513049372))
+stats: CALL DBMS_STATS.GATHER_TABLE_STATS('fts_large_bench','docs')
+diag after stats: ((3, 1.1910700767890443), (43, 1.1910700767890443))
+diag at end: ((3, 1.1910700767890443), (43, 1.1910700767890443))
+Captured 320 full token/ID/score cases
