@@ -28,6 +28,17 @@ import pymysql
 connection=pymysql.connect(host='127.0.0.1',port=2881,user='root',charset='utf8mb4',autocommit=True)
 cur=connection.cursor()
 cur.execute('SET ob_query_timeout=1000000000')
+# BM25 scores depend on the optimizer row count of fts_large_bench.docs (total document count).
+# Without collected statistics it comes from storage estimation, which can change asynchronously
+# while the capture runs, so collect statistics first to make score outputs reproducible.
+diag_sql="SELECT id, MATCH(title_en, content_en) AGAINST('database') AS score FROM fts_large_bench.docs ORDER BY score DESC,id LIMIT 2"
+cur.execute(diag_sql); print('diag before stats:', cur.fetchall())
+for stmt in ["CALL DBMS_STATS.GATHER_TABLE_STATS('fts_large_bench','docs')", 'ANALYZE TABLE fts_large_bench.docs']:
+    try:
+        cur.execute(stmt); cur.fetchall(); print('stats:', stmt); break
+    except pymysql.MySQLError as error:
+        print('stats failed:', stmt, error)
+cur.execute(diag_sql); print('diag after stats:', cur.fetchall())
 results={}
 texts=['','a','The quick BROWN fox the database DATABASE','OceanBase数据库全文索引分词器','数据库 数据库 倒排索引 tokenizer','ÉCOLE café Straße İstanbul ΑΒΓ абв','１２３ＡＢＣ，中文。\n\t中文','😀数据库𠀀测试','中文' * 700]
 for parser in ['ik','beng','ngram','space']:
@@ -140,6 +151,7 @@ for name,sql,params in [
         results['boolfilter/'+name]=normalize(cur.fetchall())
     except pymysql.MySQLError as error:
         results['boolfilter/'+name]={'error':error.args[0]}
+cur.execute(diag_sql); print('diag at end:', cur.fetchall())
 cur.execute('DROP DATABASE IF EXISTS sdb07_regress')
 connection.close()
 pathlib.Path(sys.argv[1]).write_text(json.dumps(results,ensure_ascii=False,sort_keys=True),encoding='utf-8')
