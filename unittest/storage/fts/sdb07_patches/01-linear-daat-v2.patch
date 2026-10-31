@@ -1,0 +1,188 @@
+diff --git a/src/storage/retrieval/ob_text_daat_iter.cpp b/src/storage/retrieval/ob_text_daat_iter.cpp
+index 671d8cb..64ca43c 100644
+--- a/src/storage/retrieval/ob_text_daat_iter.cpp
++++ b/src/storage/retrieval/ob_text_daat_iter.cpp
+@@ -39,6 +39,7 @@ int ObTextDaaTIter::init(const ObTextDaaTParam &param)
+     common::ObDatumBasicFuncs *basic_funcs = ObDatumFuncs::get_basic_func(id_meta.type_, id_meta.cs_type_);
+     id_cmp_func_ = nullptr == basic_funcs ? nullptr : basic_funcs->null_first_cmp_;
+     use_linear_merge_ = can_use_linear_merge();
++    prepare_linear_merge();
+   }
+   return ret;
+ }
+@@ -66,6 +67,32 @@ bool ObTextDaaTIter::can_use_linear_merge() const
+   return can_use;
+ }
+ 
++void ObTextDaaTIter::prepare_linear_merge()
++{
++  linear_dim_cnt_ = 0;
++  linear_pending_cnt_ = 0;
++  if (use_linear_merge_) {
++    linear_dim_cnt_ = dim_iters_->count();
++    for (int64_t i = 0; i < linear_dim_cnt_; ++i) {
++      linear_dims_[i] = static_cast<ObTextRetrievalDaaTTokenIter *>(dim_iters_->at(i));
++      linear_ids_[i] = nullptr;
++      linear_pending_[i] = i;
++      if (OB_ISNULL(linear_dims_[i])) {
++        use_linear_merge_ = false;
++      }
++    }
++    linear_pending_cnt_ = linear_dim_cnt_;
++    const sql::ObExpr *filter_expr = iter_param_->filter_expr_;
++    const sql::ObExpr *relevance_proj_expr = iter_param_->relevance_proj_expr_;
++    linear_bool_filter_ = OB_NOT_NULL(filter_expr) && OB_NOT_NULL(relevance_proj_expr)
++        && OB_NOT_NULL(iter_param_->eval_ctx_) && iter_param_->eval_ctx_->is_vectorized()
++        && T_OP_BOOL == filter_expr->type_ && 1 == filter_expr->arg_cnt_
++        && OB_NOT_NULL(filter_expr->args_) && relevance_proj_expr == filter_expr->args_[0]
++        && ObDoubleType == relevance_proj_expr->datum_meta_.type_
++        && iter_param_->need_project_relevance();
++  }
++}
++
+ int ObTextDaaTIter::do_one_merge_round(int64_t &count)
+ {
+   return use_linear_merge_ ? linear_merge_round(count) : ObSRDaaTIterImpl::do_one_merge_round(count);
+@@ -74,17 +101,13 @@ int ObTextDaaTIter::do_one_merge_round(int64_t &count)
+ int ObTextDaaTIter::linear_merge_round(int64_t &count)
+ {
+   int ret = OB_SUCCESS;
+-  const int64_t dim_cnt = dim_iters_->count();
+   // 1. advance the cursors consumed by the previous round (all cursors on the first round)
+-  for (int64_t i = 0; OB_SUCC(ret) && i < next_round_cnt_; ++i) {
+-    const int64_t iter_idx = next_round_iter_idxes_[i];
+-    ObTextRetrievalDaaTTokenIter *dim_iter = static_cast<ObTextRetrievalDaaTTokenIter *>(dim_iters_->at(iter_idx));
+-    if (OB_ISNULL(dim_iter)) {
+-      ret = OB_ERR_UNEXPECTED;
+-    } else if (OB_FAIL(dim_iter->next_id(iter_domain_ids_[iter_idx]))) {
++  for (int64_t i = 0; OB_SUCC(ret) && i < linear_pending_cnt_; ++i) {
++    const int64_t iter_idx = linear_pending_[i];
++    if (OB_FAIL(linear_dims_[iter_idx]->next_id(linear_ids_[iter_idx]))) {
+       if (OB_ITER_END == ret) {
+         ret = OB_SUCCESS;
+-        iter_domain_ids_[iter_idx] = nullptr;
++        linear_ids_[iter_idx] = nullptr;
+       } else {
+         LOG_WARN("fail to get next row from dimension iter", K(ret), K(iter_idx));
+       }
+@@ -93,22 +116,22 @@ int ObTextDaaTIter::linear_merge_round(int64_t &count)
+   // 2. pick the smallest doc id and every cursor positioned on it
+   const ObDatum *min_id = nullptr;
+   if (OB_SUCC(ret)) {
+-    next_round_cnt_ = 0;
+-    for (int64_t i = 0; OB_SUCC(ret) && i < dim_cnt; ++i) {
+-      const ObDatum *id = iter_domain_ids_[i];
++    linear_pending_cnt_ = 0;
++    for (int64_t i = 0; OB_SUCC(ret) && i < linear_dim_cnt_; ++i) {
++      const ObDatum *id = linear_ids_[i];
+       int cmp_ret = 0;
+       if (nullptr == id) {
+       } else if (nullptr == min_id) {
+         min_id = id;
+-        next_round_iter_idxes_[next_round_cnt_++] = i;
++        linear_pending_[linear_pending_cnt_++] = i;
+       } else if (OB_FAIL(id_cmp_func_(*id, *min_id, cmp_ret, nullptr))) {
+         LOG_WARN("fail to compare doc id", K(ret));
+       } else if (cmp_ret < 0) {
+         min_id = id;
+-        next_round_cnt_ = 0;
+-        next_round_iter_idxes_[next_round_cnt_++] = i;
++        linear_pending_cnt_ = 0;
++        linear_pending_[linear_pending_cnt_++] = i;
+       } else if (0 == cmp_ret) {
+-        next_round_iter_idxes_[next_round_cnt_++] = i;
++        linear_pending_[linear_pending_cnt_++] = i;
+       }
+     }
+     if (OB_SUCC(ret) && nullptr == min_id) {
+@@ -119,11 +142,12 @@ int ObTextDaaTIter::linear_merge_round(int64_t &count)
+   if (OB_SUCC(ret)) {
+     double relevance = 0.0;
+     bool need_project = false;
+-    for (int64_t i = 0; OB_SUCC(ret) && i < next_round_cnt_; ++i) {
+-      const int64_t iter_idx = next_round_iter_idxes_[i];
+-      double score = static_cast<ObTextRetrievalDaaTTokenIter *>(dim_iters_->at(iter_idx))->curr_score();
+-      if (OB_NOT_NULL(iter_param_->dim_weights_)) {
+-        score = score * iter_param_->field_boost_ * iter_param_->dim_weights_->at(iter_idx);
++    const ObIArray<double> *dim_weights = iter_param_->dim_weights_;
++    for (int64_t i = 0; OB_SUCC(ret) && i < linear_pending_cnt_; ++i) {
++      const int64_t iter_idx = linear_pending_[i];
++      double score = linear_dims_[iter_idx]->curr_score();
++      if (OB_NOT_NULL(dim_weights)) {
++        score = score * iter_param_->field_boost_ * dim_weights->at(iter_idx);
+       }
+       if (OB_FAIL(relevance_collector_->collect_one_dim(iter_idx, score))) {
+         LOG_WARN("fail to collect dimension", K(ret), K(iter_idx));
+@@ -133,8 +157,23 @@ int ObTextDaaTIter::linear_merge_round(int64_t &count)
+     } else if (OB_FAIL(relevance_collector_->get_result(relevance, need_project))) {
+       LOG_WARN("fail to get collected relevance", K(ret));
+     } else if (need_project && OB_FAIL(process_collected_row(*min_id, relevance))) {
+-    } else if (need_project && OB_FAIL(filter_on_demand(count, relevance, need_project))) {
+-    } else if (need_project && OB_FAIL(cache_result(count, *min_id, relevance))) {
++    } else if (!need_project) {
++    } else if (linear_bool_filter_) {
++      // BOOL(<non-null double relevance>) is exactly (relevance != 0); the relevance of every
++      // buffered row is projected by project_results(), so nothing has to be evaluated here.
++      need_project = 0 != relevance;
++    } else if (OB_FAIL(filter_on_demand(count, relevance, need_project))) {
++    }
++    if (OB_FAIL(ret) || !need_project) {
++    } else if (!iter_param_->limit_param_->is_valid()
++               && OB_LIKELY(count < buffered_domain_ids_.count() && count < buffered_relevances_.count())) {
++      // same as cache_result() without limit/offset
++      ++input_row_cnt_;
++      buffered_domain_ids_.get_data()[count].from_datum(*min_id);
++      buffered_relevances_.get_data()[count] = relevance;
++      ++count;
++      ++output_row_cnt_;
++    } else if (OB_FAIL(cache_result(count, *min_id, relevance))) {
+       if (OB_UNLIKELY(OB_ITER_END != ret)) {
+         LOG_WARN("fail to cache result", K(ret));
+       }
+@@ -169,6 +208,7 @@ void ObTextDaaTIter::reuse(const bool switch_tablet)
+   }
+   ObSRDaaTIterImpl::reuse(switch_tablet);
+   use_linear_merge_ = is_inited_ && can_use_linear_merge();
++  prepare_linear_merge();
+ }
+ 
+ int ObTextDaaTIter::pre_process()
+diff --git a/src/storage/retrieval/ob_text_daat_iter.h b/src/storage/retrieval/ob_text_daat_iter.h
+index 3dae74d..0d8272f 100644
+--- a/src/storage/retrieval/ob_text_daat_iter.h
++++ b/src/storage/retrieval/ob_text_daat_iter.h
+@@ -57,7 +57,10 @@ public:
+       mode_flag_(sql::ObMatchAgainstMode::NATURAL_LANGUAGE_MODE),
+       function_lookup_mode_(false),
+       use_linear_merge_(false),
+-      id_cmp_func_(nullptr) {}
++      id_cmp_func_(nullptr),
++      linear_dim_cnt_(0),
++      linear_pending_cnt_(0),
++      linear_bool_filter_(false) {}
+   virtual ~ObTextDaaTIter() { reset(); }
+ 
+   int init(const ObTextDaaTParam &param);
+@@ -71,6 +74,7 @@ private:
+   // cursors by a linear minimum scan is cheaper than maintaining the merge heap.
+   static const int64_t LINEAR_MERGE_MAX_DIM_CNT = 8;
+   bool can_use_linear_merge() const;
++  void prepare_linear_merge();
+   int linear_merge_round(int64_t &count);
+ protected:
+   ObBM25ParamEstimator bm25_param_estimator_;
+@@ -78,6 +82,14 @@ protected:
+   bool function_lookup_mode_;
+   bool use_linear_merge_;
+   common::ObDatumCmpFuncType id_cmp_func_;
++  // plain cursor state of the linear merge (valid when use_linear_merge_)
++  int64_t linear_dim_cnt_;
++  int64_t linear_pending_cnt_;
++  // the pushed down filter is BOOL(relevance) on the projected double relevance
++  bool linear_bool_filter_;
++  ObTextRetrievalDaaTTokenIter *linear_dims_[LINEAR_MERGE_MAX_DIM_CNT];
++  const ObDatum *linear_ids_[LINEAR_MERGE_MAX_DIM_CNT];
++  int64_t linear_pending_[LINEAR_MERGE_MAX_DIM_CNT];
+ private:
+   DISALLOW_COPY_AND_ASSIGN(ObTextDaaTIter);
+ };
