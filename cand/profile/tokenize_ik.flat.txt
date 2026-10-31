@@ -1,0 +1,81 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'task-clock:ppp'
+# Event count (approx.): 1004004003
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+# ........  ...........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+     4.79%  [k] __raw_spin_unlock_irq
+     4.39%  [.] nio_response_append_resultset_metadata
+     3.79%  [.] _RNvNtCs3vaRoP7qfw8_7sql_nio8response28encode_field_payload_planned
+     3.79%  [.] oceanbase::observer::ObQueryDriver::response_query_header(oceanbase::common::ObIArray<oceanbase::common::ObField> const&, bool, bool, oceanbase::sql::ObResultSet*)
+     2.69%  [.] _RNvNtCs3vaRoP7qfw8_7sql_nio12response_api28append_single_field_metadata
+     2.39%  [.] _RNvNtCs3vaRoP7qfw8_7sql_nio12response_api27encode_metadata_field_frame
+     2.09%  [.] _RNvNtCs3vaRoP7qfw8_7sql_nio10row_encode16mysql_field_plan
+     1.89%  [.] oceanbase::observer::ObMPPacketSender::response_resultset_metadata(oceanbase::common::ObIArray<oceanbase::obmysql::ObMySQLField> const&, bool, unsigned char, unsigned short, unsigned short)
+     1.79%  [.] oceanbase::common::ObSMUtils::get_mysql_type(oceanbase::common::ObObjType, oceanbase::obmysql::EMySQLFieldType&, unsigned short&, short&)
+     1.50%  [.] oceanbase::common::ObILobCursor::read_i8(long, signed char*) const
+     1.50%  [.] oceanbase::observer::ObQueryDriver::response_query_result(oceanbase::sql::ObResultSet&, bool, bool, bool&, long)
+     1.30%  [.] oceanbase::common::ObJsonBinMetaParser::parse_header_v0_()
+     1.20%  [k] _raw_spin_unlock_irqrestore
+     1.20%  [.] oceanbase::observer::ObMySQLResultSet::to_mysql_field(oceanbase::common::ObField const&, oceanbase::obmysql::ObMySQLField&)
+     1.20%  [.] oceanbase::sql::ObBasicSessionInfo::is_server_status_in_transaction() const
+     1.10%  [.] oceanbase::common::ObLobInRowCursor::get_length() const
+     1.00%  [.] je_te_event_trigger
+     1.00%  [.] oceanbase::common::ObIJsonBase::print(oceanbase::common::ObStringBuffer&, bool, unsigned long, bool, unsigned long) const
+     1.00%  [.] oceanbase::common::ObJsonBinSerializer::serialize_json_object(oceanbase::common::ObJsonNode*, oceanbase::common::ObStringBuffer&, bool, unsigned int)
+     1.00%  [.] oceanbase::common::ObLobLocatorV2::get_inrow_data(oceanbase::common::ObString&) const
+     1.00%  [.] oceanbase::sql::ObResultSet::get_next_row(oceanbase::common::ObNewRow const*&)
+     0.90%  [.] oceanbase::common::ObIArrayWrap<oceanbase::common::ObArray<std::pair<unsigned long, oceanbase::share::schema::ObObjectType>, oceanbase::common::ModulePageAllocator, false> >::at(long)
+     0.90%  [.] oceanbase::common::ObJsonBin::json_type() const
+     0.90%  [.] oceanbase::common::ObStringBuffer::reserve(unsigned long)
+     0.90%  [.] 0x00000000001a1040
+     0.80%  [.] oceanbase::common::ObIJsonBase::print_array(oceanbase::common::ObStringBuffer&, unsigned long, bool) const
+     0.80%  [.] oceanbase::common::ObNewRow::get_cell(long)
+     0.80%  [.] oceanbase::common::ObStringBuffer::append(char const*)
+     0.80%  [.] oceanbase::observer::ObQueryDriver::process_lob_locator_results(oceanbase::common::ObObj&, oceanbase::common::ObIAllocator*, oceanbase::sql::ObSQLSessionInfo const*, oceanbase::sql::ObExecContext*)
+     0.80%  [.] oceanbase::sql::ObExecContext::get_convert_charset_allocator(oceanbase::common::ObArenaAllocator*&)
+     0.80%  [.] 0x000000000019d8c1
+     0.80%  [.] 0x00000000001a0880
+     0.70%  [.] char const* std::__find_if<char const*, __gnu_cxx::__ops::_Iter_pred<oceanbase::common::ObFindEscapeFunc> >(char const*, char const*, __gnu_cxx::__ops::_Iter_pred<oceanbase::common::ObFindEscapeFunc>, std::random_access_iterator_tag)
+     0.70%  [.] 0x00000000001a0884
+     0.60%  [.] int oceanbase::sql::ObJsonExprHelper::pack_json_str_res<oceanbase::common::ObString const>(oceanbase::sql::ObExpr const&, oceanbase::sql::ObEvalCtx&, oceanbase::common::ObDatum&, oceanbase::common::ObString const&, oceanbase::common::ObIAllocator*)
+     0.60%  [.] je_free
+     0.60%  [.] oceanbase::common::ObStringBuffer::append(char const*, unsigned long, signed char)
+     0.60%  [.] oceanbase::sql::ObExpr::alloc_str_res_mem(oceanbase::sql::ObEvalCtx&, long, long) const
+     0.60%  [.] oceanbase::sql::ObResultSet::replace_lob_type(oceanbase::obmysql::ObMySQLField&)
+     0.50%  [.] _RNvMNtCs3vaRoP7qfw8_7sql_nio8responseNtB2_13PayloadWriter16put_lenenc_bytes
+     0.50%  [.] oceanbase::common::ObIArrayWrap<oceanbase::tmp_file::ObSharedNothingTmpFile::InnerFlushInfo>::at(long) const
+     0.50%  [.] oceanbase::common::ObILobCursor::read_i16(long, short*) const
+     0.50%  [.] oceanbase::common::ObJsonBin::get_raw_binary(oceanbase::common::ObString&, oceanbase::common::ObIAllocator*) const
+     0.50%  [.] oceanbase::common::ObJsonVar::read_var(oceanbase::common::ObILobCursor const*, long, unsigned char, unsigned long*)
+     0.50%  [.] oceanbase::common::ObLobInRowCursor::get_ptr(long, long, char const*&) const
+     0.50%  [.] oceanbase::common::ObSMUtils::build_cell_value(oceanbase::common::ObObj const&, oceanbase::obmysql::MYSQL_PROTOCOL_TYPE, oceanbase::common::ObIAllocator&, oceanbase::obmysql::ObMySQLCellValue&, oceanbase::common::ObDataTypeCastParams const&, oceanbase::common::ObField const*, oceanbase::sql::ObSQLSessionInfo const&, oceanbase::share::schema::ObSchemaGetterGuard*)
+     0.50%  [.] oceanbase::data_plane::tx_desc_in_tx_for_free_route(oceanbase::transaction::ObTxDesc*)
+     0.50%  [.] oceanbase::obmysql::OMPKEOF::OMPKEOF()
+     0.50%  [.] oceanbase::restore::ObRestoreHelperMacroBlockCtx::get_type() const
+     0.50%  [.] rtree_read
+     0.50%  [.] 0x00000000001a0891
+     0.40%  [k] do_syscall_64
+     0.40%  [k] finish_task_switch.isra.0
+     0.40%  [.] oceanbase::common::MemoryContextMalloc::alloc(long, oceanbase::lib::ObMemAttr const&)
+     0.40%  [.] oceanbase::common::ObIArrayWrap<oceanbase::common::ObSEArray<oceanbase::sql::ObRawExpr*, 2l, oceanbase::common::ModulePageAllocator, true> >::at(long) const
+     0.40%  [.] oceanbase::common::ObJsonBin::init_bin_data()
+     0.40%  [.] oceanbase::common::ObTextStringIter::get_full_data(oceanbase::common::ObString&)
+     0.40%  [.] oceanbase::common::ObTextStringResult::append(char const*, long)
+     0.40%  [.] oceanbase::lib::__MemoryContext__::init()
+     0.40%  [.] oceanbase::sql::ObExecContext::~ObExecContext()
+     0.40%  [.] oceanbase::sql::ObExecuteResult::get_next_row(oceanbase::sql::ObExecContext&, oceanbase::common::ObNewRow const*&)
+     0.40%  [.] oceanbase::sql::ObSQLUtils::is_nested_sql(oceanbase::sql::ObExecContext*)
+     0.40%  [k] tcp_in_window
+     0.40%  [.] 0x00000000001a095b
+     0.40%  [.] 0x00000000001a108d
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
