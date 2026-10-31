@@ -1,0 +1,1 @@
+sdb07: tokenizer hot path (latch-free local word maps and IK arbitrator chains, inline DAT hash lookup and binary range-dict compare), skip-vector fast path when saving DaaT relevances (patch materialized by CI)
