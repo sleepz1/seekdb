@@ -1,1 +1,0 @@
-sdb07: exhaustive doc-id merge for top-k MATCH queries with few short posting lists (same heap, same scores, same order); start the async system package load at service start instead of during the first index builds; raw-array sort key compare (patch materialized by CI)

@@ -20,6 +20,8 @@
 #include "rootserver/ob_admin_job_table_operator.h"
 #include "share/ob_server_struct.h"
 #include "share/rc/ob_server_runtime.h"
+#include "config_bridge.h"
+#include "lib/time/ob_time_utility.h"
 
 namespace oceanbase
 {
@@ -55,7 +57,8 @@ int ObSystemPackageLoadTask::start(common::ObTimer &timer)
   } else {
     if (timer.task_exist(*this)) {
       // ignore duplicate schedule
-    } else if (OB_FAIL(timer.schedule(*this, SCHEDULE_INTERVAL_US, did_repeat))) {
+    } else if (OB_FAIL(timer.schedule(*this, SCHEDULE_INTERVAL_US, did_repeat,
+                                      config::_enable_async_load_sys_package()/*immediate*/))) {
     } else {
       LOG_INFO("finish schedule timer task", K(SCHEDULE_INTERVAL_US));
     }
@@ -86,12 +89,18 @@ int ObSystemPackageLoadTask::load_system_package_()
   ObMySQLProxy *sql_proxy = GCTX.sql_proxy_;
   int64_t job_id = OB_INVALID_ID;
   int64_t job_count = 0;
+  bool need_load = false;
   if (OB_ISNULL(sql_proxy)) {
     ret = OB_ERR_UNEXPECTED;
   } else if (OB_FAIL(GET_ADMIN_JOB_COUNT(LOAD_MYSQL_SYS_PACKAGE, job_count))) {
   } else if (0 == job_count) {
-    // job not exists, try insert inprogress job
+    // job not exists, try insert inprogress job. With asynchronous loading (this round runs
+    // only after the observer started service, see wait_service_started_()) load in this round
+    // instead of waiting for the next timer round, so that the loading work is done as early
+    // as possible after startup instead of overlapping the first user workload.
     if (OB_FAIL(ADMIN_JOB_CREATE_WITH_RET(job_id, JOB_TYPE_LOAD_MYSQL_SYS_PACKAGE))) {
+    } else {
+      need_load = config::_enable_async_load_sys_package();
     }
   } else if (OB_FAIL(ADMIN_JOB_FIND(LOAD_MYSQL_SYS_PACKAGE, job_id))) {
     if (ret == OB_ENTRY_NOT_EXIST) {
@@ -100,12 +109,17 @@ int ObSystemPackageLoadTask::load_system_package_()
       LOG_INFO("find a success job or job_id not exist", KR(ret), K(job_id));
     } else {
     }
-  } else if (OB_FAIL(pl::ObPLPackageManager::load_all_common_sys_package(
-                         *sql_proxy,
-                         false/*from_file*/))) {
-  } else if (OB_FAIL(ADMIN_JOB_COMPLETE(job_id, 0/*result_code*/))) {
   } else {
-    GCTX.sys_package_ready_ = true;
+    need_load = true;
+  }
+  if (OB_SUCC(ret) && need_load) {
+    if (OB_FAIL(pl::ObPLPackageManager::load_all_common_sys_package(
+                    *sql_proxy,
+                    false/*from_file*/))) {
+    } else if (OB_FAIL(ADMIN_JOB_COMPLETE(job_id, 0/*result_code*/))) {
+    } else {
+      GCTX.sys_package_ready_ = true;
+    }
   }
   return ret;
 }
@@ -119,6 +133,8 @@ void ObSystemPackageLoadTask::runTimerTask()
     LOG_INFO("read-only server skips loading sys package");
   } else if (GCTX.sys_package_ready_) {
     LOG_INFO("sys package already loaded");
+  } else if (!wait_service_started_()) {
+    LOG_INFO("observer has not started service yet, load sys package in the next round");
   } else if (OB_FAIL(load_system_package_())) {
     fail_count_++;
     if (fail_count_ >= 5) {
@@ -129,6 +145,26 @@ void ObSystemPackageLoadTask::runTimerTask()
     fail_count_ = 0;
     LOG_INFO("finish loading sys packages");
   }
+}
+
+bool ObSystemPackageLoadTask::wait_service_started_()
+{
+  // With asynchronous loading the first round runs right after activation (see start()),
+  // which may still be inside bootstrap; nobody waits for the packages there, so do not run
+  // the loading DDL concurrently with bootstrap: wait (bounded by one schedule interval) until
+  // the observer starts service and load right then. With synchronous loading bootstrap
+  // itself waits for the packages and the rounds are scheduled exactly as before.
+  bool started = true;
+  if (config::_enable_async_load_sys_package()) {
+    const int64_t check_interval_us = 20L * 1000L; // 20ms
+    const int64_t deadline = ObTimeUtility::current_time() + SCHEDULE_INTERVAL_US;
+    started = GCTX.start_service_time_ > 0;
+    while (!started && ObTimeUtility::current_time() < deadline) {
+      ob_usleep(check_interval_us);
+      started = GCTX.start_service_time_ > 0;
+    }
+  }
+  return started;
 }
 
 int ObSystemPackageLoadTask::wait_system_package_ready(const common::ObTimeoutCtx &ctx)

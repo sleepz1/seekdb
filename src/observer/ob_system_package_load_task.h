@@ -43,6 +43,7 @@ public:
 
 private:
   int load_system_package_();
+  bool wait_service_started_();
 
 private:
   bool inited_;

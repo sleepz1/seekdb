@@ -417,11 +417,21 @@ bool ObSortOpImpl::Compare::operator()(
     const ObDatum *lcells = l->cells();
     const ObDatum *rcells = r->cells();
     int cmp = 0;
+    // direct element access instead of the per-key bounds-checked accessors; the compare range
+    // is verified against both arrays once per call
+    const ObSortFieldCollation *collations = sort_collations_->get_data();
+    const ObSortCmpFunc *cmp_funcs = sort_cmp_funs_->get_data();
+    if (OB_UNLIKELY(cmp_start_ < 0 || cmp_end_ > sort_collations_->count()
+                    || cmp_end_ > sort_cmp_funs_->count())) {
+      ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("invalid sort compare range", K(ret), K_(cmp_start), K_(cmp_end),
+                  K(sort_collations_->count()), K(sort_cmp_funs_->count()));
+    }
     for (int64_t i = cmp_start_; 0 == cmp && i < cmp_end_ && OB_SUCC(ret); i++) {
-      const ObSortFieldCollation& sort_collation = sort_collations_->at(i);
+      const ObSortFieldCollation& sort_collation = collations[i];
       const int64_t idx = sort_collation.field_idx_;
       if (OB_FAIL(
-              sort_cmp_funs_->at(i).cmp_func_(lcells[idx], rcells[idx], cmp, access_ctx_))) {
+              cmp_funcs[i].cmp_func_(lcells[idx], rcells[idx], cmp, access_ctx_))) {
       } else if (cmp < 0) {
         less = sort_collation.is_ascending_;
       } else if (cmp > 0) {

@@ -305,15 +305,140 @@ int ObTextBMWIter::init(const ObTextDaaTParam &param)
 int ObTextBMWIter::get_next_rows(const int64_t capacity, int64_t &count)
 {
   int ret = OB_SUCCESS;
+  bool exhaustive_done = false;
   if (IS_NOT_INIT) {
     ret = OB_NOT_INIT;
   } else if (dim_iters_->count() == 0) {
     ret = OB_ITER_END;
   } else if (OB_FAIL(bm25_param_estimator_.do_estimation(*iter_param_->eval_ctx_))) {
+  } else if (BMWStatus::MAX_STATUS == status_ && OB_FAIL(try_exhaustive_top_k(exhaustive_done))) {
+    LOG_WARN("fail to do exhaustive top k search", K(ret));
   }
 
   if (FAILEDx(ObSRBMWIterImpl::get_next_rows(capacity, count))) {
     if (OB_UNLIKELY(OB_ITER_END != ret)) {
+    }
+  }
+  return ret;
+}
+
+int ObTextBMWIter::try_exhaustive_top_k(bool &done)
+{
+  int ret = OB_SUCCESS;
+  done = false;
+  const int64_t dim_cnt = dim_iters_->count();
+  ObTextRetrievalDaaTTokenIter *dims[EXHAUSTIVE_MAX_DIM_CNT];
+  bool can_use = top_k_count_ > 0
+      && top_k_heap_.empty()
+      && dim_cnt > 0
+      && dim_cnt <= EXHAUSTIVE_MAX_DIM_CNT
+      && nullptr == iter_param_->dim_weights_
+      && OB_NOT_NULL(relevance_collector_)
+      && OB_NOT_NULL(iter_param_->id_proj_expr_);
+  int64_t posting_cnt = 0;
+  for (int64_t i = 0; can_use && i < dim_cnt; ++i) {
+    ObTextRetrievalBlockMaxIter *iter = static_cast<ObTextRetrievalBlockMaxIter *>(dim_iters_->at(i));
+    int64_t token_doc_cnt = 0;
+    if (OB_ISNULL(iter)) {
+      can_use = false;
+    } else if (OB_SUCCESS != iter->get_token_iter().get_token_doc_cnt(token_doc_cnt)
+               || token_doc_cnt < 0) {
+      can_use = false;
+    } else {
+      posting_cnt += token_doc_cnt;
+      dims[i] = &iter->get_token_iter();
+    }
+  }
+  can_use = can_use && posting_cnt <= EXHAUSTIVE_MAX_POSTING_CNT;
+
+  if (can_use) {
+    // compare doc ids exactly as ObSRMergeCmp does
+    const sql::ObDatumMeta &id_meta = iter_param_->id_proj_expr_->datum_meta_;
+    const bool binary_id = ObStringTC == ob_obj_type_class(id_meta.type_) && CS_TYPE_BINARY == id_meta.cs_type_;
+    common::ObDatumBasicFuncs *basic_funcs = ObDatumFuncs::get_basic_func(id_meta.type_, id_meta.cs_type_);
+    common::ObDatumCmpFuncType cmp_func = nullptr == basic_funcs ? nullptr : basic_funcs->null_first_cmp_;
+    int64_t should_match = 0;
+    const bool plain_sum = relevance_collector_->is_plain_inner_product(should_match);
+    const ObDatum *ids[EXHAUSTIVE_MAX_DIM_CNT];
+    int64_t pending[EXHAUSTIVE_MAX_DIM_CNT];
+    int64_t pending_cnt = dim_cnt;
+    for (int64_t i = 0; i < dim_cnt; ++i) {
+      ids[i] = nullptr;
+      pending[i] = i;
+    }
+    if (OB_ISNULL(cmp_func)) {
+      ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("unexpected null doc id compare function", K(ret));
+    }
+    while (OB_SUCC(ret)) {
+      // 1. advance the cursors consumed by the previous document (all cursors at first)
+      for (int64_t i = 0; OB_SUCC(ret) && i < pending_cnt; ++i) {
+        const int64_t iter_idx = pending[i];
+        if (OB_FAIL(dims[iter_idx]->next_id(ids[iter_idx]))) {
+          if (OB_ITER_END == ret) {
+            ret = OB_SUCCESS;
+            ids[iter_idx] = nullptr;
+          } else {
+            LOG_WARN("fail to get next posting", K(ret), K(iter_idx));
+          }
+        }
+      }
+      // 2. the smallest doc id and the cursors on it, by ascending dimension index
+      const ObDatum *min_id = nullptr;
+      pending_cnt = 0;
+      for (int64_t i = 0; OB_SUCC(ret) && i < dim_cnt; ++i) {
+        const ObDatum *id = ids[i];
+        int cmp_ret = 0;
+        if (nullptr == id) {
+        } else if (nullptr == min_id) {
+          min_id = id;
+          pending[pending_cnt++] = i;
+        } else {
+          if (binary_id && OB_LIKELY(!id->is_null() && !min_id->is_null())) {
+            const uint32_t min_len = id->len_ < min_id->len_ ? id->len_ : min_id->len_;
+            const int mem_ret = 0 == min_len ? 0 : MEMCMP(id->ptr_, min_id->ptr_, min_len);
+            cmp_ret = 0 != mem_ret ? mem_ret : (id->len_ > min_id->len_ ? 1 : (id->len_ < min_id->len_ ? -1 : 0));
+          } else if (OB_FAIL(cmp_func(*id, *min_id, cmp_ret, nullptr))) {
+            LOG_WARN("fail to compare doc id", K(ret));
+          }
+          if (OB_FAIL(ret)) {
+          } else if (cmp_ret < 0) {
+            min_id = id;
+            pending_cnt = 0;
+            pending[pending_cnt++] = i;
+          } else if (0 == cmp_ret) {
+            pending[pending_cnt++] = i;
+          }
+        }
+      }
+      if (OB_FAIL(ret) || nullptr == min_id) {
+        break;
+      }
+      // 3. collect the relevance and offer the document to the top-k heap (collect_dims_by_id)
+      double relevance = 0.0;
+      bool is_valid = false;
+      if (plain_sum) {
+        for (int64_t i = 0; i < pending_cnt; ++i) {
+          relevance += dims[pending[i]]->curr_score();
+        }
+        is_valid = pending_cnt >= should_match;
+      } else {
+        for (int64_t i = 0; OB_SUCC(ret) && i < pending_cnt; ++i) {
+          if (OB_FAIL(relevance_collector_->collect_one_dim(pending[i], dims[pending[i]]->curr_score()))) {
+            LOG_WARN("fail to collect dimension", K(ret), K(pending[i]));
+          }
+        }
+        if (OB_SUCC(ret) && OB_FAIL(relevance_collector_->get_result(relevance, is_valid))) {
+          LOG_WARN("fail to get collected relevance", K(ret));
+        }
+      }
+      if (OB_SUCC(ret) && is_valid && OB_FAIL(process_collected_row(*min_id, relevance))) {
+        LOG_WARN("fail to process collected row", K(ret));
+      }
+    }
+    if (OB_SUCC(ret)) {
+      status_ = BMWStatus::FINISHED;
+      done = true;
     }
   }
   return ret;

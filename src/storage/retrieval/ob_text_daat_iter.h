@@ -131,6 +131,19 @@ public:
 protected:
   virtual int get_next_rows(const int64_t capacity, int64_t &count) override;
   virtual int init_before_wand_process() override;
+private:
+  // Block-max WAND pays off on long posting lists. When the query has only a few tokens
+  // whose posting lists are short in total, scoring every posting with a plain doc id
+  // ordered merge is cheaper than the block-max bookkeeping (block statistics scan, pivot
+  // selection, shallow advances). The exhaustive merge feeds exactly the same documents with
+  // exactly the same relevance (same per-dimension scores, summed in the same order as the
+  // simple merger: equal doc ids by ascending dimension index) to the same top-k heap, in doc
+  // id order; documents block-max WAND would skip can never enter the heap because their
+  // relevance does not exceed the current threshold. So the top-k result and its order are
+  // identical.
+  static const int64_t EXHAUSTIVE_MAX_DIM_CNT = ObSRSimpleMerger::USE_SIMPLE_MERGER_MAX_TABLE_CNT;
+  static const int64_t EXHAUSTIVE_MAX_POSTING_CNT = 64L * 1024L;
+  int try_exhaustive_top_k(bool &done);
 protected:
   ObBM25ParamEstimator bm25_param_estimator_;
 private:
