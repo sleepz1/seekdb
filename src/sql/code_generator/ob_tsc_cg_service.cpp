@@ -2313,6 +2313,14 @@ int ObTscCgService::extract_ivf_access_columns(const ObLogTableScan &op,
    return ret;
 }
 
+// BM25 inputs (token count, document length) are only read from the posting lists when the
+// score itself is needed; membership-only natural language matching reads the document id.
+static bool need_inv_scan_relevance_columns(const ObTextRetrievalInfo &tr_info)
+{
+  return tr_info.need_calc_relevance_ || tr_info.need_block_max_scan()
+      || OB_ISNULL(tr_info.token_cnt_column_) || OB_ISNULL(tr_info.doc_length_column_);
+}
+
 int ObTscCgService::extract_text_ir_access_columns(
     const ObLogTableScan &op,
     const ObTextRetrievalInfo &tr_info,
@@ -2328,7 +2336,12 @@ int ObTscCgService::extract_text_ir_access_columns(
   } else {
     switch (scan_ctdef.ir_scan_type_) {
     case ObTSCIRScanType::OB_IR_INV_IDX_SCAN:
-      if (OB_FAIL(add_var_to_array_no_dup(access_exprs, static_cast<ObRawExpr*>(tr_info.token_cnt_column_)))) {
+      if (!need_inv_scan_relevance_columns(tr_info)) {
+        // membership-only retrieval: the posting list scan only reads the document id, the
+        // token count and document length columns are BM25 inputs only
+        if (OB_FAIL(add_var_to_array_no_dup(access_exprs, static_cast<ObRawExpr*>(tr_info.docid_or_rowkey_column_)))) {
+        }
+      } else if (OB_FAIL(add_var_to_array_no_dup(access_exprs, static_cast<ObRawExpr*>(tr_info.token_cnt_column_)))) {
       } else if (OB_FAIL(add_var_to_array_no_dup(access_exprs, static_cast<ObRawExpr*>(tr_info.docid_or_rowkey_column_)))) {
       } else if (OB_FAIL(add_var_to_array_no_dup(access_exprs, static_cast<ObRawExpr*>(tr_info.doc_length_column_)))) {
       }
@@ -2686,7 +2699,12 @@ int ObTscCgService::extract_text_ir_das_output_column_ids(
     ObIArray<uint64_t> &output_cids)
 {
   int ret = OB_SUCCESS;
-  if (ObTSCIRScanType::OB_IR_INV_IDX_SCAN == scan_ctdef.ir_scan_type_) {
+  if (ObTSCIRScanType::OB_IR_INV_IDX_SCAN == scan_ctdef.ir_scan_type_
+      && !need_inv_scan_relevance_columns(tr_info)) {
+    if (OB_FAIL(output_cids.push_back(
+        static_cast<ObColumnRefRawExpr *>(tr_info.docid_or_rowkey_column_)->get_column_id()))) {
+    }
+  } else if (ObTSCIRScanType::OB_IR_INV_IDX_SCAN == scan_ctdef.ir_scan_type_) {
     if (OB_FAIL(output_cids.push_back(
         static_cast<ObColumnRefRawExpr *>(tr_info.token_cnt_column_)->get_column_id()))) {
     } else if (OB_FAIL(output_cids.push_back(
@@ -3009,6 +3027,8 @@ int ObTscCgService::generate_text_ir_spec_exprs(const ObTextRetrievalInfo &tr_in
     const UIntFixedArray &inv_scan_col_id = text_ir_scan_ctdef.get_inv_idx_scan_ctdef()->access_column_ids_;
     const ObColumnRefRawExpr *doc_id_column = tr_info.docid_or_rowkey_column_;
     const ObColumnRefRawExpr *doc_length_column = tr_info.doc_length_column_;
+    // the document length column is only scanned when BM25 has to be computed
+    const bool need_doc_length = need_inv_scan_relevance_columns(tr_info);
 
     int64_t doc_id_col_idx = -1;
     int64_t doc_length_col_idx = -1;
@@ -3019,12 +3039,12 @@ int ObTscCgService::generate_text_ir_spec_exprs(const ObTextRetrievalInfo &tr_in
         doc_length_col_idx = i;
       }
     }
-    if (OB_UNLIKELY(-1 == doc_id_col_idx || -1 == doc_length_col_idx)) {
+    if (OB_UNLIKELY(-1 == doc_id_col_idx || (need_doc_length && -1 == doc_length_col_idx))) {
       ret = OB_ERR_UNEXPECTED;
     } else {
       text_ir_scan_ctdef.inv_scan_domain_id_col_ =
           text_ir_scan_ctdef.get_inv_idx_scan_ctdef()->pd_expr_spec_.access_exprs_.at(doc_id_col_idx);
-      text_ir_scan_ctdef.inv_scan_doc_length_col_ =
+      text_ir_scan_ctdef.inv_scan_doc_length_col_ = -1 == doc_length_col_idx ? nullptr :
           text_ir_scan_ctdef.get_inv_idx_scan_ctdef()->pd_expr_spec_.access_exprs_.at(doc_length_col_idx);
       if (OB_FAIL(result_output.push_back(text_ir_scan_ctdef.inv_scan_domain_id_col_))) {
       }
