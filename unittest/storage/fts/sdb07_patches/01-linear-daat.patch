@@ -1,0 +1,188 @@
+diff --git a/src/storage/retrieval/ob_text_daat_iter.cpp b/src/storage/retrieval/ob_text_daat_iter.cpp
+index 25f8984..671d8cb 100644
+--- a/src/storage/retrieval/ob_text_daat_iter.cpp
++++ b/src/storage/retrieval/ob_text_daat_iter.cpp
+@@ -35,6 +35,110 @@ int ObTextDaaTIter::init(const ObTextDaaTParam &param)
+   } else {
+     mode_flag_ = param.mode_flag_;
+     function_lookup_mode_ = param.function_lookup_mode_;
++    const sql::ObDatumMeta &id_meta = iter_param_->id_proj_expr_->datum_meta_;
++    common::ObDatumBasicFuncs *basic_funcs = ObDatumFuncs::get_basic_func(id_meta.type_, id_meta.cs_type_);
++    id_cmp_func_ = nullptr == basic_funcs ? nullptr : basic_funcs->null_first_cmp_;
++    use_linear_merge_ = can_use_linear_merge();
++  }
++  return ret;
++}
++
++bool ObTextDaaTIter::can_use_linear_merge() const
++{
++  // Only used when no BM25 relevance is computed: every matched dimension then contributes
++  // 1.0 * field_boost * weight. When each such term is an exactly representable integer the
++  // collected relevance does not depend on the order the dimensions are visited, so the
++  // linear merge produces exactly the same rows, in the same doc id order, with the same
++  // relevance as the heap based merge.
++  bool can_use = !function_lookup_mode_
++      && nullptr != id_cmp_func_
++      && nullptr == iter_param_->relevance_expr_
++      && OB_NOT_NULL(dim_iters_)
++      && dim_iters_->count() > 0
++      && dim_iters_->count() <= LINEAR_MERGE_MAX_DIM_CNT;
++  if (can_use && OB_NOT_NULL(iter_param_->dim_weights_)) {
++    static const double MAX_EXACT_TERM = 1099511627776.0; // 2^40
++    for (int64_t i = 0; can_use && i < iter_param_->dim_weights_->count(); ++i) {
++      const double term = 1.0 * iter_param_->field_boost_ * iter_param_->dim_weights_->at(i);
++      can_use = term >= 0.0 && term <= MAX_EXACT_TERM && term == static_cast<double>(static_cast<int64_t>(term));
++    }
++  }
++  return can_use;
++}
++
++int ObTextDaaTIter::do_one_merge_round(int64_t &count)
++{
++  return use_linear_merge_ ? linear_merge_round(count) : ObSRDaaTIterImpl::do_one_merge_round(count);
++}
++
++int ObTextDaaTIter::linear_merge_round(int64_t &count)
++{
++  int ret = OB_SUCCESS;
++  const int64_t dim_cnt = dim_iters_->count();
++  // 1. advance the cursors consumed by the previous round (all cursors on the first round)
++  for (int64_t i = 0; OB_SUCC(ret) && i < next_round_cnt_; ++i) {
++    const int64_t iter_idx = next_round_iter_idxes_[i];
++    ObTextRetrievalDaaTTokenIter *dim_iter = static_cast<ObTextRetrievalDaaTTokenIter *>(dim_iters_->at(iter_idx));
++    if (OB_ISNULL(dim_iter)) {
++      ret = OB_ERR_UNEXPECTED;
++    } else if (OB_FAIL(dim_iter->next_id(iter_domain_ids_[iter_idx]))) {
++      if (OB_ITER_END == ret) {
++        ret = OB_SUCCESS;
++        iter_domain_ids_[iter_idx] = nullptr;
++      } else {
++        LOG_WARN("fail to get next row from dimension iter", K(ret), K(iter_idx));
++      }
++    }
++  }
++  // 2. pick the smallest doc id and every cursor positioned on it
++  const ObDatum *min_id = nullptr;
++  if (OB_SUCC(ret)) {
++    next_round_cnt_ = 0;
++    for (int64_t i = 0; OB_SUCC(ret) && i < dim_cnt; ++i) {
++      const ObDatum *id = iter_domain_ids_[i];
++      int cmp_ret = 0;
++      if (nullptr == id) {
++      } else if (nullptr == min_id) {
++        min_id = id;
++        next_round_iter_idxes_[next_round_cnt_++] = i;
++      } else if (OB_FAIL(id_cmp_func_(*id, *min_id, cmp_ret, nullptr))) {
++        LOG_WARN("fail to compare doc id", K(ret));
++      } else if (cmp_ret < 0) {
++        min_id = id;
++        next_round_cnt_ = 0;
++        next_round_iter_idxes_[next_round_cnt_++] = i;
++      } else if (0 == cmp_ret) {
++        next_round_iter_idxes_[next_round_cnt_++] = i;
++      }
++    }
++    if (OB_SUCC(ret) && nullptr == min_id) {
++      ret = OB_ITER_END;
++    }
++  }
++  // 3. collect relevance, filter and buffer the row exactly as the heap based merge does
++  if (OB_SUCC(ret)) {
++    double relevance = 0.0;
++    bool need_project = false;
++    for (int64_t i = 0; OB_SUCC(ret) && i < next_round_cnt_; ++i) {
++      const int64_t iter_idx = next_round_iter_idxes_[i];
++      double score = static_cast<ObTextRetrievalDaaTTokenIter *>(dim_iters_->at(iter_idx))->curr_score();
++      if (OB_NOT_NULL(iter_param_->dim_weights_)) {
++        score = score * iter_param_->field_boost_ * iter_param_->dim_weights_->at(iter_idx);
++      }
++      if (OB_FAIL(relevance_collector_->collect_one_dim(iter_idx, score))) {
++        LOG_WARN("fail to collect dimension", K(ret), K(iter_idx));
++      }
++    }
++    if (OB_FAIL(ret)) {
++    } else if (OB_FAIL(relevance_collector_->get_result(relevance, need_project))) {
++      LOG_WARN("fail to get collected relevance", K(ret));
++    } else if (need_project && OB_FAIL(process_collected_row(*min_id, relevance))) {
++    } else if (need_project && OB_FAIL(filter_on_demand(count, relevance, need_project))) {
++    } else if (need_project && OB_FAIL(cache_result(count, *min_id, relevance))) {
++      if (OB_UNLIKELY(OB_ITER_END != ret)) {
++        LOG_WARN("fail to cache result", K(ret));
++      }
++    }
+   }
+   return ret;
+ }
+@@ -64,6 +168,7 @@ void ObTextDaaTIter::reuse(const bool switch_tablet)
+     }
+   }
+   ObSRDaaTIterImpl::reuse(switch_tablet);
++  use_linear_merge_ = is_inited_ && can_use_linear_merge();
+ }
+ 
+ int ObTextDaaTIter::pre_process()
+diff --git a/src/storage/retrieval/ob_text_daat_iter.h b/src/storage/retrieval/ob_text_daat_iter.h
+index ef90a0f..3dae74d 100644
+--- a/src/storage/retrieval/ob_text_daat_iter.h
++++ b/src/storage/retrieval/ob_text_daat_iter.h
+@@ -55,7 +55,9 @@ public:
+   ObTextDaaTIter() : ObSRDaaTIterImpl(),
+       bm25_param_estimator_(),
+       mode_flag_(sql::ObMatchAgainstMode::NATURAL_LANGUAGE_MODE),
+-      function_lookup_mode_(false) {}
++      function_lookup_mode_(false),
++      use_linear_merge_(false),
++      id_cmp_func_(nullptr) {}
+   virtual ~ObTextDaaTIter() { reset(); }
+ 
+   int init(const ObTextDaaTParam &param);
+@@ -63,10 +65,19 @@ public:
+   virtual void reset() override;
+ protected:
+   virtual int pre_process() override;
++  virtual int do_one_merge_round(int64_t &count) override;
++private:
++  // For a handful of query tokens without BM25 scoring, merging the sorted posting
++  // cursors by a linear minimum scan is cheaper than maintaining the merge heap.
++  static const int64_t LINEAR_MERGE_MAX_DIM_CNT = 8;
++  bool can_use_linear_merge() const;
++  int linear_merge_round(int64_t &count);
+ protected:
+   ObBM25ParamEstimator bm25_param_estimator_;
+   sql::ObMatchAgainstMode mode_flag_;
+   bool function_lookup_mode_;
++  bool use_linear_merge_;
++  common::ObDatumCmpFuncType id_cmp_func_;
+ private:
+   DISALLOW_COPY_AND_ASSIGN(ObTextDaaTIter);
+ };
+diff --git a/src/storage/retrieval/ob_text_retrieval_token_iter.h b/src/storage/retrieval/ob_text_retrieval_token_iter.h
+index 710cbba..96c00f3 100644
+--- a/src/storage/retrieval/ob_text_retrieval_token_iter.h
++++ b/src/storage/retrieval/ob_text_retrieval_token_iter.h
+@@ -134,6 +134,25 @@ public:
+   virtual int get_curr_id(const ObDatum *&id_datum) const override;
+ public:
+   int get_token_doc_cnt(int64_t &token_doc_cnt) const { return token_iter_->get_token_doc_cnt(token_doc_cnt); }
++  // Cursor helpers for the linear DaaT merge in ObTextDaaTIter: same semantics as
++  // get_next_row() + get_curr_id() / get_curr_score(), without virtual dispatch for rows
++  // that are already buffered in the current batch.
++  OB_INLINE int next_id(const ObDatum *&id_datum)
++  {
++    int ret = common::OB_SUCCESS;
++    if (OB_LIKELY(cur_idx_ + 1 < count_)) {
++      ++cur_idx_;
++    } else if (OB_FAIL(get_next_row())) {
++    }
++    if (OB_SUCC(ret)) {
++      id_datum = &doc_id_[cur_idx_].get_datum();
++    }
++    return ret;
++  }
++  OB_INLINE double curr_score() const
++  {
++    return nullptr != relevance_expr_ ? relevance_[cur_idx_] : 1.0;
++  }
+   virtual int get_dim_max_score(double &score) override {
+     int ret = OB_SUCCESS;
+     score = token_iter_->get_max_token_relevance();
