@@ -1,0 +1,1 @@
+sdb07: compute the estimated token doc counts before deciding on the exhaustive top-k merge (they are otherwise computed lazily at the first posting, so the size check always failed) (patch materialized by CI)
