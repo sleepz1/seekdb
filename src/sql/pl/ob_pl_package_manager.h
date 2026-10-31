@@ -152,8 +152,11 @@ public:
   static int load_sys_package(common::ObMySQLProxy &sql_proxy,
                               common::ObString &package_name,
                               bool from_file);
+  // called before each package of a list is loaded (may wait); nullptr for no pacing
+  typedef void (*SysPackageLoadPacer)();
   static int load_all_common_sys_package(common::ObMySQLProxy &sql_proxy,
-                                         bool from_file);
+                                         bool from_file,
+                                         SysPackageLoadPacer pacer = nullptr);
   static int load_all_special_sys_package(common::ObMySQLProxy &sql_proxy);
 
   static int add_package_to_plan_cache(const ObPLResolveCtx &resolve_ctx, ObPLPackage *package);
@@ -184,7 +187,8 @@ private:
   static int load_sys_package_list(common::ObMySQLProxy &sql_proxy,
                                    const ObSysPackageFile *sys_package_list,
                                    int sys_package_count,
-                                   bool from_file);
+                                   bool from_file,
+                                   SysPackageLoadPacer pacer = nullptr);
 
   int get_cached_package_spec(const ObPLResolveCtx &resolve_ctx, uint64_t package_id,
                               ObPLPackage *&package_spec);

@@ -44,11 +44,17 @@ public:
 private:
   int load_system_package_();
   bool wait_service_started_();
+  static void yield_to_user_ddl_();
+  static thread_local int64_t tl_yield_deadline_;
 
 private:
   bool inited_;
   int64_t fail_count_;
   static const int64_t SCHEDULE_INTERVAL_US = 3 * 1000 * 1000L; // 3s
+  // pacing of the asynchronous load, see yield_to_user_ddl_()
+  static const int64_t DDL_QUIET_US = 500L * 1000L; // 500ms
+  static const int64_t DDL_CHECK_INTERVAL_US = 20L * 1000L; // 20ms
+  static const int64_t MAX_YIELD_US = 60L * 1000L * 1000L; // 60s per load
 
 private:
   DISALLOW_COPY_AND_ASSIGN(ObSystemPackageLoadTask);

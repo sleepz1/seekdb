@@ -22,11 +22,15 @@
 #include "share/rc/ob_server_runtime.h"
 #include "config_bridge.h"
 #include "lib/time/ob_time_utility.h"
+#include "observer/ob_server.h"
+#include "rootserver/ddl_task/ob_ddl_scheduler.h"
 
 namespace oceanbase
 {
 namespace rootserver
 {
+thread_local int64_t ObSystemPackageLoadTask::tl_yield_deadline_ = 0;
+
 
 const int64_t ObSystemPackageLoadTask::SCHEDULE_INTERVAL_US;
 
@@ -113,9 +117,11 @@ int ObSystemPackageLoadTask::load_system_package_()
     need_load = true;
   }
   if (OB_SUCC(ret) && need_load) {
+    tl_yield_deadline_ = ObTimeUtility::current_time() + MAX_YIELD_US;
     if (OB_FAIL(pl::ObPLPackageManager::load_all_common_sys_package(
                     *sql_proxy,
-                    false/*from_file*/))) {
+                    false/*from_file*/,
+                    config::_enable_async_load_sys_package() ? yield_to_user_ddl_ : nullptr))) {
     } else if (OB_FAIL(ADMIN_JOB_COMPLETE(job_id, 0/*result_code*/))) {
     } else {
       GCTX.sys_package_ready_ = true;
@@ -144,6 +150,36 @@ void ObSystemPackageLoadTask::runTimerTask()
   } else {
     fail_count_ = 0;
     LOG_INFO("finish loading sys packages");
+  }
+}
+
+void ObSystemPackageLoadTask::yield_to_user_ddl_()
+{
+  // Asynchronous loading is background work nobody waits for (synchronous loading, where
+  // bootstrap waits, is not paced). Creating the packages costs seconds of CPU and a stream
+  // of DDL/schema refreshes, which slows down user DDL tasks that run at the same time (e.g.
+  // the first full text index builds after startup take up to 2x longer). So before each
+  // package wait until no long running DDL task has been scheduled for DDL_QUIET_US; the
+  // waiting is bounded by MAX_YIELD_US per load, and stops when the server stops.
+  rootserver::ObDDLScheduler *ddl_scheduler = observer::ObServer::get_instance().ddl_scheduler();
+  int64_t quiet_begin = -1;
+  int64_t yield_cnt = 0;
+  while (nullptr != ddl_scheduler) {
+    const int64_t now = ObTimeUtility::current_time();
+    if (now >= tl_yield_deadline_ || observer::ObServer::get_instance().is_stopped()) {
+      break;
+    } else if (ddl_scheduler->get_task_cnt() > 0) {
+      quiet_begin = -1;
+    } else if (quiet_begin < 0) {
+      quiet_begin = now;
+    } else if (now - quiet_begin >= DDL_QUIET_US) {
+      break;
+    }
+    ++yield_cnt;
+    ob_usleep(DDL_CHECK_INTERVAL_US);
+  }
+  if (yield_cnt * DDL_CHECK_INTERVAL_US > DDL_QUIET_US) {
+    LOG_INFO("sys package load yielded to user ddl", "wait_us", yield_cnt * DDL_CHECK_INTERVAL_US);
   }
 }
 

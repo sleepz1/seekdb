@@ -44,6 +44,17 @@ namespace sql
 namespace
 {
 std::atomic<int64_t> g_loaded_dic_charset(-1);
+// The standard-format properties of a parser called without user properties depend only on
+// the parser name (rebuild_props_for_ddl fills the fixed defaults), so each worker thread
+// keeps the last result instead of parsing, rebuilding and printing the same json per call.
+struct DefaultParserPropsCache
+{
+  int64_t name_len_;
+  int64_t props_len_;
+  char name_[storage::OB_FT_PARSER_NAME_LENGTH];
+  char props_[1024];
+};
+thread_local DefaultParserPropsCache tl_default_parser_props = {-1, -1, {0}, {0}};
 } // namespace
 ObExprTokenize::ObExprTokenize(common::ObIAllocator &alloc)
     : ObStringExprOperator(alloc,
@@ -382,14 +393,37 @@ int ObExprTokenize::TokenizeParam::reform_parser_properties(const ObString &prop
 {
   int ret = OB_SUCCESS;
   storage::ObFTParserJsonProps parser_properties;
-
-  if (OB_FAIL(parser_properties.init())) {
+  DefaultParserPropsCache &cache = tl_default_parser_props;
+  const bool use_cache = properties.empty()
+                         && parser_name_.length() > 0
+                         && parser_name_.length() <= static_cast<int64_t>(sizeof(cache.name_));
+  if (use_cache && cache.name_len_ == parser_name_.length() && cache.props_len_ >= 0
+      && 0 == MEMCMP(cache.name_, parser_name_.ptr(), cache.name_len_)) {
+    char *buf = nullptr;
+    if (0 == cache.props_len_) {
+      properties_.reset();
+    } else if (OB_ISNULL(buf = static_cast<char *>(allocator_.alloc(cache.props_len_)))) {
+      ret = OB_ALLOCATE_MEMORY_FAILED;
+      LOG_WARN("fail to alloc parser properties", K(ret), K(cache.props_len_));
+    } else {
+      MEMCPY(buf, cache.props_, cache.props_len_);
+      properties_.assign_ptr(buf, static_cast<int32_t>(cache.props_len_));
+    }
+  } else if (OB_FAIL(parser_properties.init())) {
   } else if (OB_FAIL(parser_properties.parse_from_valid_str(properties))) {
     LOG_USER_ERROR(OB_INVALID_ARGUMENT, "parser properties invalid.");
   } else if (OB_FAIL(parser_properties.rebuild_props_for_ddl(parser_name_,
                                                              ObCollationType::CS_TYPE_UTF8MB4_BIN,
                                                              true))) {
   } else if (OB_FAIL(parser_properties.to_format_json(allocator_, properties_))) {
+  } else if (use_cache && properties_.length() <= static_cast<int64_t>(sizeof(cache.props_))) {
+    cache.name_len_ = -1;
+    MEMCPY(cache.name_, parser_name_.ptr(), parser_name_.length());
+    if (properties_.length() > 0) {
+      MEMCPY(cache.props_, properties_.ptr(), properties_.length());
+    }
+    cache.props_len_ = properties_.length();
+    cache.name_len_ = parser_name_.length();
   }
 
   return ret;

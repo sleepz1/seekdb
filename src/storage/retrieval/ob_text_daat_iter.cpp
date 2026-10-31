@@ -332,9 +332,17 @@ int ObTextBMWIter::try_exhaustive_top_k(bool &done)
       && top_k_heap_.empty()
       && dim_cnt > 0
       && dim_cnt <= EXHAUSTIVE_MAX_DIM_CNT
-      && nullptr == iter_param_->dim_weights_
       && OB_NOT_NULL(relevance_collector_)
       && OB_NOT_NULL(iter_param_->id_proj_expr_);
+  // block-max WAND scales a dimension score by field_boost * weight on some paths only
+  // (fill_merge_heap) and not on others (advance_dim_iters_for_next_round); both agree, and
+  // equal the unscaled score used here, exactly when every factor is 1
+  if (can_use && OB_NOT_NULL(iter_param_->dim_weights_)) {
+    can_use = 1.0 == iter_param_->field_boost_ && iter_param_->dim_weights_->count() == dim_cnt;
+    for (int64_t i = 0; can_use && i < dim_cnt; ++i) {
+      can_use = 1.0 == iter_param_->dim_weights_->at(i);
+    }
+  }
   int64_t posting_cnt = 0;
   for (int64_t i = 0; can_use && i < dim_cnt; ++i) {
     ObTextRetrievalBlockMaxIter *iter = static_cast<ObTextRetrievalBlockMaxIter *>(dim_iters_->at(i));
