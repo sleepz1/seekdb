@@ -1,1 +1,0 @@
-sdb07: linear DaaT v3 (fill the batch per call, inline binary doc id compare and inner-product sum), batched projection, BMW cursor sequential-first advance and inline doc id compare (patch materialized by CI)

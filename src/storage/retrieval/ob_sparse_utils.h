@@ -37,6 +37,9 @@ struct ObSRDaaTRelevanceCollector
   virtual void reuse() = 0;
   virtual int collect_one_dim(const int64_t dim_idx, const double relevance) = 0;
   virtual int get_result(double &relevance, bool &is_valid) = 0;
+  // true when the result is exactly "sum of the collected relevances, valid iff at least
+  // should_match dimensions were collected", so a caller may compute it inline
+  virtual bool is_plain_inner_product(int64_t &should_match) const { UNUSED(should_match); return false; }
 };
 
 struct ObSRDaaTInnerProductRelevanceCollector : ObSRDaaTRelevanceCollector
@@ -52,6 +55,11 @@ struct ObSRDaaTInnerProductRelevanceCollector : ObSRDaaTRelevanceCollector
   virtual void reuse() override;
   virtual int collect_one_dim(const int64_t dim_idx, const double) override;
   virtual int get_result(double &relevance, bool &is_valid) override;
+  virtual bool is_plain_inner_product(int64_t &should_match) const override
+  {
+    should_match = should_match_;
+    return true;
+  }
 private:
   double total_relevance_;
   int64_t matched_cnt_;

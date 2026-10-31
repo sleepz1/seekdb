@@ -164,6 +164,19 @@ public:
 private:
   int save_relevances_and_docids();
   int save_docids();
+  OB_INLINE int cmp_id(const ObDatum &l, const ObDatum &r, int &cmp_ret) const
+  {
+    int ret = common::OB_SUCCESS;
+    if (binary_id_ && OB_LIKELY(!l.is_null() && !r.is_null())) {
+      // same result as cmp_func_ (binary collation): memcmp, then length
+      const uint32_t min_len = l.len_ < r.len_ ? l.len_ : r.len_;
+      const int mem_ret = 0 == min_len ? 0 : MEMCMP(l.ptr_, r.ptr_, min_len);
+      cmp_ret = 0 != mem_ret ? mem_ret : (l.len_ > r.len_ ? 1 : (l.len_ < r.len_ ? -1 : 0));
+    } else {
+      ret = cmp_func_(l, r, cmp_ret, nullptr);
+    }
+    return ret;
+  }
   ObArenaAllocator *allocator_;
   ObTextRetrievalTokenIter *token_iter_;
   sql::ObEvalCtx *eval_ctx_;
@@ -175,6 +188,7 @@ private:
   ObFixedArray<double, ObIAllocator> relevance_; // when ~ObFixedArray(), wikll destory itself
   ObFixedArray<ObDocIdExt, ObIAllocator> doc_id_;
   common::ObDatumCmpFuncType cmp_func_;
+  bool binary_id_; // doc id is a string compared with the binary collation
   bool is_inited_;
   DISALLOW_COPY_AND_ASSIGN(ObTextRetrievalDaaTTokenIter);
 };

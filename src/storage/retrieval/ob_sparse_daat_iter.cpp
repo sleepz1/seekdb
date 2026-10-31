@@ -26,6 +26,7 @@ namespace storage
 ObSRMergeCmp::ObSRMergeCmp()
   : cmp_func_(nullptr),
     iter_ids_(nullptr),
+    binary_id_(false),
     is_inited_(false)
 {
 }
@@ -39,6 +40,7 @@ int ObSRMergeCmp::init(
     ret = OB_ERR_UNEXPECTED;
   } else {
     iter_ids_ = iter_ids;
+    binary_id_ = ObStringTC == ob_obj_type_class(id_meta.type_) && CS_TYPE_BINARY == id_meta.cs_type_;
     common::ObDatumBasicFuncs *basic_funcs = ObDatumFuncs::get_basic_func(id_meta.type_, id_meta.cs_type_);
     cmp_func_ = basic_funcs->null_first_cmp_;
     if (OB_ISNULL(cmp_func_)) {
@@ -60,8 +62,14 @@ int ObSRMergeCmp::cmp(
     ret = OB_NOT_INIT;
   } else {
     int tmp_ret = 0;
-    if (OB_FAIL(cmp_func_(
-            get_id_datum(l.iter_idx_), get_id_datum(r.iter_idx_), tmp_ret, nullptr))) {
+    const ObDatum &l_id = get_id_datum(l.iter_idx_);
+    const ObDatum &r_id = get_id_datum(r.iter_idx_);
+    if (binary_id_ && OB_LIKELY(!l_id.is_null() && !r_id.is_null())) {
+      // same result as the binary collation compare function: memcmp, then length
+      const uint32_t min_len = l_id.len_ < r_id.len_ ? l_id.len_ : r_id.len_;
+      const int mem_ret = 0 == min_len ? 0 : MEMCMP(l_id.ptr_, r_id.ptr_, min_len);
+      cmp_ret = mem_ret > 0 ? 1 : (mem_ret < 0 ? -1 : (l_id.len_ > r_id.len_ ? 1 : (l_id.len_ < r_id.len_ ? -1 : 0)));
+    } else if (OB_FAIL(cmp_func_(l_id, r_id, tmp_ret, nullptr))) {
     } else {
       cmp_ret = tmp_ret;
     }
@@ -422,7 +430,30 @@ int ObSRDaaTIterImpl::project_results(const int64_t count)
   ObEvalCtx *eval_ctx = iter_param_->eval_ctx_;
   ObEvalCtx::BatchInfoScopeGuard guard(*eval_ctx);
 
-  if (eval_ctx->is_vectorized()) {
+  if (eval_ctx->is_vectorized() && count > 0 && id_proj_expr->is_batch_result()
+      && (!iter_param_->need_project_relevance() || relevance_proj_expr->is_batch_result())) {
+    // Same writes as the row-by-row loop below: for batch result expressions
+    // locate_datum_for_write() at batch index i is element i of locate_datums_for_update(),
+    // and set_evaluated_projected() only sets two per-expression flags.
+    const ObDocIdExt *buffered_ids = buffered_domain_ids_.get_data();
+    ObDatum *id_datums = id_proj_expr->locate_datums_for_update(*eval_ctx, count);
+    sql::ObBitVector &id_evaluated_flags = id_proj_expr->get_evaluated_flags(*eval_ctx);
+    for (int64_t i = 0; i < count; ++i) {
+      set_datum_func_(id_datums[i], buffered_ids[i]);
+      id_evaluated_flags.set(i);
+    }
+    id_proj_expr->set_evaluated_projected(*eval_ctx);
+    if (iter_param_->need_project_relevance()) {
+      const double *buffered_relevances = buffered_relevances_.get_data();
+      ObDatum *relevance_datums = relevance_proj_expr->locate_datums_for_update(*eval_ctx, count);
+      sql::ObBitVector &relevance_evaluated_flags = relevance_proj_expr->get_evaluated_flags(*eval_ctx);
+      for (int64_t i = 0; i < count; ++i) {
+        relevance_datums[i].set_double(buffered_relevances[i]);
+        relevance_evaluated_flags.set(i);
+      }
+      relevance_proj_expr->set_evaluated_projected(*eval_ctx);
+    }
+  } else if (eval_ctx->is_vectorized()) {
     sql::ObBitVector &id_evaluated_flags = id_proj_expr->get_evaluated_flags(*eval_ctx);
     for (int64_t i = 0; i < count; ++i) {
       guard.set_batch_idx(i);

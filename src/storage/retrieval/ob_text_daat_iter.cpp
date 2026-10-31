@@ -71,6 +71,9 @@ void ObTextDaaTIter::prepare_linear_merge()
 {
   linear_dim_cnt_ = 0;
   linear_pending_cnt_ = 0;
+  linear_binary_id_ = false;
+  linear_sum_relevance_ = false;
+  linear_should_match_ = 0;
   if (use_linear_merge_) {
     linear_dim_cnt_ = dim_iters_->count();
     for (int64_t i = 0; i < linear_dim_cnt_; ++i) {
@@ -82,6 +85,11 @@ void ObTextDaaTIter::prepare_linear_merge()
       }
     }
     linear_pending_cnt_ = linear_dim_cnt_;
+    const sql::ObDatumMeta &id_meta = iter_param_->id_proj_expr_->datum_meta_;
+    linear_binary_id_ = ObStringTC == ob_obj_type_class(id_meta.type_) && CS_TYPE_BINARY == id_meta.cs_type_;
+    linear_should_match_ = 0;
+    linear_sum_relevance_ = OB_NOT_NULL(relevance_collector_)
+        && relevance_collector_->is_plain_inner_product(linear_should_match_);
     const sql::ObExpr *filter_expr = iter_param_->filter_expr_;
     const sql::ObExpr *relevance_proj_expr = iter_param_->relevance_proj_expr_;
     linear_bool_filter_ = OB_NOT_NULL(filter_expr) && OB_NOT_NULL(relevance_proj_expr)
@@ -93,6 +101,14 @@ void ObTextDaaTIter::prepare_linear_merge()
   }
 }
 
+int ObTextDaaTIter::get_next_rows(const int64_t capacity, int64_t &count)
+{
+  // remember how many rows the base loop wants, so that the linear merge can fill the whole
+  // batch in one do_one_merge_round() call (the base loop then stops at the same row)
+  linear_capacity_ = (is_inited_ && OB_NOT_NULL(iter_param_)) ? MIN(capacity, iter_param_->max_batch_size_) : 0;
+  return ObSRDaaTIterImpl::get_next_rows(capacity, count);
+}
+
 int ObTextDaaTIter::do_one_merge_round(int64_t &count)
 {
   return use_linear_merge_ ? linear_merge_round(count) : ObSRDaaTIterImpl::do_one_merge_round(count);
@@ -101,84 +117,107 @@ int ObTextDaaTIter::do_one_merge_round(int64_t &count)
 int ObTextDaaTIter::linear_merge_round(int64_t &count)
 {
   int ret = OB_SUCCESS;
-  // 1. advance the cursors consumed by the previous round (all cursors on the first round)
-  for (int64_t i = 0; OB_SUCC(ret) && i < linear_pending_cnt_; ++i) {
-    const int64_t iter_idx = linear_pending_[i];
-    if (OB_FAIL(linear_dims_[iter_idx]->next_id(linear_ids_[iter_idx]))) {
-      if (OB_ITER_END == ret) {
-        ret = OB_SUCCESS;
-        linear_ids_[iter_idx] = nullptr;
-      } else {
-        LOG_WARN("fail to get next row from dimension iter", K(ret), K(iter_idx));
-      }
-    }
-  }
-  // 2. pick the smallest doc id and every cursor positioned on it
-  const ObDatum *min_id = nullptr;
-  if (OB_SUCC(ret)) {
-    linear_pending_cnt_ = 0;
-    for (int64_t i = 0; OB_SUCC(ret) && i < linear_dim_cnt_; ++i) {
-      const ObDatum *id = linear_ids_[i];
-      int cmp_ret = 0;
-      if (nullptr == id) {
-      } else if (nullptr == min_id) {
-        min_id = id;
-        linear_pending_[linear_pending_cnt_++] = i;
-      } else if (OB_FAIL(id_cmp_func_(*id, *min_id, cmp_ret, nullptr))) {
-        LOG_WARN("fail to compare doc id", K(ret));
-      } else if (cmp_ret < 0) {
-        min_id = id;
-        linear_pending_cnt_ = 0;
-        linear_pending_[linear_pending_cnt_++] = i;
-      } else if (0 == cmp_ret) {
-        linear_pending_[linear_pending_cnt_++] = i;
-      }
-    }
-    if (OB_SUCC(ret) && nullptr == min_id) {
-      ret = OB_ITER_END;
-    }
-  }
-  // 3. collect relevance, filter and buffer the row exactly as the heap based merge does
-  if (OB_SUCC(ret)) {
-    double relevance = 0.0;
-    bool need_project = false;
-    const ObIArray<double> *dim_weights = iter_param_->dim_weights_;
+  const ObIArray<double> *dim_weights = iter_param_->dim_weights_;
+  const double field_boost = iter_param_->field_boost_;
+  const bool no_limit = !iter_param_->limit_param_->is_valid();
+  const int64_t buffer_cnt = MIN(buffered_domain_ids_.count(), buffered_relevances_.count());
+  ObDocIdExt *buffered_ids = buffered_domain_ids_.get_data();
+  double *buffered_relevances = buffered_relevances_.get_data();
+  // Each iteration is exactly one round of the original one-row-per-call merge; iterating
+  // until the requested batch is full only saves the per-row virtual dispatch.
+  do {
+    // 1. advance the cursors consumed by the previous round (all cursors on the first round)
     for (int64_t i = 0; OB_SUCC(ret) && i < linear_pending_cnt_; ++i) {
       const int64_t iter_idx = linear_pending_[i];
-      double score = linear_dims_[iter_idx]->curr_score();
-      if (OB_NOT_NULL(dim_weights)) {
-        score = score * iter_param_->field_boost_ * dim_weights->at(iter_idx);
-      }
-      if (OB_FAIL(relevance_collector_->collect_one_dim(iter_idx, score))) {
-        LOG_WARN("fail to collect dimension", K(ret), K(iter_idx));
-      }
-    }
-    if (OB_FAIL(ret)) {
-    } else if (OB_FAIL(relevance_collector_->get_result(relevance, need_project))) {
-      LOG_WARN("fail to get collected relevance", K(ret));
-    } else if (need_project && OB_FAIL(process_collected_row(*min_id, relevance))) {
-    } else if (!need_project) {
-    } else if (linear_bool_filter_) {
-      // BOOL(<non-null double relevance>) is exactly (relevance != 0); the relevance of every
-      // buffered row is projected by project_results(), so nothing has to be evaluated here.
-      need_project = 0 != relevance;
-    } else if (OB_FAIL(filter_on_demand(count, relevance, need_project))) {
-    }
-    if (OB_FAIL(ret) || !need_project) {
-    } else if (!iter_param_->limit_param_->is_valid()
-               && OB_LIKELY(count < buffered_domain_ids_.count() && count < buffered_relevances_.count())) {
-      // same as cache_result() without limit/offset
-      ++input_row_cnt_;
-      buffered_domain_ids_.get_data()[count].from_datum(*min_id);
-      buffered_relevances_.get_data()[count] = relevance;
-      ++count;
-      ++output_row_cnt_;
-    } else if (OB_FAIL(cache_result(count, *min_id, relevance))) {
-      if (OB_UNLIKELY(OB_ITER_END != ret)) {
-        LOG_WARN("fail to cache result", K(ret));
+      if (OB_FAIL(linear_dims_[iter_idx]->next_id(linear_ids_[iter_idx]))) {
+        if (OB_ITER_END == ret) {
+          ret = OB_SUCCESS;
+          linear_ids_[iter_idx] = nullptr;
+        } else {
+          LOG_WARN("fail to get next row from dimension iter", K(ret), K(iter_idx));
+        }
       }
     }
-  }
+    // 2. pick the smallest doc id and every cursor positioned on it
+    const ObDatum *min_id = nullptr;
+    if (OB_SUCC(ret)) {
+      linear_pending_cnt_ = 0;
+      for (int64_t i = 0; OB_SUCC(ret) && i < linear_dim_cnt_; ++i) {
+        const ObDatum *id = linear_ids_[i];
+        int cmp_ret = 0;
+        if (nullptr == id) {
+        } else if (nullptr == min_id) {
+          min_id = id;
+          linear_pending_[linear_pending_cnt_++] = i;
+        } else if (OB_FAIL(linear_cmp_id(*id, *min_id, cmp_ret))) {
+          LOG_WARN("fail to compare doc id", K(ret));
+        } else if (cmp_ret < 0) {
+          min_id = id;
+          linear_pending_cnt_ = 0;
+          linear_pending_[linear_pending_cnt_++] = i;
+        } else if (0 == cmp_ret) {
+          linear_pending_[linear_pending_cnt_++] = i;
+        }
+      }
+      if (OB_SUCC(ret) && nullptr == min_id) {
+        ret = OB_ITER_END;
+      }
+    }
+    // 3. collect relevance, filter and buffer the row exactly as the heap based merge does
+    if (OB_SUCC(ret)) {
+      double relevance = 0.0;
+      bool need_project = false;
+      if (linear_sum_relevance_) {
+        // ObSRDaaTInnerProductRelevanceCollector: sum in the same order, valid iff enough dims
+        for (int64_t i = 0; i < linear_pending_cnt_; ++i) {
+          const int64_t iter_idx = linear_pending_[i];
+          double score = linear_dims_[iter_idx]->curr_score();
+          if (OB_NOT_NULL(dim_weights)) {
+            score = score * field_boost * dim_weights->at(iter_idx);
+          }
+          relevance += score;
+        }
+        need_project = linear_pending_cnt_ >= linear_should_match_;
+      } else {
+        for (int64_t i = 0; OB_SUCC(ret) && i < linear_pending_cnt_; ++i) {
+          const int64_t iter_idx = linear_pending_[i];
+          double score = linear_dims_[iter_idx]->curr_score();
+          if (OB_NOT_NULL(dim_weights)) {
+            score = score * field_boost * dim_weights->at(iter_idx);
+          }
+          if (OB_FAIL(relevance_collector_->collect_one_dim(iter_idx, score))) {
+            LOG_WARN("fail to collect dimension", K(ret), K(iter_idx));
+          }
+        }
+        if (OB_FAIL(ret)) {
+        } else if (OB_FAIL(relevance_collector_->get_result(relevance, need_project))) {
+          LOG_WARN("fail to get collected relevance", K(ret));
+        }
+      }
+      if (OB_FAIL(ret)) {
+      } else if (need_project && OB_FAIL(process_collected_row(*min_id, relevance))) {
+      } else if (!need_project) {
+      } else if (linear_bool_filter_) {
+        // BOOL(<non-null double relevance>) is exactly (relevance != 0); the relevance of every
+        // buffered row is projected by project_results(), so nothing has to be evaluated here.
+        need_project = 0 != relevance;
+      } else if (OB_FAIL(filter_on_demand(count, relevance, need_project))) {
+      }
+      if (OB_FAIL(ret) || !need_project) {
+      } else if (no_limit && OB_LIKELY(count < buffer_cnt)) {
+        // same as cache_result() without limit/offset
+        ++input_row_cnt_;
+        buffered_ids[count].from_datum(*min_id);
+        buffered_relevances[count] = relevance;
+        ++count;
+        ++output_row_cnt_;
+      } else if (OB_FAIL(cache_result(count, *min_id, relevance))) {
+        if (OB_UNLIKELY(OB_ITER_END != ret)) {
+          LOG_WARN("fail to cache result", K(ret));
+        }
+      }
+    }
+  } while (OB_SUCC(ret) && count < linear_capacity_);
   return ret;
 }
 
