@@ -55,7 +55,9 @@ public:
   ObTextDaaTIter() : ObSRDaaTIterImpl(),
       bm25_param_estimator_(),
       mode_flag_(sql::ObMatchAgainstMode::NATURAL_LANGUAGE_MODE),
-      function_lookup_mode_(false) {}
+      function_lookup_mode_(false),
+      use_linear_merge_(false),
+      id_cmp_func_(nullptr) {}
   virtual ~ObTextDaaTIter() { reset(); }
 
   int init(const ObTextDaaTParam &param);
@@ -63,10 +65,19 @@ public:
   virtual void reset() override;
 protected:
   virtual int pre_process() override;
+  virtual int do_one_merge_round(int64_t &count) override;
+private:
+  // For a handful of query tokens without BM25 scoring, merging the sorted posting
+  // cursors by a linear minimum scan is cheaper than maintaining the merge heap.
+  static const int64_t LINEAR_MERGE_MAX_DIM_CNT = 8;
+  bool can_use_linear_merge() const;
+  int linear_merge_round(int64_t &count);
 protected:
   ObBM25ParamEstimator bm25_param_estimator_;
   sql::ObMatchAgainstMode mode_flag_;
   bool function_lookup_mode_;
+  bool use_linear_merge_;
+  common::ObDatumCmpFuncType id_cmp_func_;
 private:
   DISALLOW_COPY_AND_ASSIGN(ObTextDaaTIter);
 };

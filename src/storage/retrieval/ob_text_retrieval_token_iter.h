@@ -134,6 +134,25 @@ public:
   virtual int get_curr_id(const ObDatum *&id_datum) const override;
 public:
   int get_token_doc_cnt(int64_t &token_doc_cnt) const { return token_iter_->get_token_doc_cnt(token_doc_cnt); }
+  // Cursor helpers for the linear DaaT merge in ObTextDaaTIter: same semantics as
+  // get_next_row() + get_curr_id() / get_curr_score(), without virtual dispatch for rows
+  // that are already buffered in the current batch.
+  OB_INLINE int next_id(const ObDatum *&id_datum)
+  {
+    int ret = common::OB_SUCCESS;
+    if (OB_LIKELY(cur_idx_ + 1 < count_)) {
+      ++cur_idx_;
+    } else if (OB_FAIL(get_next_row())) {
+    }
+    if (OB_SUCC(ret)) {
+      id_datum = &doc_id_[cur_idx_].get_datum();
+    }
+    return ret;
+  }
+  OB_INLINE double curr_score() const
+  {
+    return nullptr != relevance_expr_ ? relevance_[cur_idx_] : 1.0;
+  }
   virtual int get_dim_max_score(double &score) override {
     int ret = OB_SUCCESS;
     score = token_iter_->get_max_token_relevance();
