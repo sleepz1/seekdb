@@ -1,0 +1,1 @@
+sdb07: parallel build of FTS inverted/doc-word aux indexes on multi-core servers; poll DDL completion at 10ms for the first 30s

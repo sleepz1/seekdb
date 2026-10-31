@@ -86,8 +86,8 @@ config_matrix() {
   local dir=$1/matrix; mkdir -p "$dir"
   local reset="SET GLOBAL ob_sql_work_area_percentage=5; ALTER SYSTEM SET _ob_ddl_temp_file_compress_func='AUTO';"
   for rep in 1 2; do
-    for cfg in "default||" "wa20|SET GLOBAL ob_sql_work_area_percentage=20;|" "nocomp|ALTER SYSTEM SET _ob_ddl_temp_file_compress_func='NONE';|" \
-               "dop2||SET SESSION _force_parallel_ddl_dop=2;" "wa20nocomp|SET GLOBAL ob_sql_work_area_percentage=20; ALTER SYSTEM SET _ob_ddl_temp_file_compress_func='NONE';|"; do
+    for cfg in "default||" "nocomp|ALTER SYSTEM SET _ob_ddl_temp_file_compress_func='NONE';|" "wa20|SET GLOBAL ob_sql_work_area_percentage=20;|" \
+               "default2||" "dop4||SET SESSION _force_parallel_ddl_dop=4;"; do
       local name=${cfg%%|*} rest=${cfg#*|}; local gsql=${rest%%|*} ssql=${rest#*|}
       [[ -n "$gsql" ]] && $MYSQL -e "$gsql" 2>&1 | tail -2
       sleep 4

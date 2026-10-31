@@ -50,6 +50,23 @@ int ObDDLExecutorUtil::handle_session_exception(ObSQLSessionInfo &session)
   return ret;
 }
 
+namespace
+{
+// The DDL result is polled from the inner table. Most DDLs issued by users
+// (e.g. building an index on a moderate table) finish within a few seconds,
+// and a fixed 100ms polling interval adds 50ms of latency on average to every
+// such statement. Poll at a short interval first and back off to the original
+// interval for long-running DDLs so that the extra inner-table load stays small.
+OB_INLINE int64_t get_wait_ddl_retry_interval(const int64_t wait_start_ts)
+{
+  static const int64_t SHORT_RETRY_INTERVAL = 10 * 1000L;    // 10ms
+  static const int64_t LONG_RETRY_INTERVAL = 100 * 1000L;    // 100ms
+  static const int64_t SHORT_RETRY_PERIOD = 30 * 1000 * 1000L; // 30s
+  return ObTimeUtility::current_time() - wait_start_ts < SHORT_RETRY_PERIOD
+      ? SHORT_RETRY_INTERVAL : LONG_RETRY_INTERVAL;
+}
+}
+
 int ObDDLExecutorUtil::wait_ddl_finish(const int64_t task_id,
     const bool ddl_need_retry_at_executor,
     ObSQLSessionInfo *session,
@@ -58,7 +75,7 @@ int ObDDLExecutorUtil::wait_ddl_finish(const int64_t task_id,
     const bool is_support_cancel)
 {
   int ret = OB_SUCCESS;
-  const int64_t retry_interval = 100 * 1000;
+  const int64_t wait_start_ts = ObTimeUtility::current_time();
   ObAddr unused_addr;
   bool is_table_exist = false;
   int64_t unused_user_msg_len = 0;
@@ -116,7 +133,7 @@ int ObDDLExecutorUtil::wait_ddl_finish(const int64_t task_id,
           ret = OB_TIMEOUT;
           FORWARD_USER_ERROR(ret, "DDL execution status is undecided, please check later if it finishes successfully or not.");
         } else {
-          ob_usleep(retry_interval);
+          ob_usleep(get_wait_ddl_retry_interval(wait_start_ts));
         }
       }
     }
@@ -172,7 +189,7 @@ int ObDDLExecutorUtil::wait_ddl_retry_task_finish(const int64_t task_id,
 {
   int ret = OB_SUCCESS;
   affected_rows = 0;
-  const int64_t retry_interval = 100 * 1000;
+  const int64_t wait_start_ts = ObTimeUtility::current_time();
   ObAddr unused_addr;
   bool is_table_exist = false;
   int64_t forward_user_msg_len = 0;
@@ -245,7 +262,7 @@ int ObDDLExecutorUtil::wait_ddl_retry_task_finish(const int64_t task_id,
           ret = OB_TIMEOUT;
           FORWARD_USER_ERROR(ret, "DDL execution status is undecided, please check later if it finishes successfully or not.");
         } else {
-          ob_usleep(retry_interval);
+          ob_usleep(get_wait_ddl_retry_interval(wait_start_ts));
         }
       }
     }
