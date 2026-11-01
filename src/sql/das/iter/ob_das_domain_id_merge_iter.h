@@ -138,7 +138,17 @@ protected:
   int get_and_fill_domain_id_in_data_table(
       const ObDASScanCtDef *ctdef,
       ObDASScanRtDef *rtdef,
-      common::ObIAllocator &allocator);
+      common::ObIAllocator &allocator)
+  {
+    return get_and_fill_domain_id_in_data_table(ctdef, rtdef, allocator, is_no_sample_);
+  }
+  int get_and_fill_domain_id_in_data_table(
+      const ObDASScanCtDef *ctdef,
+      ObDASScanRtDef *rtdef,
+      common::ObIAllocator &allocator,
+      const bool read_domain_id);
+  int check_need_sample_lookup();
+  int sample_lookup_row();
   int get_domain_ids(
       const int64_t size,
       const ObDASScanCtDef *ctdef,
@@ -166,6 +176,11 @@ protected:
 private:
   bool need_filter_rowkey_domain_;
   bool is_no_sample_;
+  // The data table is scanned by a sample scan (PX range sampling for DDL)
+  // and every domain is a DOC_ID: look up the real doc id of each sampled row
+  // in rowkey_doc (point get, rowkey_doc itself is not sampled) instead of
+  // filling an empty one, so that FTS DDL sample keys carry real doc ids.
+  bool sample_lookup_;
   ObArray<storage::ObTableScanParam*> rowkey_domain_scan_params_;
   ObArray<ObDASScanIter*> rowkey_domain_iters_;
   ObDASScanIter *data_table_iter_;

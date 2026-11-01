@@ -2967,7 +2967,10 @@ int ObTableScanOp::inner_get_next_row()
       if (ret != OB_ITER_END) {
       }
     }
-  } else if (OB_UNLIKELY(MY_SPEC.is_fts_ddl_ && nullptr == tsc_rtdef_.scan_rtdef_.sample_info_)) {
+  } else if (OB_UNLIKELY(MY_SPEC.is_fts_ddl_)) {
+    // The PX range sampling of the FTS DDL samples the generated word rows too,
+    // so that the range boundaries are (word, doc id) / (doc id, word) keys of
+    // the index / doc-word rows instead of raw documents.
     if (OB_FAIL(inner_get_next_fts_index_row())) {
       if (OB_ITER_END != ret) {
       }

@@ -1,1 +1,0 @@
-sdb07: let the PX range sampling of FTS index / doc-word DDL sample the generated word rows with real doc ids (doc ids of sampled rows are point-got from rowkey_doc instead of left empty), so the index and doc-word subtasks are split into balanced (word, doc_id) / (doc_id, word) ranges instead of sending every doc-word row to one slice
