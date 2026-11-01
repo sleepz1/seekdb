@@ -1,0 +1,1 @@
+sdb07: build the FTS inverted / doc-word aux indexes with 3 PX workers each (was 2) when the user gave no parallelism on a >=4-core server, now that their PX ranges are balanced
