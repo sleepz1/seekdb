@@ -20,6 +20,7 @@
 #include "ob_operator_factory.h"
 #include "query/runtime/ob_query_runtime_environment.h"
 #include "sql/engine/expr/ob_array_expr_utils.h"
+#include "sql/engine/table/ob_table_scan_op.h"
 
 namespace oceanbase
 {
@@ -1136,7 +1137,13 @@ int ObOperator::get_next_batch(const int64_t max_row_cnt, const ObBatchRows *&ba
     } else {
       // Operator does NOT support vectorization, while its parent does. Return
       // the batch with only 1 row
-      if (OB_FAIL(get_next_batch_with_onlyone_row())) {
+      if (PHY_TABLE_SCAN == spec_.type_
+          && static_cast<const ObTableScanSpec &>(spec_).is_fts_ddl_) {
+        // except for the FTS DDL scan, which returns the word rows of one document together
+        if (OB_FAIL(static_cast<ObTableScanOp *>(this)->get_next_fts_ddl_batch(
+                    min(max_row_cnt, get_spec().get_phy_plan()->get_batch_size())))) {
+        }
+      } else if (OB_FAIL(get_next_batch_with_onlyone_row())) {
         // do nothing
       }
     }

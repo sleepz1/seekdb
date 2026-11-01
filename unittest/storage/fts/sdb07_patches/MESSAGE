@@ -1,1 +1,0 @@
-sdb07: FTS DDL scan returns the word rows of one document per batch (was one row per batch through GI / stat collector / transmit), cache the generated FTS column exprs, print binary arrays of plain strings (TOKENIZE results) in one pass from the in-row buffer; back out the aux DOP 3 change (no gain)

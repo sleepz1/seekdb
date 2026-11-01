@@ -494,6 +494,10 @@ public:
   }
 
   int do_diagnosis(ObExecContext &exec_ctx, ObBitVector &skip) override;
+  // Batch interface of the FTS index / doc-word DDL scan (a row-mode scan under a
+  // vectorized parent): returns the next generated word rows of one document per batch
+  // instead of a single row per batch.
+  int get_next_fts_ddl_batch(const int64_t max_row_cnt);
 
 protected:
   // Get GI task then update location_idx and $cur_access_tablet_
@@ -705,6 +709,8 @@ private:
   int fetch_next_fts_index_rows();
   int fill_generated_fts_cols(blocksstable::ObDatumRow *row);
   int get_output_fts_col_expr_by_type(const ObExprOperatorType &type, ObExpr *&expr);
+  // output exprs of the generated FTS columns, in the order of the ddl table columns
+  int prepare_fts_col_exprs();
   bool is_resume_point_saved();
 protected:
   DASOpResultIter scan_result_;
@@ -735,6 +741,10 @@ protected:
   bool in_rescan_;
   ObDomainIndexCache domain_index_;
   ObFTIndexRowCache fts_index_;
+  ObExpr *fts_col_exprs_[share::ObFtsIndexBuilderUtil::OB_FTS_INDEX_OR_DOC_WORD_TABLE_COL_CNT];
+  bool fts_col_exprs_ready_;
+  ObBitVector *fts_ddl_skip_;
+  int64_t fts_ddl_skip_cap_;
 
   // output_ is used to output data, TSC operator directly invokes output_::get_next_row(s),
   // it points to fold_iter_ in group rescan and iter_tree_ in normal scan.

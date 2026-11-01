@@ -606,6 +606,8 @@ public:
   // output is the same as get_child_for_read() followed by print(j_buf, true, ...). Sets handled to
   // false and prints nothing for any other element type.
   int print_plain_string_element(uint64_t index, ObJsonBuffer &j_buf, bool &handled) const;
+  // prints a whole array of plain strings in one pass; handled = false (nothing printed) otherwise
+  int print_plain_string_array(ObJsonBuffer &j_buf, bool &handled) const;
   int get_object_value(uint64_t index, ObIJsonBase *&value) const override;
   int get_object_value(const ObString &key, ObIJsonBase *&value) const override;
   int get_object_value(uint64_t index, ObString &key, ObIJsonBase *&value) const override;

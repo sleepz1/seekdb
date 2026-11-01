@@ -377,6 +377,89 @@ int ObJsonBin::print_plain_string_element(uint64_t index, ObJsonBuffer &j_buf, b
   return ret;
 }
 
+int ObJsonBin::print_plain_string_array(ObJsonBuffer &j_buf, bool &handled) const
+{
+  INIT_SUCC(ret);
+  handled = false;
+  ObString data;
+  const uint64_t count = get_element_count();
+  if (OB_ISNULL(cursor_) || !cursor_->is_full_mode() || ObJBVerType::J_ARRAY_V0 != get_vertype()
+      || 0 == count) {
+  } else if (OB_FAIL(cursor_->get_data(data))) {
+  } else if (OB_ISNULL(data.ptr())) {
+  } else {
+    // All of an array of plain strings (what TOKENIZE returns) is in one in-row buffer:
+    // read the value entries and the strings straight from it instead of going through
+    // the cursor for every field. Any other shape, or a string that needs escaping, is
+    // left to the generic element-by-element path (nothing is appended then).
+    const char *base = data.ptr();
+    const int64_t data_len = data.length();
+    const uint8_t var_type = entry_var_type();
+    const int64_t var_size = static_cast<int64_t>(ObJsonVar::get_var_size(var_type));
+    const int64_t entry_size = var_size + OB_JSON_BIN_VALUE_TYPE_LEN;
+    const int64_t first_entry = pos_ + static_cast<int64_t>(get_value_entry_offset(0));
+    bool plain = var_size > 0 && first_entry >= 0
+        && count <= static_cast<uint64_t>(data_len)
+        && first_entry + static_cast<int64_t>(count) * entry_size <= data_len;
+    int64_t out_len = 2; // "[" and "]"
+    for (uint64_t i = 0; plain && i < count; ++i) {
+      const char *entry = base + first_entry + static_cast<int64_t>(i) * entry_size;
+      uint64_t value_offset = 0;
+      int64_t str_len = 0;
+      int64_t vi_pos = 0;
+      int64_t off = 0;
+      if (OB_SUCCESS != ObJsonVar::read_var(entry, var_type, &value_offset)
+          || J_STRING_V0 != static_cast<uint8_t>(entry[var_size])
+          || value_offset >= static_cast<uint64_t>(data_len)) {
+        plain = false;
+      } else if (FALSE_IT(off = pos_ + static_cast<int64_t>(value_offset) + static_cast<int64_t>(sizeof(uint8_t)))) {
+      } else if (off <= 0 || off >= data_len
+                 || OB_SUCCESS != serialization::decode_vi64(base + off, data_len - off, vi_pos, &str_len)
+                 || str_len < 0 || str_len > data_len - off - vi_pos) {
+        plain = false;
+      } else {
+        const unsigned char *str = reinterpret_cast<const unsigned char *>(base + off + vi_pos);
+        for (int64_t k = 0; plain && k < str_len; ++k) {
+          const unsigned char uc = str[k];
+          plain = !(uc <= 0x1f || uc == '"' || uc == '\\');
+        }
+        out_len += str_len + 2 + (i > 0 ? 2 : 0); // quotes, ", " separator
+      }
+    }
+    if (plain) {
+      if (OB_FAIL(j_buf.reserve(out_len))) {
+      } else {
+        const uint64_t old_len = j_buf.length();
+        char *dst = j_buf.ptr() + old_len;
+        *dst++ = '[';
+        for (uint64_t i = 0; i < count; ++i) {
+          const char *entry = base + first_entry + static_cast<int64_t>(i) * entry_size;
+          uint64_t value_offset = 0;
+          int64_t str_len = 0;
+          int64_t vi_pos = 0;
+          IGNORE_RETURN ObJsonVar::read_var(entry, var_type, &value_offset);
+          const int64_t off = pos_ + static_cast<int64_t>(value_offset) + static_cast<int64_t>(sizeof(uint8_t));
+          IGNORE_RETURN serialization::decode_vi64(base + off, data_len - off, vi_pos, &str_len);
+          if (i > 0) {
+            *dst++ = ',';
+            *dst++ = ' ';
+          }
+          *dst++ = '"';
+          MEMCPY(dst, base + off + vi_pos, str_len);
+          dst += str_len;
+          *dst++ = '"';
+        }
+        *dst++ = ']';
+        if (OB_FAIL(j_buf.set_length(old_len + out_len))) {
+        } else {
+          handled = true;
+        }
+      }
+    }
+  }
+  return ret;
+}
+
 int ObJsonBin::get_object_value(uint64_t index, ObIJsonBase *&value) const
 {
   INIT_SUCC(ret);

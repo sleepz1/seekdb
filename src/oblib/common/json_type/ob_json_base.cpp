@@ -3274,8 +3274,12 @@ int ObIJsonBase::print_jtime(ObJsonBuffer &j_buf, bool is_quoted) const
 int ObIJsonBase::print_array(ObJsonBuffer &j_buf, uint64_t depth, bool is_pretty) const
 {
   INIT_SUCC(ret);
+  bool handled = false;
 
-  if (OB_FAIL(j_buf.append("["))) {
+  if (!is_pretty && is_bin()
+      && OB_FAIL(static_cast<const ObJsonBin *>(this)->print_plain_string_array(j_buf, handled))) {
+  } else if (handled) {
+  } else if (OB_FAIL(j_buf.append("["))) {
   } else {
     uint64_t arr_size = element_count();
     // binary arrays: one child positioned directly on each element (as the binary deserializer
