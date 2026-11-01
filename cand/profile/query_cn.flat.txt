@@ -1,0 +1,40 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 799  of event 'task-clock:ppp'
+# Event count (approx.): 799799799
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+# ........  ................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    27.91%  [.] oceanbase::storage::ObTextDaaTIter::linear_merge_round(long&)
+    12.52%  [.] oceanbase::blocksstable::ObStringDiffDecoder::batch_decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::blocksstable::ObIRowIndex const*, int const*, char const**, long, oceanbase::common::ObDatum*) const
+     5.51%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::save_docids()
+     2.63%  [.] oceanbase::common::ObIOService::get_io_config()
+     2.38%  [.] oceanbase::sql::(anonymous namespace)::set_doc_id_shallow(oceanbase::common::ObDatum&, oceanbase::sql::ObDocIdExt const&)
+     2.25%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::at(long) const
+     1.88%  [.] oceanbase::storage::ObBlockBatchedRowStore::get_row_ids(oceanbase::blocksstable::ObIMicroBlockReader*, long&, long, long&, bool, oceanbase::storage::ObFilterResult const&)
+     1.75%  [.] oceanbase::storage::ObSRDaaTIterImpl::project_results(long)
+     1.63%  [k] _raw_spin_unlock_irqrestore
+     1.63%  [k] finish_task_switch.isra.0
+     1.50%  [.] int oceanbase::sql::ObAggregateProcessor::process_aggr_batch_result<oceanbase::sql::ObAggregateProcessor::ObBatchRowsSlice>(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const*, oceanbase::sql::ObAggregateProcessor::AggrCell&, oceanbase::sql::ObAggrInfo const&, oceanbase::sql::ObAggregateProcessor::ObBatchRowsSlice const&)
+     1.13%  [.] oceanbase::sql::ObExpr::locate_datums_for_update(oceanbase::sql::ObEvalCtx&, long) const
+     1.00%  [.] oceanbase::sql::ObOperator::get_next_batch(long, oceanbase::sql::ObBatchRows const*&)
+     0.50%  [.] je_arena_handle_deferred_work
+     0.50%  [.] je_te_event_trigger
+     0.38%  [k] __raw_spin_unlock_irq
+     0.38%  [k] do_syscall_64
+     0.38%  [.] je_emap_update_edata_state
+     0.38%  [.] je_eset_fit
+     0.38%  [.] oceanbase::sql::ObPushdownOperator::clear_evaluated_flag()
+     0.38%  [.] oceanbase::sql::ObTableScanOp::get_next_batch_with_das(long&, long)
+     0.38%  [.] oceanbase::storage::ObMicroBlockDataHandle::reset()
+     0.38%  [.] read
+     0.38%  [k] update_blocked_averages
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
