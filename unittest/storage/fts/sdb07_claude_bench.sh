@@ -106,6 +106,28 @@ repeat_builds() {
   notice "$(basename "$dir") rebuild-avg" "$summary"
 }
 
+# Rebuild timings of the three indexes with an explicit PARALLEL clause (default plan = "def").
+dop_sweep() {
+  local dir=$1 out=$1/dop-sweep.txt
+  : > "$out"
+  for r in 1 2; do
+    for spec in "ik_all|(title, content) WITH PARSER ik" "ik_content|(content) WITH PARSER ik" "beng|(title_en, content_en) WITH PARSER beng"; do
+      local name=${spec%%|*} cols=${spec#*|}
+      for dop in def 2 3 4; do
+        local idx=dop_${name}_${dop}_$r opt=""
+        [[ "$dop" != def ]] && opt=" PARALLEL $dop"
+        sleep 2
+        local s e; s=$(date +%s%N)
+        $MYSQL -e "SET ob_query_timeout = 100000000000; SET ob_trx_timeout = 100000000000; USE fts_large_bench; ALTER TABLE docs ADD FULLTEXT INDEX $idx$cols$opt;" 2>&1 | tail -2
+        e=$(date +%s%N)
+        echo "$name dop=$dop run$r $(( (e-s)/1000000 ))ms $($MYSQL -e "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema='fts_large_bench' AND index_name='$idx'" 2>/dev/null | tail -1)" >> "$out"
+        $MYSQL -e "USE fts_large_bench; ALTER TABLE docs DROP INDEX $idx;" 2>&1 | tail -2
+      done
+    done
+  done
+  notice "$(basename "$dir") dop-sweep" "$(tr '\n' ';' < "$out")"
+}
+
 run_variant() {
   local label=$1 sha=$2 profile=$3
   local dir=$OUT/$label
@@ -183,6 +205,7 @@ run_variant() {
   done
   repeat_builds "$dir"
   if [[ "$profile" == 1 ]]; then profile_variant "$label"; fi
+  if [[ "$profile" == 2 ]]; then dop_sweep "$dir"; fi
   python3 .github/script/seekdb/sdb.py stop --base-dir "$INSTANCE"
   grep -E "ddl|DDL" "$INSTANCE/log/seekdb.log" 2>/dev/null | grep -E "INFO|WARN" | tail -4000 | gzip > "$dir/seekdb-ddl.log.gz" || true
   rm -rf "$INSTANCE"
@@ -202,7 +225,7 @@ cmp_equiv() {
   echo "$out" > "$OUT/cmp-equiv.txt"
 }
 cmp_equiv
-# variants file: label sha profile(0/1); first line must be base
+# variants file: label sha profile(0/1 perf/2 PARALLEL sweep); first line must be base
 git diff --name-only 5d7919353d73cbbd0012c777b9beb22abf5692eb "$HEAD_SHA" -- src > "$OUT/changed-sources.txt"
 while read -r label sha profile; do
   [[ -z "$label" || "$label" == \#* ]] && continue
