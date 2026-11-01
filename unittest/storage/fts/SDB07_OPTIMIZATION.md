@@ -316,3 +316,71 @@ cand 的包加载一次完成（23.31 → 26.34，无整体失败）；base 的�
 （合计 10.829s，c7d8bd80 为 14.649s），TOKENIZE ik 0.0505ms / beng 0.0321ms，MATCH cn 0.3065 / beng 0.4297 /
 mixed 0.3311 / limit 0.7496ms，fts_mean_improvement 0.4695。三项建索都没有再出现 +3s 停顿。
 官方基线每次重测、首轮建索与启动后台工作的重叠情况每次不同，单次分数仍有几分的波动。
+
+## 16. 建索 PX 采样改为对分词结果采样（d5f16972 之后，补丁 15）
+
+问题：FTS 的 index / doc-word 两个补全子任务在 PX 里按范围重分布，范围边界来自 `ObStatCollectorOp`
+对数据表的 0.2% 采样（HYBRID 采样）。原实现在采样阶段有两处让采样键失真：
+
+1. `ObTableScanOp::inner_get_next_row` 在 `sample_info_ != nullptr` 时跳过分词，采样行的 word 列是整段原文；
+2. `ObDASDomainIdMergeIter` 在采样模式下把 rowkey_doc 也按采样扫描，无法与数据表对上，于是给每个采样行填空 doc id。
+
+结果（CI 41310928579 等的 ddl 日志 `dynamic sample ranges`）：index 的切分点是 `[整句原文, null]`，
+doc-word 的切分点是 `[null, 整句原文]`。doc-word 表主键首列是 doc_id，所有真实行都落在最后一个分片，
+单个插入线程要排序全部 doc-word 行（超过排序内存上限后转一次落盘 + 归并），比 index 子任务晚约 1.8s 结束；
+用 PARALLEL 2/3/4 重建也几乎没有差别（ik_all 2.69~2.74s，beng 1.19~1.24s）。
+
+修改：
+- 采样阶段也走 FTS 分词（`is_fts_ddl_` 时不再看 `sample_info_`），采样行就是 `(word, doc_id)` / `(doc_id, word)`；
+  采样结束后 `reset_sample_scan → close_and_reopen → inner_close` 会 `fts_index_.reuse()`，不影响正式扫描。
+- `ObDASDomainIdMergeIter` 在数据表为采样扫描、且所有 domain 都是 DOC_ID 时（`sample_lookup_`），
+  rowkey_doc 不再采样，按采样行的主键逐行点查真实 doc id（与已有 `multi_get_row` 同一套 rescan 方式）；
+  查不到时仍填空 doc id（与原来一致）。只影响行模式的采样路径；批模式、向量索引与非采样扫描不变。
+- 采样行只用于确定分片边界，不写入任何表；索引内容由排序键唯一决定，分片边界只影响各分片的负载。
+
+CI 41312345723（base / base2 = aa3a40f，cand = 869f573）：语义对比 413 条全部一致，mysqltest 三个变体均 PASS。
+cand 的切分点变为真实词与 doc id，四个插入线程结束时间相差 < 0.8s，不再出现 `dumped=true`。
+
+| 重建三次平均 (ms) | base | cand | base2 |
+| --- | --- | --- | --- |
+| ik_all | 4513 | 3881 | 4479 |
+| ik_content | 3829 | 3243 | 4030 |
+| beng | 2008 | 1712 | 1908 |
+
+首轮建索（基准计时）在这台 runner 上受启动后台工作影响很大：cand 的首轮 ik_all 与系统包加载、约 330 个 tablet 的
+MDS mini merge 完全重叠，为 8.09s（base 6.14s / base2 5.85s）；CI 41314514264 中 869f573 作为 base 跑在第一位时
+首轮 ik_all 为 5.30s、ik_content 3.71s、beng 2.32s。稳态重建三项都快 13~15%。
+
+补丁 16（index / doc-word 的默认 DOP 由 2 提到 3）在 CI 41314514264 与 869f573 对比：重建三次平均
+ik_all 3797 vs 3777、ik_content 3283 vs 3240、beng 1713 vs 1773（ms），没有收益，已回退。
+
+官方评测 869f573 = 46.357（d5f1697 为 46.950）：建索引三项 4.367 / 3.292 / 1.778s（d5f1697 为 5.071 / 3.773 / 1.980s），
+TOKENIZE 持平，查询四项整体慢约 7%（与本补丁无关的代码路径，属于评测机波动）；按同一基线折算，建索引带来的分数约 +0.02。
+
+## 17. FTS DDL 按文档成批返回词行、TOKENIZE 结果一次打印（f50378a）
+
+profile 依据（CI 41314514264，869f573）：
+- 建索引：FTS DDL 的表扫描为行模式（`max_batch_size_=0`），上层 GI / STATISTICS COLLECTOR / EXCHANGE OUT 是向量化的，
+  每次 `get_next_batch` 只拿到一行词，`ObOperator::get_next_batch` 自身约 5.6%，`send_rows_in_batch` 除扫描外约 13.7%。
+- TOKENIZE：结果 JSON 的打印路径（`ObIJsonBase::print_array` → 逐元素打印）约占 observer CPU 的 22.7%。
+
+修改：
+- `ObTableScanOp::get_next_fts_ddl_batch`：FTS DDL 扫描在向量化父算子下，先按原逻辑取一行，再把同一文档剩余的词行
+  填到批内 1..n 位置（批不跨文档，`fts_index_` 中的行顺序不变）；`ObOperator::get_next_batch` 在 FTS DDL 扫描时走这里。
+- 缓存 FTS 生成列的输出表达式（`fts_col_exprs_`），不再每行按类型查找。
+- `ObJsonBin::print_plain_string_array`：二进制数组的所有元素都是无需转义的 J_STRING 时，直接从行内缓冲区输出
+  `["a", "b"]`（带越界检查）；不满足条件时走原通用路径，输出格式与原来逐字节一致。
+- 回退补丁 16（aux DOP 3）。
+
+CI 41322323389（base / base2 = 869f573，cand = f50378a）：语义对比 413 条全部一致，mysqltest 三个变体均 PASS。
+
+| 指标 | base | cand | base2 |
+| --- | --- | --- | --- |
+| tokenize_ik (ms) | 0.1834 | 0.1799 | 0.1809 |
+| tokenize_beng (ms) | 0.1352 | 0.1354 | 0.1406 |
+| 重建 ik_all 三次平均 (ms) | 3896 | 3781 | 3882 |
+| 重建 ik_content (ms) | 3284 | 3232 | 3218 |
+| 重建 beng (ms) | 1817 | 1731 | 1724 |
+
+cand 的 TOKENIZE profile 中打印路径降到约 1.2%，但 runner 上 TOKENIZE 单条耗时主要是客户端往返与 SQL 公共开销，
+端到端只快约 1~2%；建索引快约 2%，都在噪声量级内，作为小幅净收益保留。
