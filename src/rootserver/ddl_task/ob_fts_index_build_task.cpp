@@ -650,9 +650,7 @@ int ObFtsIndexBuildTask::prepare_aux_index_tables()
 namespace
 {
 constexpr int64_t FTS_AUX_PARALLEL_BUILD_MIN_CPU = 4;
-constexpr int64_t FTS_AUX_PARALLEL_BUILD_LARGE_CPU = 8;
-constexpr int64_t FTS_AUX_PARALLEL_BUILD_DOP = 3;
-constexpr int64_t FTS_AUX_PARALLEL_BUILD_LARGE_DOP = 4;
+constexpr int64_t FTS_AUX_PARALLEL_BUILD_MAX_DOP = 4;
 
 // The inverted index and the doc-word index are built concurrently, and both build
 // plans are dominated by CPU work (tokenization in the scan, then a sort on
@@ -663,17 +661,18 @@ constexpr int64_t FTS_AUX_PARALLEL_BUILD_LARGE_DOP = 4;
 // doc-rowkey index is a cheap copy, so both keep the original parallelism.
 // Now that the scan of each build is split into several tasks per worker (see
 // ObGranuleUtil::split_block_granule), every worker of these builds really scans and
-// tokenizes, so a third worker on a 4..7-core server and a fourth one on a larger
-// server shorten the build.
+// tokenizes, so the two concurrent builds together get about one worker per core
+// (cpu_count / 2 each, 2..4): on a 4-vCPU server 3 workers each were measured ~5%
+// slower than 2 (oversubscribed), while on a larger server the extra workers have
+// idle cores to run on.
 void adapt_fts_aux_build_parallelism(obcall::ObCreateIndexArg &arg)
 {
   if (arg.parallelism_ <= 1
       && (share::schema::is_fts_index_aux(arg.index_type_)
           || share::schema::is_fts_doc_word_aux(arg.index_type_))
       && common::get_cpu_count() >= FTS_AUX_PARALLEL_BUILD_MIN_CPU) {
-    arg.parallelism_ = common::get_cpu_count() >= FTS_AUX_PARALLEL_BUILD_LARGE_CPU
-                       ? FTS_AUX_PARALLEL_BUILD_LARGE_DOP
-                       : FTS_AUX_PARALLEL_BUILD_DOP;
+    const int64_t half_cpu = common::get_cpu_count() / 2;
+    arg.parallelism_ = half_cpu < FTS_AUX_PARALLEL_BUILD_MAX_DOP ? half_cpu : FTS_AUX_PARALLEL_BUILD_MAX_DOP;
   }
 }
 } // namespace
