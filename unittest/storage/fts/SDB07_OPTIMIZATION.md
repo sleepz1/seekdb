@@ -214,3 +214,30 @@ TOKENIZE 的 profile（`tokenize_ik`，CI 41271498726 候选）中：JSON 结果
 全部 9 项计分指标（以及 SELECT 1）的绝对耗时都比 d5565d28 低，但 `fts_mean_improvement` 由 0.452 降到 0.410，说明官方每次评测的基线是在
 当次环境下重新测得的（本次环境整体更快，基线提升得更多）；不同提交之间的分数差异包含较大的环境波动，同一次评测内的
 绝对指标比较更能反映改动本身。
+
+## 13. TOKENIZE 结果打印：字符串元素原地输出（020a1afe 之后）
+
+020a1afe 的 `tokenize_ik` profile（CI 41272766847 候选）中，结果集编码 `ObSMUtils::build_cell_value → ObIJsonBase::print`
+仍占 19.5% 采样，与分词本身（`ObFTParseHelper::segment` 约 18%）相当：TOKENIZE 的输出是由大量短字符串组成的 JSON 数组，
+每个元素都要先定位成子节点（`get_child_for_read`，解析元素头、建节点状态），再走通用 `print` 分派，最后
+`add_double_quote` 逐字符检查转义。
+
+| 修改 | 文件 | 依据与影响 |
+| --- | --- | --- |
+| **字符串元素原地打印**：新增 `ObJsonBin::print_plain_string_element(index, buf, handled)`，读取数组/对象第 index 个值的类型；若是 `J_STRING_V0`，直接按二进制布局（类型字节 + 变长长度 + 字节）取出字符串并加引号输出，`handled=true`；其他类型 `handled=false`，回退到原有 `get_child_for_read` + `print` 路径 | `ob_json_bin.*`、`ob_json_base.cpp`（`print_array` / `print_object`） | 只改变取值路径，不改变输出：空串仍输出 `""`，转义规则与原 `add_double_quote` 相同 |
+| **`add_double_quote` 快速路径**：先扫描是否含需要转义的字符；不含时一次 `reserve` 后直接写入 引号 + memcpy + 引号；含转义字符时走原逐字符实现 | `ob_json_base.cpp` | 输出字节完全一致 |
+
+实验 CI 41292608225（同一 runner，基线 d4f8911c 跑两遍）：
+
+| 指标 | 基线 base / base2 | 候选 | 变化 |
+| --- | --- | --- | --- |
+| tokenize_ik (ms) | 0.0559 / 0.0606 | 0.0551 | −1%～−9% |
+| tokenize_beng (ms) | 0.0411 / 0.0419 | 0.0384 | −7%～−8% |
+| select1 (ms) | 0.0352 / 0.0280 | 0.0301 | 噪声内 |
+| query_cn / beng / mixed / limit (ms) | 0.296 / 0.326，0.420 / 0.423，0.316 / 0.318，0.584 / 0.667 | 0.289，0.400，0.312，0.649 | 持平（不涉及查询路径） |
+| 建索重建均值 ik_all / ik_content / beng (ms) | 2374 / 1998 / 1146，2521 / 2090 / 1191 | 2377 / 2097 / 1131 | 持平 |
+
+候选的 `tokenize_ik` profile 中 `build_cell_value` 由 19.5% 降到 2.9%（其中新路径 `print_plain_string_element` 1.8%），
+剩余热点为分词本身（`segment` 32%，词典查找 `ObArrayHashMap::find` 6.5%）与 JSON 树→二进制打包（`pack_json_res` 3.6%）。
+413 项语义（含 TOKENIZE 默认 / `detail` / 对象模式输出）三者完全一致，600 万组比较等价 0 差异，`tokenize_function`、
+`parser_properties` 两项 mysqltest 通过。

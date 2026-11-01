@@ -1,0 +1,1 @@
+sdb07: JSON printing writes plain string elements of binary arrays/objects in place and add_double_quote copies escape-free strings in one step; docs section 13 with CI 41292608225 evidence
