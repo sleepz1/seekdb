@@ -435,16 +435,12 @@ int ObPLPackageManager::load_sys_package(ObMySQLProxy &sql_proxy,
 int ObPLPackageManager::load_sys_package_list(ObMySQLProxy &sql_proxy,
                                               const ObSysPackageFile *sys_package_list,
                                               int sys_package_count,
-                                              bool from_file,
-                                              SysPackageLoadPacer pacer)
+                                              bool from_file)
 {
   int ret = OB_SUCCESS;
   CK (OB_NOT_NULL(sys_package_list));
   LOG_INFO("load sys package list begin", "sys package total count", sys_package_count);
   for (int i = 0; OB_SUCC(ret) && i < sys_package_count; ++i) {
-    if (nullptr != pacer) {
-      pacer();
-    }
     OZ (load_sys_package(sql_proxy, sys_package_list[i], from_file));
   }
   if (OB_FAIL(ret)) {
@@ -455,11 +451,11 @@ int ObPLPackageManager::load_sys_package_list(ObMySQLProxy &sql_proxy,
 }
 
 int ObPLPackageManager::load_all_common_sys_package(
-    ObMySQLProxy &sql_proxy, bool from_file, SysPackageLoadPacer pacer) {
+    ObMySQLProxy &sql_proxy, bool from_file) {
   int ret = OB_SUCCESS;
   OZ (load_sys_package_list(sql_proxy, mysql_syspack_file_list,
                             SIZE_OF_SYSPACK_LST(mysql_syspack_file_list),
-                            from_file, pacer));
+                            from_file));
 
   if (OB_SUCC(ret)) {
     LOG_INFO("load all common sys package success!", K(ret), K(from_file));

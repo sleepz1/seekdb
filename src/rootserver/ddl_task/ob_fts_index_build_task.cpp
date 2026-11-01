@@ -70,7 +70,8 @@ ObFtsIndexBuildTask::ObFtsIndexBuildTask()
     is_retryable_ddl_(true),
     use_doc_id_(true),
     rowkey_doc_schema_version_(0),
-    charset_type_(CHARSET_INVALID)
+    charset_type_(CHARSET_INVALID),
+    last_child_error_message_check_ts_(0)
 {
 }
 
@@ -313,7 +314,10 @@ int ObFtsIndexBuildTask::check_health()
   } else if (!ObDDLServiceLauncher::is_ddl_service_started()) {
     ret = OB_STATE_NOT_MATCH;
     need_retry_ = false;
-  } else if (OB_FAIL(refresh_status())) {
+  } else if (OB_FAIL((ObDDLTaskStatus::WAIT_ROWKEY_DOC_TABLE_COMPLEMENT == status
+                      || ObDDLTaskStatus::WAIT_AUX_TABLE_COMPLEMENT == status)
+                     // waiting for child tasks, whose end is reported by on_child_task_finish()
+                     ? refresh_status_while_waiting() : refresh_status())) {
   } else if (OB_FAIL(refresh_schema_version())) {
   } else if (status == ObDDLTaskStatus::FAIL) {
     /*already failed, and have submitted drop index task, do nothing*/
@@ -858,12 +862,23 @@ int ObFtsIndexBuildTask::wait_aux_table_complement()
     ret = OB_STATE_NOT_MATCH;
   } else {
     int64_t finished_task_cnt = 0;
+    // A finished child task reports its result through on_child_task_finish(), which is checked
+    // on every round. The error message table only covers a child that finished while this task
+    // was not running (e.g. switching rs), so it is read at most every
+    // WAITING_STATUS_REFRESH_INTERVAL_US (and on the first round) instead of every 10ms.
+    const int64_t now = ObTimeUtility::current_time();
+    const bool check_error_message = now - last_child_error_message_check_ts_ >= WAITING_STATUS_REFRESH_INTERVAL_US;
+    if (check_error_message) {
+      last_child_error_message_check_ts_ = now;
+    }
     for (task_iter iter = dependent_task_result_map_.begin();
         OB_SUCC(ret) && iter != dependent_task_result_map_.end(); ++iter) {
       const uint64_t task_key = iter->first;
       const int64_t target_object_id = -1;
       const int64_t child_task_id = iter->second.task_id_;
-      if (iter->second.ret_code_ == INT64_MAX) {
+      if (iter->second.ret_code_ == INT64_MAX && !check_error_message) {
+        // not finished as far as known
+      } else if (iter->second.ret_code_ == INT64_MAX) {
         // maybe ddl already finish when switching rs
         HEAP_VAR(ObDDLErrorMessageTableOperator::ObBuildDDLErrorMessage, error_message) {
           int64_t unused_user_msg_len = 0;

@@ -683,6 +683,21 @@ int ObDDLTask::refresh_status()
   return ret;
 }
 
+int ObDDLTask::refresh_status_while_waiting()
+{
+  int ret = OB_SUCCESS;
+  const int64_t now = ObTimeUtility::current_time();
+  if (now - last_waiting_refresh_ts_ < WAITING_STATUS_REFRESH_INTERVAL_US) {
+    // the record was read less than WAITING_STATUS_REFRESH_INTERVAL_US ago; nothing in this
+    // task changed it since (status changes go through switch_status), only an external
+    // change such as a cancel can be pending, which is picked up by the next refresh
+  } else if (OB_FAIL(refresh_status())) {
+  } else {
+    last_waiting_refresh_ts_ = now;
+  }
+  return ret;
+}
+
 int ObDDLTask::refresh_schema_version()
 {
   int ret = OB_SUCCESS;

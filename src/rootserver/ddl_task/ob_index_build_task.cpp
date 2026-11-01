@@ -460,7 +460,9 @@ int ObIndexBuildTask::check_health()
   } else if (!ObDDLServiceLauncher::is_ddl_service_started()) {
     ret = OB_STATE_NOT_MATCH;
     need_retry_ = false;
-  } else if (OB_FAIL(refresh_status())) {
+  } else if (OB_FAIL((ObDDLTaskStatus::REDEFINITION == task_status_ && is_sstable_complete_task_submitted_)
+                     // waiting for the submitted complement job, whose end is checked in memory
+                     ? refresh_status_while_waiting() : refresh_status())) {
   } else if (OB_FAIL(refresh_schema_version())) {
   } else if (OB_ISNULL(GCTX.schema_service_)) {
     ret = OB_INVALID_ARGUMENT;

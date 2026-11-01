@@ -15,6 +15,7 @@
  */
 
 #define USING_LOG_PREFIX SERVER_OMT
+#include <sched.h>
 #include "config_bridge.h"
 #include "ob_server_runtime.h"
 #include "observer/ob_server.h"   // T3d
@@ -318,7 +319,8 @@ ObServerRuntime::ObServerRuntime()
       recv_task_cnt_(0),
       lock_(),
       workers_lock_(common::ObLatchIds::SERVER_RUNTIME_WORKER_LOCK),
-      completion_cnt_(0)
+      completion_cnt_(0),
+      req_spinning_cnt_(0)
 {
 }
 
@@ -582,12 +584,33 @@ int64_t ObServerRuntime::max_worker_cnt() const
 
 int ObServerRuntime::get_new_request(
     int64_t timeout,
-    rpc::ObRequest *&req)
+    rpc::ObRequest *&req,
+    const bool spin_first)
 {
   int ret = OB_SUCCESS;
   ObLink* task = nullptr;
 
   req = nullptr;
+  if (spin_first && timeout > 0 && req_queue_.size() <= 0 && !has_stopped()) {
+    int64_t spinners = ATOMIC_LOAD(&req_spinning_cnt_);
+    if (spinners < MAX_REQ_SPINNERS && ATOMIC_BCAS(&req_spinning_cnt_, spinners, spinners + 1)) {
+      // Bounded poll before blocking: the request (if any) is still taken by the pop below
+      // and processed exactly as before; only the wait is shortened.
+      const int64_t deadline = ObTimeUtility::current_time() + MIN(timeout, REQ_SPIN_US);
+      int64_t loop = 0;
+      while (req_queue_.size() <= 0) {
+        PAUSE();
+        if (0 == (++loop & 0x1F)) {
+          if (ObTimeUtility::current_time() >= deadline) {
+            break;
+          }
+          // let other runnable threads on this CPU (e.g. the client) go first
+          sched_yield();
+        }
+      }
+      ATOMIC_DEC(&req_spinning_cnt_);
+    }
+  }
   ret = req_queue_.pop(task, timeout);
 
   if (OB_SUCC(ret)) {

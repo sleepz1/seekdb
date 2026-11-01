@@ -587,7 +587,7 @@ public:
       allocator_(lib::ObLabel("DdlTask")), err_code_occurence_cnt_(0),
       longops_stat_(nullptr), gmt_create_(0), stat_info_(), delay_schedule_time_(0), next_schedule_ts_(0),
       execution_id_(-1), start_time_(0), data_format_version_(0), is_pre_split_(false), wait_trans_ctx_(), is_unique_index_(false),
-      is_global_index_(false), published_schema_version_(OB_INVALID_VERSION)
+      is_global_index_(false), published_schema_version_(OB_INVALID_VERSION), last_waiting_refresh_ts_(0)
   {}
   ObDDLTask():
     ObDDLTask(share::DDL_INVALID)
@@ -648,6 +648,11 @@ public:
   int convert_to_record(ObDDLTaskRecord &task_record, common::ObIAllocator &allocator);
   int switch_status(const share::ObDDLTaskStatus new_status, const bool enable_flt, const int ret_code);
   int refresh_status();
+  // refresh_status() for a task that is only waiting for asynchronous work (a submitted data
+  // complement or child tasks) whose completion is checked in memory: the task record is
+  // re-read at most every WAITING_STATUS_REFRESH_INTERVAL_US instead of on every 10ms round.
+  int refresh_status_while_waiting();
+  static const int64_t WAITING_STATUS_REFRESH_INTERVAL_US = 100L * 1000L; // 100ms
   int refresh_schema_version();
   int remove_task_record();
   int report_error_code(const ObString &forward_user_message, const int64_t affected_rows = 0);
@@ -754,6 +759,7 @@ protected:
   bool is_unique_index_;
   bool is_global_index_;
   int64_t published_schema_version_;
+  int64_t last_waiting_refresh_ts_; // not persisted
 };
 
 enum ColChecksumStat

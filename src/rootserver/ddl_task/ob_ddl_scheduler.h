@@ -257,8 +257,6 @@ public:
   void stop();
   void destroy();
   inline bool is_stoped() const { return is_stop_; }
-  // number of long running DDL tasks (index builds, ...) scheduled on this server
-  int64_t get_task_cnt() const { return task_queue_.get_task_cnt(); }
 
   virtual void do_work() override;
   virtual share::SCN get_rec_scn() override { return share::SCN::max_scn(); }

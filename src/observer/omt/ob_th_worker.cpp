@@ -220,6 +220,7 @@ void ObThWorker::worker(int64_t &tid, int64_t &req_recv_timestamp, int32_t &work
     auto *pm = common::ObPageManager::thread_local_instance();
     snprintf(module_name_, MAX_MODULE_NAME_LEN, "ReqWorker");
     int64_t idle_since = 0;
+    bool just_processed = false;
     while (!has_set_stop()) {
       worker_level = get_worker_level();
       if (OB_NOT_NULL(runtime_)) {
@@ -265,8 +266,9 @@ void ObThWorker::worker(int64_t &tid, int64_t &req_recv_timestamp, int32_t &work
             // get request from queue and process it
             wait_start_time = ObTimeUtility::current_time();
             ret = runtime_->pop_with_idle([&]() {
-              return runtime_->get_new_request(POLL_INTERVAL, req);
+              return runtime_->get_new_request(POLL_INTERVAL, req, just_processed);
             }, expand);
+            just_processed = false;
             wait_end_time = ObTimeUtility::current_time();
           }
           if (OB_SUCC(ret)) {
@@ -283,6 +285,7 @@ void ObThWorker::worker(int64_t &tid, int64_t &req_recv_timestamp, int32_t &work
               query_enqueue_time_ = req->get_enqueue_timestamp();
               last_check_time_ = wait_end_time;
               process_request(*req);
+              just_processed = true;
               runtime_->completion_cnt_.fetch_add(1, std::memory_order_relaxed);
               query_enqueue_time_ = INT64_MAX;
               query_start_time_ = INT64_MAX;

@@ -224,7 +224,13 @@ public:
 
   // get request from request queue, waiting at most TIMEOUT us.
   // if IN_HIGH_PRIORITY is set, get request from hp queue.
-  int get_new_request(int64_t timeout, rpc::ObRequest *&req);
+  // SPIN_FIRST: the calling worker has just finished a request; poll the queue for up to
+  // REQ_SPIN_US (yielding the CPU between polls) before blocking, so that a client that sends
+  // its next statement right after reading the previous result does not pay a futex wake-up.
+  // At most MAX_REQ_SPINNERS workers poll at the same time.
+  int get_new_request(int64_t timeout, rpc::ObRequest *&req, const bool spin_first = false);
+  static constexpr int64_t REQ_SPIN_US = 100;
+  static constexpr int64_t MAX_REQ_SPINNERS = 1;
 
   // receive request from network
   int recv_request(rpc::ObRequest &req);
@@ -299,6 +305,8 @@ public:
   lib::ObMutex workers_lock_;
 
   std::atomic<int64_t> completion_cnt_;
+  // workers currently polling the request queue in get_new_request()
+  int64_t req_spinning_cnt_;
 
 }; // end of class ObServerRuntime
 
