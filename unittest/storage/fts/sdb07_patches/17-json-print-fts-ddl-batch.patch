@@ -1,0 +1,340 @@
+diff --git a/src/oblib/common/json_type/ob_json_base.cpp b/src/oblib/common/json_type/ob_json_base.cpp
+index fa5cce2..513394d 100644
+--- a/src/oblib/common/json_type/ob_json_base.cpp
++++ b/src/oblib/common/json_type/ob_json_base.cpp
+@@ -3274,8 +3274,12 @@ int ObIJsonBase::print_jtime(ObJsonBuffer &j_buf, bool is_quoted) const
+ int ObIJsonBase::print_array(ObJsonBuffer &j_buf, uint64_t depth, bool is_pretty) const
+ {
+   INIT_SUCC(ret);
++  bool handled = false;
+ 
+-  if (OB_FAIL(j_buf.append("["))) {
++  if (!is_pretty && is_bin()
++      && OB_FAIL(static_cast<const ObJsonBin *>(this)->print_plain_string_array(j_buf, handled))) {
++  } else if (handled) {
++  } else if (OB_FAIL(j_buf.append("["))) {
+   } else {
+     uint64_t arr_size = element_count();
+     // binary arrays: one child positioned directly on each element (as the binary deserializer
+diff --git a/src/oblib/common/json_type/ob_json_bin.cpp b/src/oblib/common/json_type/ob_json_bin.cpp
+index d6bfc05..170de4c 100644
+--- a/src/oblib/common/json_type/ob_json_bin.cpp
++++ b/src/oblib/common/json_type/ob_json_bin.cpp
+@@ -377,6 +377,89 @@ int ObJsonBin::print_plain_string_element(uint64_t index, ObJsonBuffer &j_buf, b
+   return ret;
+ }
+ 
++int ObJsonBin::print_plain_string_array(ObJsonBuffer &j_buf, bool &handled) const
++{
++  INIT_SUCC(ret);
++  handled = false;
++  ObString data;
++  const uint64_t count = get_element_count();
++  if (OB_ISNULL(cursor_) || !cursor_->is_full_mode() || ObJBVerType::J_ARRAY_V0 != get_vertype()
++      || 0 == count) {
++  } else if (OB_FAIL(cursor_->get_data(data))) {
++  } else if (OB_ISNULL(data.ptr())) {
++  } else {
++    // All of an array of plain strings (what TOKENIZE returns) is in one in-row buffer:
++    // read the value entries and the strings straight from it instead of going through
++    // the cursor for every field. Any other shape, or a string that needs escaping, is
++    // left to the generic element-by-element path (nothing is appended then).
++    const char *base = data.ptr();
++    const int64_t data_len = data.length();
++    const uint8_t var_type = entry_var_type();
++    const int64_t var_size = static_cast<int64_t>(ObJsonVar::get_var_size(var_type));
++    const int64_t entry_size = var_size + OB_JSON_BIN_VALUE_TYPE_LEN;
++    const int64_t first_entry = pos_ + static_cast<int64_t>(get_value_entry_offset(0));
++    bool plain = var_size > 0 && first_entry >= 0
++        && count <= static_cast<uint64_t>(data_len)
++        && first_entry + static_cast<int64_t>(count) * entry_size <= data_len;
++    int64_t out_len = 2; // "[" and "]"
++    for (uint64_t i = 0; plain && i < count; ++i) {
++      const char *entry = base + first_entry + static_cast<int64_t>(i) * entry_size;
++      uint64_t value_offset = 0;
++      int64_t str_len = 0;
++      int64_t vi_pos = 0;
++      int64_t off = 0;
++      if (OB_SUCCESS != ObJsonVar::read_var(entry, var_type, &value_offset)
++          || J_STRING_V0 != static_cast<uint8_t>(entry[var_size])
++          || value_offset >= static_cast<uint64_t>(data_len)) {
++        plain = false;
++      } else if (FALSE_IT(off = pos_ + static_cast<int64_t>(value_offset) + static_cast<int64_t>(sizeof(uint8_t)))) {
++      } else if (off <= 0 || off >= data_len
++                 || OB_SUCCESS != serialization::decode_vi64(base + off, data_len - off, vi_pos, &str_len)
++                 || str_len < 0 || str_len > data_len - off - vi_pos) {
++        plain = false;
++      } else {
++        const unsigned char *str = reinterpret_cast<const unsigned char *>(base + off + vi_pos);
++        for (int64_t k = 0; plain && k < str_len; ++k) {
++          const unsigned char uc = str[k];
++          plain = !(uc <= 0x1f || uc == '"' || uc == '\\');
++        }
++        out_len += str_len + 2 + (i > 0 ? 2 : 0); // quotes, ", " separator
++      }
++    }
++    if (plain) {
++      if (OB_FAIL(j_buf.reserve(out_len))) {
++      } else {
++        const uint64_t old_len = j_buf.length();
++        char *dst = j_buf.ptr() + old_len;
++        *dst++ = '[';
++        for (uint64_t i = 0; i < count; ++i) {
++          const char *entry = base + first_entry + static_cast<int64_t>(i) * entry_size;
++          uint64_t value_offset = 0;
++          int64_t str_len = 0;
++          int64_t vi_pos = 0;
++          IGNORE_RETURN ObJsonVar::read_var(entry, var_type, &value_offset);
++          const int64_t off = pos_ + static_cast<int64_t>(value_offset) + static_cast<int64_t>(sizeof(uint8_t));
++          IGNORE_RETURN serialization::decode_vi64(base + off, data_len - off, vi_pos, &str_len);
++          if (i > 0) {
++            *dst++ = ',';
++            *dst++ = ' ';
++          }
++          *dst++ = '"';
++          MEMCPY(dst, base + off + vi_pos, str_len);
++          dst += str_len;
++          *dst++ = '"';
++        }
++        *dst++ = ']';
++        if (OB_FAIL(j_buf.set_length(old_len + out_len))) {
++        } else {
++          handled = true;
++        }
++      }
++    }
++  }
++  return ret;
++}
++
+ int ObJsonBin::get_object_value(uint64_t index, ObIJsonBase *&value) const
+ {
+   INIT_SUCC(ret);
+diff --git a/src/oblib/common/json_type/ob_json_bin.h b/src/oblib/common/json_type/ob_json_bin.h
+index ebea75b..88aab50 100644
+--- a/src/oblib/common/json_type/ob_json_bin.h
++++ b/src/oblib/common/json_type/ob_json_bin.h
+@@ -606,6 +606,8 @@ public:
+   // output is the same as get_child_for_read() followed by print(j_buf, true, ...). Sets handled to
+   // false and prints nothing for any other element type.
+   int print_plain_string_element(uint64_t index, ObJsonBuffer &j_buf, bool &handled) const;
++  // prints a whole array of plain strings in one pass; handled = false (nothing printed) otherwise
++  int print_plain_string_array(ObJsonBuffer &j_buf, bool &handled) const;
+   int get_object_value(uint64_t index, ObIJsonBase *&value) const override;
+   int get_object_value(const ObString &key, ObIJsonBase *&value) const override;
+   int get_object_value(uint64_t index, ObString &key, ObIJsonBase *&value) const override;
+diff --git a/src/rootserver/ddl_task/ob_fts_index_build_task.cpp b/src/rootserver/ddl_task/ob_fts_index_build_task.cpp
+index 3379f95..282cda7 100644
+--- a/src/rootserver/ddl_task/ob_fts_index_build_task.cpp
++++ b/src/rootserver/ddl_task/ob_fts_index_build_task.cpp
+@@ -650,7 +650,7 @@ int ObFtsIndexBuildTask::prepare_aux_index_tables()
+ namespace
+ {
+ constexpr int64_t FTS_AUX_PARALLEL_BUILD_MIN_CPU = 4;
+-constexpr int64_t FTS_AUX_PARALLEL_BUILD_DOP = 3;
++constexpr int64_t FTS_AUX_PARALLEL_BUILD_DOP = 2;
+ 
+ // The inverted index and the doc-word index are built concurrently, and both build
+ // plans are dominated by CPU work (tokenization in the scan, then a sort on
+@@ -659,9 +659,6 @@ constexpr int64_t FTS_AUX_PARALLEL_BUILD_DOP = 3;
+ // server has spare cores. Their content is fully determined by the sort keys, so the
+ // resulting indexes are identical. The rowkey-doc index assigns the doc ids and the
+ // doc-rowkey index is a cheap copy, so both keep the original parallelism.
+-// Since the PX range sampling of these two builds samples the generated word rows,
+-// their slices are balanced and a third worker each pays off on a 4-core server
+-// (measured with PARALLEL 2/3/4 rebuilds on the 4-vCPU runner).
+ void adapt_fts_aux_build_parallelism(obcall::ObCreateIndexArg &arg)
+ {
+   if (arg.parallelism_ <= 1
+diff --git a/src/sql/engine/ob_operator.cpp b/src/sql/engine/ob_operator.cpp
+index e99ee2a..3b5f781 100644
+--- a/src/sql/engine/ob_operator.cpp
++++ b/src/sql/engine/ob_operator.cpp
+@@ -20,6 +20,7 @@
+ #include "ob_operator_factory.h"
+ #include "query/runtime/ob_query_runtime_environment.h"
+ #include "sql/engine/expr/ob_array_expr_utils.h"
++#include "sql/engine/table/ob_table_scan_op.h"
+ 
+ namespace oceanbase
+ {
+@@ -1136,7 +1137,13 @@ int ObOperator::get_next_batch(const int64_t max_row_cnt, const ObBatchRows *&ba
+     } else {
+       // Operator does NOT support vectorization, while its parent does. Return
+       // the batch with only 1 row
+-      if (OB_FAIL(get_next_batch_with_onlyone_row())) {
++      if (PHY_TABLE_SCAN == spec_.type_
++          && static_cast<const ObTableScanSpec &>(spec_).is_fts_ddl_) {
++        // except for the FTS DDL scan, which returns the word rows of one document together
++        if (OB_FAIL(static_cast<ObTableScanOp *>(this)->get_next_fts_ddl_batch(
++                    min(max_row_cnt, get_spec().get_phy_plan()->get_batch_size())))) {
++        }
++      } else if (OB_FAIL(get_next_batch_with_onlyone_row())) {
+         // do nothing
+       }
+     }
+diff --git a/src/sql/engine/table/ob_table_scan_op.cpp b/src/sql/engine/table/ob_table_scan_op.cpp
+index afad89e..b1b1ae4 100644
+--- a/src/sql/engine/table/ob_table_scan_op.cpp
++++ b/src/sql/engine/table/ob_table_scan_op.cpp
+@@ -679,6 +679,10 @@ ObTableScanOp::ObTableScanOp(ObExecContext &exec_ctx, const ObOpSpec &spec, ObOp
+     in_rescan_(false),
+     domain_index_(),
+     fts_index_(),
++    fts_col_exprs_(),
++    fts_col_exprs_ready_(false),
++    fts_ddl_skip_(nullptr),
++    fts_ddl_skip_cap_(0),
+     output_   (nullptr),
+     fold_iter_(nullptr),
+     iter_tree_(nullptr),
+@@ -3659,8 +3663,9 @@ int ObTableScanOp::fetch_next_fts_index_rows()
+     if (OB_FAIL(ObTableScanOp::inner_get_next_row_implement())) {
+       if (OB_ITER_END != ret) {
+       }
+-    } else if (OB_FAIL(get_output_fts_col_expr_by_type(T_FUN_SYS_DOC_ID, doc_id_expr))) {
+-    } else if (OB_FAIL(get_output_fts_col_expr_by_type(T_FUN_SYS_WORD_SEGMENT, ft_expr))) {
++    } else if (OB_FAIL(prepare_fts_col_exprs())) {
++    } else if (FALSE_IT(doc_id_expr = fts_col_exprs_[MY_SPEC.is_fts_index_aux_ ? 1 : 0])) {
++    } else if (FALSE_IT(ft_expr = fts_col_exprs_[MY_SPEC.is_fts_index_aux_ ? 0 : 1])) {
+     } else if (OB_ISNULL(ft_expr) || OB_ISNULL(doc_id_expr)) {
+       ret = OB_ERR_UNEXPECTED;
+     } else if (OB_FAIL(ft_expr->eval(eval_ctx_, ft_datum))) {
+@@ -3692,13 +3697,14 @@ int ObTableScanOp::fill_generated_fts_cols(blocksstable::ObDatumRow *row)
+ {
+   int ret = OB_SUCCESS;
+   const ObObjDatumMapType *types = MY_SPEC.is_fts_index_aux_ ? ObFTIndexRowCache::FTS_INDEX_TYPES : ObFTIndexRowCache::FTS_DOC_WORD_TYPES;
+-  const ObExprOperatorType *expr_types = MY_SPEC.is_fts_index_aux_ ? ObFTIndexRowCache::FTS_INDEX_EXPR_TYPE : ObFTIndexRowCache::FTS_DOC_WORD_EXPR_TYPE;
+   if (OB_ISNULL(row)) {
+     ret = OB_INVALID_ARGUMENT;
++  } else if (OB_FAIL(prepare_fts_col_exprs())) {
+   } else {
+     for (int64_t i = 0; OB_SUCC(ret) && i < share::ObFtsIndexBuilderUtil::OB_FTS_INDEX_OR_DOC_WORD_TABLE_COL_CNT; ++i) {
+-      ObExpr *expr = nullptr;
+-      if (OB_FAIL(get_output_fts_col_expr_by_type(expr_types[i], expr))) {
++      ObExpr *expr = fts_col_exprs_[i];
++      if (OB_ISNULL(expr)) {
++        ret = OB_ERR_UNEXPECTED;
+       } else {
+         ObDatum &datum = expr->locate_datum_for_write(eval_ctx_);
+         ObEvalInfo &eval_info = expr->get_eval_info(eval_ctx_);
+@@ -3713,6 +3719,84 @@ int ObTableScanOp::fill_generated_fts_cols(blocksstable::ObDatumRow *row)
+   return ret;
+ }
+ 
++int ObTableScanOp::get_next_fts_ddl_batch(const int64_t max_row_cnt)
++{
++  int ret = OB_SUCCESS;
++  const int64_t limit = min(max_row_cnt, MY_SPEC.get_phy_plan()->get_batch_size());
++  // The first row goes through the regular row interface (status checks, sampling,
++  // fetching and segmenting the next document, column checksums).
++  if (OB_FAIL(get_next_batch_with_onlyone_row())) {
++  } else if (brs_.end_ || brs_.size_ <= 0 || limit <= 1) {
++  } else if (OB_UNLIKELY(!MY_SPEC.is_fts_ddl_ || nullptr == brs_.skip_)) {
++    ret = OB_ERR_UNEXPECTED;
++    LOG_WARN("unexpected fts ddl batch", K(ret), K(MY_SPEC.is_fts_ddl_), KP(brs_.skip_));
++  } else {
++    if (fts_ddl_skip_cap_ < limit) {
++      // the skip vector of a row-mode operator holds a single row
++      void *mem = ctx_.get_allocator().alloc(ObBitVector::memory_size(limit));
++      if (OB_ISNULL(mem)) {
++        ret = OB_ALLOCATE_MEMORY_FAILED;
++        LOG_WARN("failed to alloc skip vector", K(ret), K(limit));
++      } else {
++        fts_ddl_skip_ = to_bit_vector(mem);
++        fts_ddl_skip_->init(limit);
++        fts_ddl_skip_cap_ = limit;
++      }
++    }
++    if (OB_SUCC(ret)) {
++      fts_ddl_skip_->reset(limit);
++      brs_.skip_ = fts_ddl_skip_;
++      // The rest of the word rows of the current document follow in the same batch, at
++      // batch positions 1, 2, ... of the output exprs (their frames are sized for the
++      // plan batch). They reference memory of the current document, which stays valid
++      // until the next document is fetched, so a batch never spans two documents; the
++      // next document is fetched by the next call, through the row interface again.
++      int64_t size = brs_.size_;
++      blocksstable::ObDatumRow *row = nullptr;
++      ObEvalCtx::BatchInfoScopeGuard guard(eval_ctx_);
++      while (OB_SUCC(ret) && size < limit) {
++        if (OB_FAIL(fts_index_.get_next_row(row))) {
++          if (OB_ITER_END == ret) {
++            ret = OB_SUCCESS;
++            break;
++          }
++        } else {
++          guard.set_batch_idx(size);
++          if (OB_FAIL(fill_generated_fts_cols(row))) {
++          } else {
++            ++size;
++          }
++        }
++      }
++      if (OB_SUCC(ret)) {
++        op_monitor_info_.output_row_count_ += size - brs_.size_;
++        brs_.size_ = size;
++      }
++    }
++  }
++  return ret;
++}
++
++int ObTableScanOp::prepare_fts_col_exprs()
++{
++  int ret = OB_SUCCESS;
++  if (OB_LIKELY(fts_col_exprs_ready_)) {
++  } else {
++    // The output exprs of a spec never change, so look them up once instead of
++    // scanning the output list for every generated word row.
++    const ObExprOperatorType *expr_types = MY_SPEC.is_fts_index_aux_
++        ? ObFTIndexRowCache::FTS_INDEX_EXPR_TYPE : ObFTIndexRowCache::FTS_DOC_WORD_EXPR_TYPE;
++    for (int64_t i = 0; OB_SUCC(ret) && i < share::ObFtsIndexBuilderUtil::OB_FTS_INDEX_OR_DOC_WORD_TABLE_COL_CNT; ++i) {
++      if (OB_FAIL(get_output_fts_col_expr_by_type(expr_types[i], fts_col_exprs_[i]))) {
++      }
++    }
++    if (OB_SUCC(ret)) {
++      fts_col_exprs_ready_ = true;
++    }
++  }
++  return ret;
++}
++
+ int ObTableScanOp::get_output_fts_col_expr_by_type(
+     const ObExprOperatorType &type,
+     ObExpr *&expr)
+diff --git a/src/sql/engine/table/ob_table_scan_op.h b/src/sql/engine/table/ob_table_scan_op.h
+index c81c665..c0219d3 100644
+--- a/src/sql/engine/table/ob_table_scan_op.h
++++ b/src/sql/engine/table/ob_table_scan_op.h
+@@ -494,6 +494,10 @@ public:
+   }
+ 
+   int do_diagnosis(ObExecContext &exec_ctx, ObBitVector &skip) override;
++  // Batch interface of the FTS index / doc-word DDL scan (a row-mode scan under a
++  // vectorized parent): returns the next generated word rows of one document per batch
++  // instead of a single row per batch.
++  int get_next_fts_ddl_batch(const int64_t max_row_cnt);
+ 
+ protected:
+   // Get GI task then update location_idx and $cur_access_tablet_
+@@ -705,6 +709,8 @@ private:
+   int fetch_next_fts_index_rows();
+   int fill_generated_fts_cols(blocksstable::ObDatumRow *row);
+   int get_output_fts_col_expr_by_type(const ObExprOperatorType &type, ObExpr *&expr);
++  // output exprs of the generated FTS columns, in the order of the ddl table columns
++  int prepare_fts_col_exprs();
+   bool is_resume_point_saved();
+ protected:
+   DASOpResultIter scan_result_;
+@@ -735,6 +741,10 @@ protected:
+   bool in_rescan_;
+   ObDomainIndexCache domain_index_;
+   ObFTIndexRowCache fts_index_;
++  ObExpr *fts_col_exprs_[share::ObFtsIndexBuilderUtil::OB_FTS_INDEX_OR_DOC_WORD_TABLE_COL_CNT];
++  bool fts_col_exprs_ready_;
++  ObBitVector *fts_ddl_skip_;
++  int64_t fts_ddl_skip_cap_;
+ 
+   // output_ is used to output data, TSC operator directly invokes output_::get_next_row(s),
+   // it points to fold_iter_ in group rescan and iter_tree_ in normal scan.
