@@ -1,0 +1,109 @@
+diff --git a/src/oblib/common/json_type/ob_json_base.cpp b/src/oblib/common/json_type/ob_json_base.cpp
+index 210d365..fa5cce2 100644
+--- a/src/oblib/common/json_type/ob_json_base.cpp
++++ b/src/oblib/common/json_type/ob_json_base.cpp
+@@ -3287,7 +3287,11 @@ int ObIJsonBase::print_array(ObJsonBuffer &j_buf, uint64_t depth, bool is_pretty
+       if (i > 0 && OB_FAIL(ObJsonBaseUtil::append_comma(j_buf, is_pretty))) {
+       } else if (is_pretty && OB_FAIL(ObJsonBaseUtil::append_newline_and_indent(j_buf, depth))) {
+       } else if (read_bin_child) {
+-        if (OB_FAIL(static_cast<const ObJsonBin *>(this)->get_child_for_read(i, child_bin))) {
++        const ObJsonBin *bin = static_cast<const ObJsonBin *>(this);
++        bool handled = false;
++        if (OB_FAIL(bin->print_plain_string_element(i, j_buf, handled))) {
++        } else if (handled) {
++        } else if (OB_FAIL(bin->get_child_for_read(i, child_bin))) {
+         } else if (OB_FAIL(child_bin.print(j_buf, true, 0, is_pretty, depth))) {
+         }
+       } else {
+@@ -3344,7 +3348,11 @@ int ObIJsonBase::print_object(ObJsonBuffer &j_buf, uint64_t depth, bool is_prett
+         } else if (OB_FAIL(pint_colon(j_buf, is_pretty))) {
+         } else if (OB_FAIL(j_buf.append(" "))) {
+         } else if (read_bin_child) {
+-          if (OB_FAIL(static_cast<const ObJsonBin *>(this)->get_child_for_read(i, child_bin))) {
++          const ObJsonBin *bin = static_cast<const ObJsonBin *>(this);
++          bool handled = false;
++          if (OB_FAIL(bin->print_plain_string_element(i, j_buf, handled))) {
++          } else if (handled) {
++          } else if (OB_FAIL(bin->get_child_for_read(i, child_bin))) {
+           } else if (OB_FAIL(child_bin.print(j_buf, true, 0, is_pretty, depth))) {
+           }
+         } else {
+@@ -6077,13 +6085,23 @@ int ObJsonBaseUtil::add_double_quote(ObJsonBuffer &j_buf, const char *cptr, uint
+ {
+   INIT_SUCC(ret);
+ 
++  ObFindEscapeFunc func;
++  const char *const end = (NULL == cptr) ? NULL : cptr + length;
+   if (OB_ISNULL(cptr)) {
+     ret = OB_ERR_NULL_VALUE;
+   } else if (OB_FAIL(j_buf.reserve(length + 2))) {
++  } else if (std::find_if(cptr, end, func) == end) {
++    // nothing to escape (the common case): quote and copy in one step, same bytes as the loop below
++    const uint64_t old_len = j_buf.length();
++    char *dst = j_buf.ptr() + old_len;
++    dst[0] = '"';
++    MEMCPY(dst + 1, cptr, length);
++    dst[length + 1] = '"';
++    if (OB_FAIL(j_buf.set_length(old_len + length + 2))) {
++    }
++    return ret;
+   } else if (OB_FAIL(j_buf.append("\""))) {
+   } else {
+-    ObFindEscapeFunc func;
+-    const char *const end = cptr + length;
+     while (true) {
+       // Find the location of the next escape character.
+       const char *next_special = std::find_if (cptr, end, func);
+diff --git a/src/oblib/common/json_type/ob_json_bin.cpp b/src/oblib/common/json_type/ob_json_bin.cpp
+index 998a13b..d6bfc05 100644
+--- a/src/oblib/common/json_type/ob_json_bin.cpp
++++ b/src/oblib/common/json_type/ob_json_bin.cpp
+@@ -351,6 +351,32 @@ int ObJsonBin::get_child_for_read(uint64_t index, ObJsonBin &child) const
+   return ret;
+ }
+ 
++int ObJsonBin::print_plain_string_element(uint64_t index, ObJsonBuffer &j_buf, bool &handled) const
++{
++  INIT_SUCC(ret);
++  handled = false;
++  uint64_t value_offset = 0;
++  uint8_t value_type = 0;
++  if (OB_FAIL(get_value_entry(index, value_offset, value_type))) {
++  } else if (J_STRING_V0 == value_type) {
++    // [vertype(uint8_t)][length(vi64)][data], see init_string_node_v0()
++    int64_t offset = pos_ + value_offset + sizeof(uint8_t);
++    int64_t str_len = 0;
++    ObString data;
++    if (OB_FAIL(cursor_->decode_vi64(offset, &str_len))) {
++    } else if (OB_FAIL(cursor_->get(offset, str_len, data))) {
++    } else if (0 == str_len) {
++      ret = j_buf.append("\"\"", 2, 0);
++    } else if (OB_ISNULL(data.ptr())) {
++      ret = OB_ERR_NULL_VALUE;
++    } else {
++      ret = ObJsonBaseUtil::add_double_quote(j_buf, data.ptr(), static_cast<uint64_t>(str_len));
++    }
++    handled = OB_SUCC(ret);
++  }
++  return ret;
++}
++
+ int ObJsonBin::get_object_value(uint64_t index, ObIJsonBase *&value) const
+ {
+   INIT_SUCC(ret);
+diff --git a/src/oblib/common/json_type/ob_json_bin.h b/src/oblib/common/json_type/ob_json_bin.h
+index 31512c8..ebea75b 100644
+--- a/src/oblib/common/json_type/ob_json_bin.h
++++ b/src/oblib/common/json_type/ob_json_bin.h
+@@ -601,6 +601,11 @@ public:
+   // copying this node or its node stack (read-only use such as printing; the child does not know
+   // its parent). Same element, type and data as get_array_element() / get_object_value(index).
+   int get_child_for_read(uint64_t index, ObJsonBin &child) const;
++  // Prints the index-th element of this J_ARRAY_V0 / J_OBJECT_V0 container in quoted form when it
++  // is a plain (non-inlined, non-forwarded) string, reading its length and bytes in place; the
++  // output is the same as get_child_for_read() followed by print(j_buf, true, ...). Sets handled to
++  // false and prints nothing for any other element type.
++  int print_plain_string_element(uint64_t index, ObJsonBuffer &j_buf, bool &handled) const;
+   int get_object_value(uint64_t index, ObIJsonBase *&value) const override;
+   int get_object_value(const ObString &key, ObIJsonBase *&value) const override;
+   int get_object_value(uint64_t index, ObString &key, ObIJsonBase *&value) const override;
