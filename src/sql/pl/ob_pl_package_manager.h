@@ -181,6 +181,10 @@ private:
   static int load_sys_package(ObMySQLProxy &sql_proxy,
                               const ObSysPackageFile &pack_file_info,
                               bool from_file);
+  static int exec_package_sql_with_retry_(common::ObMySQLProxy &sql_proxy,
+                                          const char *sql,
+                                          int64_t &affected_rows,
+                                          common::ObSessionParam &param);
   static int load_sys_package_list(common::ObMySQLProxy &sql_proxy,
                                    const ObSysPackageFile *sys_package_list,
                                    int sys_package_count,

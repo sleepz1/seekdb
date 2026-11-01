@@ -283,6 +283,34 @@ int ObPLPackageManager::read_package_sql(ObCharStream &stream, char* buf, int64_
   return ret;
 }
 
+// A DDL statement of a system package returns OB_EAGAIN when another DDL
+// committed a newer schema version while it was waiting for the DDL lock
+// (ObDDLSQLTransaction::start double check). The statement has not changed
+// anything, so execute the same statement again on the refreshed schema
+// instead of failing the whole package list, which the load task would only
+// restart from the first package after its next 3s timer tick.
+int ObPLPackageManager::exec_package_sql_with_retry_(ObMySQLProxy &sql_proxy,
+                                                     const char *sql,
+                                                     int64_t &affected_rows,
+                                                     ObSessionParam &param)
+{
+  int ret = OB_SUCCESS;
+  static const int64_t MAX_EAGAIN_RETRY = 20;
+  static const int64_t EAGAIN_RETRY_SLEEP_US = 10 * 1000;
+  for (int64_t retry = 0; retry <= MAX_EAGAIN_RETRY; ++retry) {
+    affected_rows = 0;
+    ret = sql_proxy.write(sql, affected_rows, &param);
+    if (OB_EAGAIN != ret || retry == MAX_EAGAIN_RETRY) {
+      break;
+    } else {
+      LOG_INFO("system package statement hit concurrent ddl, retry", K(ret), K(retry));
+      (void)ObSPIService::force_refresh_schema();
+      ob_usleep(EAGAIN_RETRY_SLEEP_US);
+    }
+  }
+  return ret;
+}
+
 int ObPLPackageManager::read_and_exec_package_sql(ObMySQLProxy &sql_proxy,
                                                   ObCharStream &stream)
 {
@@ -302,7 +330,7 @@ int ObPLPackageManager::read_and_exec_package_sql(ObMySQLProxy &sql_proxy,
         while (OB_SUCC(ret) && !eof) {
           if (FAILEDx(read_package_sql(stream, sql_buf, OB_MAX_SQL_LENGTH, eof))) {
           } else if (strlen(sql_buf) != 0
-                     && OB_FAIL(sql_proxy.write(sql_buf, affected_rows, &param))) {
+                     && OB_FAIL(exec_package_sql_with_retry_(sql_proxy, sql_buf, affected_rows, param))) {
           } else if (affected_rows != 0) {
             ret = OB_ERR_UNEXPECTED;
           } else {
