@@ -240,6 +240,8 @@ class ObGranuleUtil
 public:
   static constexpr int64_t PARTITION_SCAN_TABLETS_PER_WORKER = 64;
   static constexpr int64_t HASH_PARTITION_SCAN_TABLETS_PER_WORKER = 13;
+  // minimum scan tasks per worker when building an FTS index / doc-word aux table (tokenizing scan)
+  static constexpr int64_t FTS_DDL_TASKS_PER_WORKER = 4;
 
   /**
    *  table_partition_info  IN    partition info

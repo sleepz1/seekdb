@@ -224,6 +224,19 @@ int ObGranuleUtil::split_block_granule(ObExecContext &exec_ctx,
         params, total_size, esti_task_cnt_by_data_size))) {
     } else {
       esti_task_cnt_by_data_size += empty_partition_cnt;
+      // Building an FTS inverted / doc-word index tokenizes every scanned document, which costs
+      // far more CPU per byte than a plain scan, so the size based estimate (one task per
+      // px_task_size of compressed data) leaves a small table in one task and all but one scan
+      // worker idle. Give every worker a few tasks so the tokenization is spread over all of them.
+      // Only the scan ranges change; the index rows are fully ordered by the sort keys.
+      if (OB_NOT_NULL(tsc) && tsc->is_fts_ddl_ && parallelism > 1 && total_size > 0) {
+        const int64_t fts_ddl_min_task_cnt = parallelism * FTS_DDL_TASKS_PER_WORKER;
+        if (esti_task_cnt_by_data_size < fts_ddl_min_task_cnt) {
+          LOG_INFO("raise fts ddl scan task count", K(total_size), K(parallelism),
+                   K(esti_task_cnt_by_data_size), K(fts_ddl_min_task_cnt), "tsc_op_id", tsc->get_id());
+          esti_task_cnt_by_data_size = fts_ddl_min_task_cnt;
+        }
+      }
       // Ensure total task count is greater than or equal to the number of partitions
       if (esti_task_cnt_by_data_size < tablets.count()) {
         esti_task_cnt_by_data_size = tablets.count();
@@ -275,6 +288,9 @@ int ObGranuleUtil::split_block_granule(ObExecContext &exec_ctx,
           granule_tablets.count() != granule_ranges.count() ||
           granule_tablets.count() != granule_idx.count()) {
         ret = OB_ERR_UNEXPECTED;
+      } else if (OB_NOT_NULL(tsc) && tsc->is_fts_ddl_) {
+        LOG_INFO("fts ddl scan tasks", K(total_size), K(parallelism), K(esti_task_cnt_by_data_size),
+                 "task_cnt", granule_ranges.count(), "tsc_op_id", tsc->get_id());
       }
     }
   }

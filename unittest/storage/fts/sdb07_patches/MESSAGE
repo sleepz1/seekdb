@@ -1,1 +1,0 @@
-sdb07: split the data-table scan of an FTS index / doc-word build into at least 4 tasks per PX worker (the size based split left a small table in one task, so one worker tokenized every document while the others idled)
