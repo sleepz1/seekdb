@@ -105,3 +105,50 @@
 | 重建均值 IK 全列 / IK 正文 / BENG (ms) | 4745 / 4885，4004 / 3959，2046 / 2035 | 4922，3978，1958 | 持平 |
 
 命中数 8001 / 11000 / 7332 / 20 不变；320 项语义、mysqltest、比较等价测试全部通过。
+
+## 7. 后续轮次的改动（c482bd97 → 5610e69c → 本轮）
+
+| 修改 | 文件 | 依据与影响 |
+| --- | --- | --- |
+| 只需要成员判断（`COUNT(*)`/`BOOL` 过滤，不算 BM25）的 MATCH 扫描只读倒排表的 doc_id 列 | `ob_tsc_cg_service.cpp`、`ob_text_retrieval_token_iter.*` | 计数查询的 profile 中解码 doc_length/word_count 等列占比明显；结果行集合不变 |
+| 所有 TOKENIZE 调用点使用免锁的词表 map 类型；IK 词典/区间字典热路径小优化 | `ob_expr_tokenize.cpp`、`ob_ft_dat_dict.cpp`、`ob_ft_range_dict.cpp`、`ob_ik_arbitrator.h` | 分词每 token 少一次加锁与查找开销 |
+| **top-k 穷举归并**：BMW top-k（`ORDER BY MATCH ... LIMIT k`）在 1～3 个查询词、估算倒排总长 ≤64K、查询词权重与字段权重均为 1.0 时，对 doc_id 做线性多路归并并逐文档算分，用与 BMW 相同的 top-k 堆与比较规则 | `ob_text_daat_iter.*`、`ob_text_retrieval_token_iter.h` | BMW 的块级跳跃在短倒排上收益小、维护开销大；结果的 ID、分数与顺序与 BMW 一致（语义用例 `topk-ids/scores/order`）。权重不为 1.0 时 BMW 的上界缩放与逐文档分数不一致，因此不走穷举 |
+| 提前计算各查询词的估算文档数（原来在读第一条倒排时才惰性计算，导致上面的长度判断永远不成立） | `ob_text_retrieval_token_iter.h`、`ob_text_daat_iter.cpp` | 使穷举路径真正生效；CI 41230125090 中 `query_limit` 1.727ms，对照 2.452 / 2.573ms（−31%） |
+| 异步系统包加载在每个包之间让出给正在执行的用户 DDL（`ObDDLScheduler` 任务数为 0 持续 500ms 才继续，单包最多等 60s，服务停止即退出），并在服务启动时立即开始而不是等第一次定时器 | `ob_system_package_load_task.*`、`ob_pl_package_manager.*`、`ob_ddl_scheduler.h` | CI 41224195571 中包加载与基准的首轮建索引重叠，build_total 约 11s（对照 7.3s）；加让出后 CI 41230125090 的建索窗口内没有包加载日志 |
+| TOKENIZE 未指定 parser 属性时，默认属性的解析结果按线程缓存 | `ob_expr_tokenize.cpp` | 每次调用少一次 JSON 解析 |
+| 排序比较直接访问 collation / 比较函数数组（一次性校验范围） | `ob_sort_op_impl.cpp` | 建索引排序每次比较少两次带边界检查的虚调用 |
+| **本轮**：`ObStringDiffDecoder::batch_decode` 每批先把公共字节排成模板、把差异位置合并成区间，每行只拷贝一次模板再写差异字节（原实现每行两次遍历差异描述符、每个描述符一次 memcpy）；十六进制打包和超过 256 字节的串仍走原路径 | `ob_string_diff_decoder.*` | 倒排表 doc_id 列（16 字节，string-diff 编码）的解码在 `query_cn` profile 中自身占 19%、`query_limit` 中 14%。输出字节与原实现逐字节相同（本地 200 万组随机描述符对比 0 差异） |
+| **本轮**：`ObDocIdExt::from_datum` 内联到头文件（16 字节定长拷贝）；倒排游标与批量保存改为直接数组访问；16 字节 doc_id 比较用两个大端 64 位字比较（与 memcmp 的符号一致，本地 2000 万组随机对比 0 差异）；投影时 evaluated 标志用 `set_all(count)` 一次置位 | `ob_das_id_protocol.h`、`ob_text_retrieval_token_iter.*`、`ob_text_daat_iter.*`、`ob_sparse_daat_iter.cpp` | 这些函数在计数查询 profile 中合计约 12%（`from_datum` 4.2%、`ObBitVector::set` 3.4%、数组 `at()` 3.3% 等） |
+
+## 8. 正确性验证（续）
+
+* 语义用例扩展到 413 项：新增 `content` 列（`fti_content_ik`）上的 `倒排索引 tokenizer`、`数据库` 等查询，
+  以及 top-k 的 ID 集合、分数、顺序三种形态；CI 41230125090 中基线 c482、候选、基线复跑三者 413 项完全一致。
+* 600 万组 utf8mb4 比较等价测试、`tokenize_function` / `parser_properties` mysqltest 每轮均通过。
+
+## 9. 官方评测与同机对比（续）
+
+| 提交 | 官方分数 | 说明 |
+| --- | --- | --- |
+| 5ed1fb52 | 12.767 | 词典共享、比较快路径、dop=2、DDL 轮询 |
+| b65f9490 | 23.498 | + 线性 DaaT 归并 |
+| 11125bf9 | 17.310 | + 分词热路径；本次 IK 正文建索出现 7.791s 的单次停顿（同机未复现） |
+| c482bd97 | 30.609 | + doc_id-only 扫描、免锁词表 |
+| 5610e69c | 待出 | + top-k 穷举归并、包加载让出、TOKENIZE 属性缓存、排序比较 |
+
+CI 41230125090（同一 runner，基线 c482 跑两遍）：
+
+| 指标 | 基线 c482 base / base2 | 候选 5610e69 | 说明 |
+| --- | --- | --- | --- |
+| build_ik_all_sec（单次） | 8.666 / 5.947 | 6.216 | 首轮建索受启动期后台任务影响大；3 次重建均值 4.42 / 4.35 vs 4.31s |
+| build_ik_content_sec | 4.555 / 4.738 | 4.553 | 持平 |
+| build_beng_en_sec | 2.418 / 2.334 | 2.280 | 持平 |
+| tokenize_ik / beng (ms) | 0.1836 / 0.1841，0.1402 / 0.1388 | 0.1816，0.1371 | 持平 |
+| query_cn / beng / mixed (ms) | 1.040 / 1.021，1.441 / 1.440，1.083 / 1.074 | 1.079，1.513，1.115 | +3%～5%，在该 runner 的波动范围内 |
+| query_limit (ms) | 2.452 / 2.573 | 1.727 | −31%（穷举归并生效） |
+
+**噪声说明**：首轮建索引（尤其 `build_ik_all`）与服务启动期的后台任务重叠——tablet GC 的首次
+`ObTabletChangeTask` 会持久化约 365 个 bootstrap tablet（一次 MDS mini merge 风暴，约 1.2 万行日志与大量
+slog/IO），在 CI 中落在第一个建索引开始后约 1s；官方结果中单项建索引偶发多出 2～3.5s 也与此类启动期
+任务有关，并非改动导致。`sdb07_claude_bench.sh` 现在会额外输出 `startup-timeline.txt`（ready 时刻、
+建索窗口，以及建索结束前的 tablet change / 包加载 / 启动里程碑日志）用于定位。

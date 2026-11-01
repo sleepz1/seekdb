@@ -126,6 +126,7 @@ run_variant() {
   rm -rf "$INSTANCE"
   python3 .github/script/seekdb/sdb.py start --binary "$ROOT/build_release/src/observer/seekdb" --base-dir "$INSTANCE" --port 2881 --parameter memory_limit=4G --parameter datafile_size=2G --parameter log_disk_size=2G
   python3 .github/script/seekdb/sdb.py wait-ready --client "$CLIENT" --base-dir "$INSTANCE" --host 127.0.0.1 --port 2881 --user root --timeout 180
+  echo "ready $(date '+%Y-%m-%d %H:%M:%S.%6N')" > "$dir/startup-timeline.txt"
   LABEL=$label ROWS=20000 BATCH=500 ROUNDS=3000 QUERY_ROUNDS=200 SAMPLES=3 WARMUP=30 SKIP_LOAD=0 OUTPUT="$dir/report.txt" bash tools/benchmark/fts_large_bench.sh > "$dir/benchmark.log" 2>&1 &
   local bench_pid=$! b3="" b4=""
   # Wall-clock window of the benchmark's index build phase ([3/5] .. [4/5]) to keep the server
@@ -142,6 +143,12 @@ run_variant() {
       | head -600000 | gzip > "$dir/bench-build-log.gz" || true
     cat "$INSTANCE"/log/rootservice.log* "$INSTANCE"/log/seekdb.log.wf* 2>/dev/null | awk -v s="[$b3" -v e="[$b4" 'substr($0,1,28) >= s && substr($0,1,28) <= e' \
       | head -200000 | gzip > "$dir/bench-build-rs-wf.gz" || true
+    echo "build_window $b3 $b4" >> "$dir/startup-timeline.txt"
+    # Startup background work up to the end of the build phase: tablet change persist rounds,
+    # system package loading, bootstrap / service start milestones.
+    cat "$INSTANCE"/log/seekdb.log* 2>/dev/null | awk -v e="[$b4" 'substr($0,1,28) <= e' \
+      | grep -E "tabletchange\]|get unpersist_tablet_ids\(|need try|load sys package list|load all common sys package|yielded to user ddl|bootstrap succ|finish bootstrap|start_service|start service|observer start service" \
+      | cut -c1-400 | head -3000 >> "$dir/startup-timeline.txt" || true
   fi
   python3 tools/benchmark/fts_large_bench_score.py "$dir/report.txt" --json > "$dir/repository-score.json" 2>&1
   notice "$label metrics" "$(grep -E '_sec:|_avg_ms:|_hits:' "$dir/report.txt" | tr -s ' ' | tr '\n' ';')"
