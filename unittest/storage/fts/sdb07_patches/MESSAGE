@@ -1,0 +1,1 @@
+sdb07: give the FTS inverted / doc-word aux index builds 3 PX workers on a 4..7-core server and 4 on a >=8-core server (was 2), now that their scans are split into several tasks per worker so every worker scans and tokenizes

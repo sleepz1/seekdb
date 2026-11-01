@@ -1,3 +1,3 @@
-base f50378a6 0
-cand HEAD 1
-base2 f50378a6 0
+base 150f5c27 0
+cand HEAD 0
+base2 150f5c27 0
