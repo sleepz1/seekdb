@@ -3287,7 +3287,11 @@ int ObIJsonBase::print_array(ObJsonBuffer &j_buf, uint64_t depth, bool is_pretty
       if (i > 0 && OB_FAIL(ObJsonBaseUtil::append_comma(j_buf, is_pretty))) {
       } else if (is_pretty && OB_FAIL(ObJsonBaseUtil::append_newline_and_indent(j_buf, depth))) {
       } else if (read_bin_child) {
-        if (OB_FAIL(static_cast<const ObJsonBin *>(this)->get_child_for_read(i, child_bin))) {
+        const ObJsonBin *bin = static_cast<const ObJsonBin *>(this);
+        bool handled = false;
+        if (OB_FAIL(bin->print_plain_string_element(i, j_buf, handled))) {
+        } else if (handled) {
+        } else if (OB_FAIL(bin->get_child_for_read(i, child_bin))) {
         } else if (OB_FAIL(child_bin.print(j_buf, true, 0, is_pretty, depth))) {
         }
       } else {
@@ -3344,7 +3348,11 @@ int ObIJsonBase::print_object(ObJsonBuffer &j_buf, uint64_t depth, bool is_prett
         } else if (OB_FAIL(pint_colon(j_buf, is_pretty))) {
         } else if (OB_FAIL(j_buf.append(" "))) {
         } else if (read_bin_child) {
-          if (OB_FAIL(static_cast<const ObJsonBin *>(this)->get_child_for_read(i, child_bin))) {
+          const ObJsonBin *bin = static_cast<const ObJsonBin *>(this);
+          bool handled = false;
+          if (OB_FAIL(bin->print_plain_string_element(i, j_buf, handled))) {
+          } else if (handled) {
+          } else if (OB_FAIL(bin->get_child_for_read(i, child_bin))) {
           } else if (OB_FAIL(child_bin.print(j_buf, true, 0, is_pretty, depth))) {
           }
         } else {
@@ -6077,13 +6085,23 @@ int ObJsonBaseUtil::add_double_quote(ObJsonBuffer &j_buf, const char *cptr, uint
 {
   INIT_SUCC(ret);
 
+  ObFindEscapeFunc func;
+  const char *const end = (NULL == cptr) ? NULL : cptr + length;
   if (OB_ISNULL(cptr)) {
     ret = OB_ERR_NULL_VALUE;
   } else if (OB_FAIL(j_buf.reserve(length + 2))) {
+  } else if (std::find_if(cptr, end, func) == end) {
+    // nothing to escape (the common case): quote and copy in one step, same bytes as the loop below
+    const uint64_t old_len = j_buf.length();
+    char *dst = j_buf.ptr() + old_len;
+    dst[0] = '"';
+    MEMCPY(dst + 1, cptr, length);
+    dst[length + 1] = '"';
+    if (OB_FAIL(j_buf.set_length(old_len + length + 2))) {
+    }
+    return ret;
   } else if (OB_FAIL(j_buf.append("\""))) {
   } else {
-    ObFindEscapeFunc func;
-    const char *const end = cptr + length;
     while (true) {
       // Find the location of the next escape character.
       const char *next_special = std::find_if (cptr, end, func);
