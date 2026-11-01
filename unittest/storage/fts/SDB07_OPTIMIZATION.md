@@ -384,3 +384,29 @@ CI 41322323389（base / base2 = 869f573，cand = f50378a）：语义对比 413 �
 
 cand 的 TOKENIZE profile 中打印路径降到约 1.2%，但 runner 上 TOKENIZE 单条耗时主要是客户端往返与 SQL 公共开销，
 端到端只快约 1~2%；建索引快约 2%，都在噪声量级内，作为小幅净收益保留。
+
+## 18. FTS DDL 扫描按 worker 拆分任务（150f5c27，补丁 18）
+
+瓶颈：建索的倒排 / doc-word 两个子任务都是 `parallel(2)`，但 docs 表统计只有约 2MB，`ObGranuleUtil::split_block_granule`
+按块大小只切出 1 个扫描分片，所以每个子任务只有一个 PX worker 在扫描 + 分词，另一个 worker 空等到排序阶段
+（ddl 日志中每个子任务只有一个 "producer" 线程）。这也是补丁 16（DOP 3）没有收益的原因。
+
+修改：`split_block_granule` 在 `tsc->is_fts_ddl_ && parallelism > 1` 时把任务数提高到 `parallelism * 4`
+（只影响 FTS 建索的扫描切分，普通查询不变）。分片只决定哪个 worker 扫哪段主表，词行随后按 (word, doc_id) /
+(doc_id, word) 全局排序写入，索引内容不变。
+
+CI 41326051060（base / base2 = f50378a）：语义 413 条一致，mysqltest PASS；日志确认每个子任务 8 个扫描任务、
+2 个 worker 都在分词。重建三次平均 ik_all 2242 vs 2304 / 2306 ms，ik_content 1877 vs 1921 / 1926 ms，beng 持平。
+4 vCPU runner 本身已被两个子任务的 4 个 worker 占满，所以同机只快约 2.5%。
+
+官方评测 150f5c27 = 49.688（f50378a 为 46.848）：首轮建索 3.392 / 2.526 / 1.435s（f50378a 为 4.592 / 3.366 / 1.860s），
+降 26%~29%；TOKENIZE 与查询持平。官方机核数多于 runner，空闲 worker 被用起来后收益明显更大。
+
+## 19. 倒排 / doc-word 建索默认并行度按核数取（补丁 19、20）
+
+补丁 19 把默认 DOP 改为 4~7 核 3、>=8 核 4。CI 41330095945（base / base2 = 150f5c27）：语义 413 条一致，mysqltest
+PASS；但 4 vCPU runner 上 DOP 3 的重建反而更慢：ik_all 2826 vs 2675 / 2651 ms，ik_content 2423 vs 2293 / 2293 ms，
+beng 1334 vs 1278 / 1305 ms（两个子任务 6 个 worker 超过 4 个核）。
+
+补丁 20 改为两个并发子任务合计约每核一个 worker：DOP = min(cpu_count / 2, 4)（>= 4 核时生效，最少 2）。
+4 vCPU 上仍为 2，与 150f5c27 相同；6~7 核为 3，>= 8 核为 4。索引内容由排序键决定，与 DOP 无关。

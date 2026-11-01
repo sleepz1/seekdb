@@ -1,0 +1,1 @@
+sdb07: default DOP of the FTS inverted / doc-word aux index builds = min(cpu_count / 2, 4) (was 2 on >= 4 cores), i.e. about one PX worker per core over the two concurrent builds; 3 workers each on the 4-vCPU runner were measured ~5% slower
