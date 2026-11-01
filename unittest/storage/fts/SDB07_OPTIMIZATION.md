@@ -267,3 +267,32 @@ sys PL id 只有 31 万到 50 万这一段，批量取小一些），`check_use_
 仍回退到原来的逐个取 id。这样一次包加载的 117 次 id 事务变成 1 次，每条包语句持有串行锁的时间
 从“id 个数 × 一次提交”降为一两次提交。这是引擎通用路径的改动，不涉及全文索引的语义，
 也不改变包加载的时机：包加载仍按原样在后台异步执行。
+
+CI 41302360111（base / base2 = c7d8bd80，cand = 0845d6f；本次 runner 整体比之前慢约 3 倍，tokenize 0.18ms）：
+语义对比 413 条全部与父提交一致，mysqltest `tokenize_function` / `parser_properties` 三个变体均 PASS。
+日志确认 sys PL id 走缓存（从 310001 起一次预留），cand 的 ALTER 发出后立刻开始执行，不再排在串行锁后面。
+
+| 指标 | base | cand | base2 |
+| --- | --- | --- | --- |
+| build ik_all (s) | 5.653 | 8.806 | 8.047 |
+| build ik_content (s) | 4.483 | 5.005 | 4.766 |
+| build beng (s) | 2.457 | 2.320 | 2.401 |
+| tokenize ik / beng (ms) | 0.1832 / 0.1307 | 0.1776 / 0.1412 | 0.1747 / 0.1293 |
+| query cn / beng / mixed / limit (ms) | 0.670 / 0.858 / 0.703 / 1.327 | 0.657 / 0.871 / 0.688 / 1.246 | 0.654 / 0.858 / 0.689 / 1.244 |
+
+首轮 ik_all 在 cand 与 base2 上仍然偏慢，重建耗时三者一致。cand 日志显示剩下的停顿来自另一处：
+包加载的 `dbms_ischeduler` 语句在等运行时 DDL 锁之后返回 -4023 并整体失败，3s 后从第一个包重新加载；
+同时基准 DDL 任务的 `create_aux_index` 也因为包语句提交了新的 schema 版本而收到 -4023，重试两次（44.61 → 45.26）。
+见第 15 节。
+
+## 15. 系统包语句遇到并发 DDL 时原地重试（0845d6f 之后）
+
+`ObDDLSQLTransaction::start` 在拿到运行时 DDL 锁后会复核 schema 版本：如果等锁期间别的 DDL 已经提交，
+就返回 OB_EAGAIN（语句尚未修改任何东西）。用户会话里的 DDL 会被重试，但系统包加载走内部 SQL，
+`read_and_exec_package_sql` 直接把 -4023 返回给 `load_sys_package_list`，整个包列表失败；
+`ObSystemPackageLoadTask` 3s 后从第一个包开始全部重新执行 `CREATE OR REPLACE`。基准建索期间正好有大量 DDL
+提交，因此这一轮又一轮的重试会把包加载拖得更长，每一轮都在和建索的 DDL 任务争同一把锁、相互触发 -4023。
+
+修改：`ObPLPackageManager::exec_package_sql_with_retry_` 在单条包语句返回 OB_EAGAIN 时刷新 schema，
+10ms 后原地重新执行同一条语句（最多 20 次，其他错误码与原来一样直接返回）。语句内容和执行顺序不变，
+包加载仍按原来的时机在后台执行，只是不再因为一次并发冲突重做前面已经成功的包，减少了它与建索争锁的总时长。

@@ -1,0 +1,1 @@
+sdb07: retry a system package statement in place when it returns OB_EAGAIN after waiting for the DDL lock (schema changed by a concurrent DDL) instead of failing the whole package list and reloading every package 3s later; docs: CI 41302360111 evidence for patch 13 and section 15
