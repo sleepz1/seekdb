@@ -1,0 +1,1 @@
+sdb07 experiment: JSON printing positions one reused child on each element of a binary array/object instead of cloning the container and its node stack per element; parsed fulltext parser properties are cached per thread for the last (parser, properties) input
