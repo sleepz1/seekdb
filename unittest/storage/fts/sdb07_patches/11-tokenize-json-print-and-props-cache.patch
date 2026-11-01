@@ -1,0 +1,166 @@
+diff --git a/src/data_plane/api/data_plane/fts/ob_fts_parser_property.h b/src/data_plane/api/data_plane/fts/ob_fts_parser_property.h
+index b22bd2f..267c58d 100644
+--- a/src/data_plane/api/data_plane/fts/ob_fts_parser_property.h
++++ b/src/data_plane/api/data_plane/fts/ob_fts_parser_property.h
+@@ -137,6 +137,7 @@ public:
+   ObFTParserProperty();
+   ~ObFTParserProperty() = default;
+   int parse_for_parser_helper(const ObFTParser &parser, const ObString &json_str);
++  int parse_for_parser_helper_uncached(const ObFTParser &parser, const ObString &json_str);
+ 
+   bool is_equal(const ObFTParserProperty &other) const
+   {
+diff --git a/src/oblib/common/json_type/ob_json_base.cpp b/src/oblib/common/json_type/ob_json_base.cpp
+index 127dba6..210d365 100644
+--- a/src/oblib/common/json_type/ob_json_base.cpp
++++ b/src/oblib/common/json_type/ob_json_base.cpp
+@@ -3278,9 +3278,18 @@ int ObIJsonBase::print_array(ObJsonBuffer &j_buf, uint64_t depth, bool is_pretty
+   if (OB_FAIL(j_buf.append("["))) {
+   } else {
+     uint64_t arr_size = element_count();
++    // binary arrays: one child positioned directly on each element (as the binary deserializer
++    // does) instead of cloning this node and its node stack for every element
++    const bool read_bin_child = is_bin()
++        && ObJBVerType::J_ARRAY_V0 == static_cast<const ObJsonBin *>(this)->get_vertype();
++    ObJsonBin child_bin(allocator_);
+     for (uint64_t i = 0; OB_SUCC(ret) && i < arr_size; ++i) {
+       if (i > 0 && OB_FAIL(ObJsonBaseUtil::append_comma(j_buf, is_pretty))) {
+       } else if (is_pretty && OB_FAIL(ObJsonBaseUtil::append_newline_and_indent(j_buf, depth))) {
++      } else if (read_bin_child) {
++        if (OB_FAIL(static_cast<const ObJsonBin *>(this)->get_child_for_read(i, child_bin))) {
++        } else if (OB_FAIL(child_bin.print(j_buf, true, 0, is_pretty, depth))) {
++        }
+       } else {
+         ObIJsonBase *jb_ptr = NULL;
+         ObJsonBin j_bin(allocator_);
+@@ -3319,6 +3328,10 @@ int ObIJsonBase::print_object(ObJsonBuffer &j_buf, uint64_t depth, bool is_prett
+   } else {
+     bool is_first = true;
+     uint64_t count = element_count();
++    // see print_array
++    const bool read_bin_child = is_bin()
++        && ObJBVerType::J_OBJECT_V0 == static_cast<const ObJsonBin *>(this)->get_vertype();
++    ObJsonBin child_bin(allocator_);
+     for (uint64_t i = 0; OB_SUCC(ret) && i < count; i++) {
+       if (!is_first && OB_FAIL(ObJsonBaseUtil::append_comma(j_buf, is_pretty))) {
+       } else {
+@@ -3330,6 +3343,10 @@ int ObIJsonBase::print_object(ObJsonBuffer &j_buf, uint64_t depth, bool is_prett
+         } else if (!key.empty() && OB_FAIL(ObJsonBaseUtil::append_string(j_buf, true, key.ptr(), key.length()))) { // key
+         } else if (OB_FAIL(pint_colon(j_buf, is_pretty))) {
+         } else if (OB_FAIL(j_buf.append(" "))) {
++        } else if (read_bin_child) {
++          if (OB_FAIL(static_cast<const ObJsonBin *>(this)->get_child_for_read(i, child_bin))) {
++          } else if (OB_FAIL(child_bin.print(j_buf, true, 0, is_pretty, depth))) {
++          }
+         } else {
+           ObIJsonBase *jb_ptr = NULL;
+           ObJsonBin j_bin(allocator_);
+diff --git a/src/oblib/common/json_type/ob_json_bin.cpp b/src/oblib/common/json_type/ob_json_bin.cpp
+index 9012969..998a13b 100644
+--- a/src/oblib/common/json_type/ob_json_bin.cpp
++++ b/src/oblib/common/json_type/ob_json_bin.cpp
+@@ -338,6 +338,19 @@ int ObJsonBin::get_array_element(uint64_t index, ObIJsonBase *&value) const
+   return ret;
+ }
+ 
++int ObJsonBin::get_child_for_read(uint64_t index, ObJsonBin &child) const
++{
++  INIT_SUCC(ret);
++  const ObJBVerType vertype = get_vertype();
++  if (ObJBVerType::J_ARRAY_V0 != vertype && ObJBVerType::J_OBJECT_V0 != vertype) {
++    ret = OB_OBJ_TYPE_ERROR;
++  } else if (index >= get_element_count()) {
++    ret = OB_OUT_OF_ELEMENT;
++  } else if (OB_FAIL(get_value(index, child))) {
++  }
++  return ret;
++}
++
+ int ObJsonBin::get_object_value(uint64_t index, ObIJsonBase *&value) const
+ {
+   INIT_SUCC(ret);
+diff --git a/src/oblib/common/json_type/ob_json_bin.h b/src/oblib/common/json_type/ob_json_bin.h
+index a308130..31512c8 100644
+--- a/src/oblib/common/json_type/ob_json_bin.h
++++ b/src/oblib/common/json_type/ob_json_bin.h
+@@ -597,6 +597,10 @@ public:
+   }
+   
+   int get_array_element(uint64_t index, ObIJsonBase *&value) const override;
++  // Positions child on the index-th element of this J_ARRAY_V0 / J_OBJECT_V0 container without
++  // copying this node or its node stack (read-only use such as printing; the child does not know
++  // its parent). Same element, type and data as get_array_element() / get_object_value(index).
++  int get_child_for_read(uint64_t index, ObJsonBin &child) const;
+   int get_object_value(uint64_t index, ObIJsonBase *&value) const override;
+   int get_object_value(const ObString &key, ObIJsonBase *&value) const override;
+   int get_object_value(uint64_t index, ObString &key, ObIJsonBase *&value) const override;
+diff --git a/src/storage/fts/ob_fts_parser_property.cpp b/src/storage/fts/ob_fts_parser_property.cpp
+index 4dd1845..4b3c857 100644
+--- a/src/storage/fts/ob_fts_parser_property.cpp
++++ b/src/storage/fts/ob_fts_parser_property.cpp
+@@ -1013,7 +1013,65 @@ int ObFTParserJsonProps::show_parser_properties(const ObFTParserJsonProps &prope
+ 
+ #undef __FT_PARSER_PROPERTY_SHOW_COMMA
+ 
++namespace
++{
++// parse_for_parser_helper() is a pure function of (parser, json_str) that writes a parser
++// specific subset of the fields; TOKENIZE and fulltext DML run it once per statement or row with
++// the same properties. Each thread keeps the last successful input and its result.
++struct ParserPropertyParseCache
++{
++  ParserPropertyParseCache() : valid_(false), parser_(), props_len_(0), result_() {}
++  bool valid_;
++  ObFTParser parser_;
++  int64_t props_len_;
++  char props_[1024];
++  ObFTParserProperty result_;
++};
++thread_local ParserPropertyParseCache tl_parser_property_parse_cache;
++
++// copies exactly the fields parse_for_parser_helper sets for this parser
++void assign_parsed_fields(const ObFTParser &parser, const ObFTParserProperty &src, ObFTParserProperty &dst)
++{
++  if (parser.is_ik()) {
++    dst.dict_table_ = src.dict_table_;
++    dst.stopword_table_ = src.stopword_table_;
++    dst.quantifier_table_ = src.quantifier_table_;
++    dst.ik_mode_smart_ = src.ik_mode_smart_;
++  } else if (parser.is_space() || parser.is_beng()) {
++    dst.min_token_size_ = src.min_token_size_;
++    dst.max_token_size_ = src.max_token_size_;
++  } else if (parser.is_ngram()) {
++    dst.ngram_token_size_ = src.ngram_token_size_;
++  } else if (parser.is_ngram2()) {
++    dst.min_ngram_token_size_ = src.min_ngram_token_size_;
++    dst.max_ngram_token_size_ = src.max_ngram_token_size_;
++  }
++}
++} // namespace
++
+ int ObFTParserProperty::parse_for_parser_helper(const ObFTParser &parser, const ObString &json_str)
++{
++  int ret = OB_SUCCESS;
++  ParserPropertyParseCache &cache = tl_parser_property_parse_cache;
++  const bool cacheable = json_str.length() <= static_cast<int64_t>(sizeof(cache.props_));
++  if (cacheable && cache.valid_ && cache.parser_ == parser && cache.props_len_ == json_str.length()
++      && (0 == json_str.length() || 0 == MEMCMP(cache.props_, json_str.ptr(), json_str.length()))) {
++    assign_parsed_fields(parser, cache.result_, *this);
++  } else if (OB_FAIL(parse_for_parser_helper_uncached(parser, json_str))) {
++  } else if (cacheable) {
++    cache.valid_ = false;
++    cache.parser_ = parser;
++    cache.props_len_ = json_str.length();
++    if (json_str.length() > 0) {
++      MEMCPY(cache.props_, json_str.ptr(), json_str.length());
++    }
++    cache.result_ = *this;
++    cache.valid_ = true;
++  }
++  return ret;
++}
++
++int ObFTParserProperty::parse_for_parser_helper_uncached(const ObFTParser &parser, const ObString &json_str)
+ {
+   int ret = OB_SUCCESS;
+   ObFTParserJsonProps props;

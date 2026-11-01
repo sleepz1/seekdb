@@ -135,7 +135,7 @@
 | 11125bf9 | 17.310 | + 分词热路径；本次 IK 正文建索出现 7.791s 的单次停顿（同机未复现） |
 | c482bd97 | 30.609 | + doc_id-only 扫描、免锁词表 |
 | 5610e69c | 32.409 | + top-k 穷举归并、包加载让出、TOKENIZE 属性缓存、排序比较；`query_limit` 1.4311→0.9625ms（−33%），另外三条查询 +6%～7%，建索/分词持平 |
-| d5565d28 | 待出 | + string-diff 模板解码、16 字节 doc_id 内联拷贝/比较 |
+| d5565d28 | 45.202 | + string-diff 模板解码、16 字节 doc_id 内联拷贝/比较；官方四条查询 0.351/0.490/0.377/0.782ms，比 5610e69c 快 19%～34%，建索/分词在波动范围内 |
 
 CI 41230125090（同一 runner，基线 c482 跑两遍）：
 
@@ -174,3 +174,30 @@ slog/IO），在 CI 中落在第一个建索引开始后约 1s；官方结果中
 | **回退**包加载“让出给用户 DDL / 启动即加载”（恢复 c482bd97 的行为） | `ob_system_package_load_task.*`、`ob_pl_package_manager.*`、`ob_ddl_scheduler.h` | 官方 5610e69c 中建索引没有变快（5.187/3.935/2.067s vs c482 的 5.247/3.924/2.041s），三条计数查询反而慢 6%～7%；让出会把后台包加载推迟到 TOKENIZE/MATCH 阶段。收益未得到证实，改回官方已测过的行为 |
 | **请求队列短自旋**：刚处理完一个请求的工作线程在阻塞到 futex 之前，最多 100µs 轮询请求队列（每 32 次 `PAUSE` 让出一次 CPU，同一时刻最多一个线程自旋） | `ob_server_runtime.*`、`ob_th_worker.cpp` | TOKENIZE 的 profile 中约 10% 是 futex 唤醒/上下文切换；单连接逐条执行时，下一条请求通常在几十微秒内到达。与 SQL 语义无关，对所有短请求（含 SELECT 1）同样生效。实验 CI 41267131098：tokenize_ik 0.2137/0.2124→0.1944ms（−9%），tokenize_beng 0.1629/0.1642→0.1391ms（−15%），3 个采样组全部低于基线；查询持平；413 项语义一致 |
 | **DDL 等待期的健康检查降频**：索引构建子任务等待已提交的补数据作业、FTS 父任务等待子任务时，`check_health` 中重读任务记录（`SELECT … FOR UPDATE` 事务）以及父任务对子任务错误信息表的查询，从每 10ms 一次改为最多每 100ms 一次；作业/子任务完成仍在每轮的内存检查中发现（`check_local_build`、`on_child_task_finish`） | `ob_ddl_task.*`、`ob_index_build_task.cpp`、`ob_fts_index_build_task.*` | 建索引 profile 中 DDL 调度线程占全部 CPU 采样约 5%（`check_health`、`get_ddl_error_message`、`select_for_update`），与 PX 建索线程争用 CPU；完成检测延迟不变，只有外部取消的发现可能晚至 100ms |
+
+CI 41271498726（同一 runner，基线 d5565d28 跑两遍）验证上表三项：413 项语义完全一致；tokenize_ik / beng
+0.0659 / 0.0657、0.0440 / 0.0481 → 0.0615、0.0397ms（−7% / −14%），select1 0.033→0.0255ms；四条查询持平或略快；
+建索 3 次重建均值持平（健康检查降频为中性）。本次 base2 与候选的首轮 ik_all 都出现约 9.5s 的启动期停顿（base 为 4.9s），
+与代码无关。
+
+## 12. TOKENIZE 结果打包与解析器属性（f39b4553 之后）
+
+TOKENIZE 的 profile（`tokenize_ik`，CI 41271498726 候选）中：JSON 结果打印占 8.15% 采样（其中
+`ObJsonBin::get_array_element` 4.22%、`create_new_binary` 2.53%——打印二进制数组时每个元素都复制一份容器和
+节点栈），`ObFTParseHelper::init` 3.09%（每次调用都重新解析同一个属性 JSON），`pack_json_res` 3.47%。
+
+| 修改 | 文件 | 依据与影响 |
+| --- | --- | --- |
+| **JSON 打印复用子节点**：`ObIJsonBase::print_array/print_object` 遇到二进制容器时，用一个复用的 `ObJsonBin` 子对象依次定位到每个元素（新增 `ObJsonBin::get_child_for_read`，内部即原有的 `get_value`），不再为每个元素克隆容器与节点栈；非二进制（tree）路径不变 | `ob_json_bin.*`、`ob_json_base.cpp` | 输出字节与原实现一致（413 项语义含 TOKENIZE 的默认/`detail`/对象模式输出，全部一致；`tokenize_function` mysqltest 通过） |
+| **解析器属性解析结果按线程缓存**：`ObFTParserProperty::parse_for_parser_helper` 以（解析器类型，属性串 ≤1KB）为键缓存上一次的解析结果，命中时直接赋值解析出的字段；未命中或属性串过长时走原实现 `parse_for_parser_helper_uncached` | `ob_fts_parser_property.*` | 缓存的是属性配置的解析结果（与输入文本无关），不缓存任何分词结果；属性非法时照常报错且不写缓存；`parser_properties` mysqltest 通过 |
+
+实验 CI 41272766847（同一 runner，基线 f39b4553 跑两遍；该 runner 整体比上一轮慢约 3 倍）：
+
+| 指标 | 基线 base / base2 | 候选 | 变化 |
+| --- | --- | --- | --- |
+| tokenize_ik (ms) | 0.1956 / 0.1964 | 0.1729 | −12% |
+| tokenize_beng (ms) | 0.1420 / 0.1487 | 0.1390 | −2%～−7% |
+| query_cn / beng / mixed / limit (ms) | 0.667 / 0.651，0.859 / 0.893，0.723 / 0.674，1.266 / 1.240 | 0.713，0.827，0.675，1.250 | 噪声内（不涉及查询路径） |
+| 建索重建均值 ik_all / ik_content / beng (ms) | 4517 / 3767 / 1915 | 4225 / 3819 / 1902 | 持平 |
+
+413 项语义三者一致，600 万组比较等价 0 差异，两项 mysqltest 通过。
