@@ -1,0 +1,128 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'task-clock:ppp'
+# Event count (approx.): 1290290289
+#
+# Children      Self  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+# ........  ........  ..............................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    78.59%     0.00%  [.] oceanbase::lib::Thread::__th_start(void*)
+    78.59%     0.00%  [.] oceanbase::lib::Thread::run()
+    78.59%     0.00%  [.] 0x00007f5f5d294a83
+    78.36%     0.00%  [.] non-virtual thunk to oceanbase::omt::ObThWorker::run(long)
+    78.04%     0.16%  [.] oceanbase::omt::ObThWorker::worker(long&, long&, int&)
+    39.26%     0.00%  [.] oceanbase::omt::ObThWorker::process_request(oceanbase::rpc::ObRequest&)
+    39.26%     0.00%  [.] oceanbase::omt::ObWorkerProcessor::process(oceanbase::rpc::ObRequest&)
+    39.02%     0.08%  [.] oceanbase::omt::ObWorkerProcessor::process_one(oceanbase::rpc::ObRequest&)
+    38.40%     0.00%  [.] oceanbase::rpc::frame::ObSqlProcessor::run()
+    38.17%     0.31%  [.] oceanbase::observer::ObMPQuery::process()
+    36.85%     0.31%  [.] oceanbase::observer::ObMPQuery::process_single_stmt(oceanbase::sql::ObMultiStmtItem const&, oceanbase::observer::ObSMConnection*, oceanbase::sql::ObSQLSessionInfo&, bool, bool, bool&, bool&)
+    29.71%     0.00%  [.] oceanbase::observer::ObSyncPlanDriver::response_result(oceanbase::observer::ObMySQLResultSet&)
+    29.25%     0.00%  [k] entry_SYSCALL_64_after_hwframe
+    28.86%     1.78%  [k] do_syscall_64
+    28.01%     0.08%  [.] oceanbase::observer::ObQueryDriver::response_query_result(oceanbase::sql::ObResultSet&, bool, bool, bool&, long)
+    26.38%     0.47%  [k] x64_sys_call
+    25.60%     0.08%  [.] oceanbase::sql::ObResultSet::get_next_row(oceanbase::common::ObNewRow const*&)
+    25.52%     0.08%  [.] oceanbase::sql::ObExecuteResult::get_next_row(oceanbase::sql::ObExecContext&, oceanbase::common::ObNewRow const*&)
+    24.90%     0.00%  [.] oceanbase::sql::ObExprTokenize::eval_tokenize(oceanbase::sql::ObExpr const&, oceanbase::sql::ObEvalCtx&, oceanbase::common::ObDatum&)
+    21.72%     0.39%  [.] oceanbase::sql::ObExprTokenize::tokenize_fulltext(oceanbase::sql::ObExprTokenize::TokenizeParam const&, oceanbase::sql::ObExprTokenize::TokenizeParam::OUTPUT_MODE, oceanbase::common::ObIAllocator&, oceanbase::common::ObIJsonBase*&)
+    19.32%     0.16%  [.] oceanbase::storage::ObFTParseHelper::segment(oceanbase::common::ObObjMeta const&, char const*, long, long&, oceanbase::common::hash::ObHashMap<oceanbase::storage::ObFTWord, long, oceanbase::common::hash::NoPthreadDefendMode, oceanbase::common::hash::hash_func<oceanbase::storage::ObFTWord>, oceanbase::common::hash::equal_to<oceanbase::storage::ObFTWord>, oceanbase::common::hash::SimpleAllocer<oceanbase::common::hash::ObHashTableNode<oceanbase::common::hash::HashMapPair<oceanbase::storage::ObFTWord, long> >, 97, oceanbase::common::hash::SpinMutexDefendMode, oceanbase::common::hash::DefaultSimpleAllocerAllocator>, oceanbase::common::hash::NormalPointer, oceanbase::common::ObMalloc, 1l>&) const
+    19.08%     0.00%  [.] oceanbase::storage::ObFTParseHelper::segment(oceanbase::storage::ObFTParserProperty const&, long, oceanbase::storage::ObIFTParserDesc const*, ObCharsetInfo const*, char const*, long, oceanbase::common::ObIAllocator&, oceanbase::storage::ObAddWord&)
+    16.83%    15.59%  [.] oceanbase::omt::ObServerRuntime::get_new_request(long, oceanbase::rpc::ObRequest*&, bool)
+    15.59%     5.35%  [.] __sched_yield
+    15.59%     0.16%  [.] oceanbase::storage::ObIKFTParser::get_next_token(char const*&, long&, long&, long&)
+    14.97%     0.62%  [.] oceanbase::storage::ObIKFTParser::process_next_batch()
+    11.09%     0.23%  [k] __x64_sys_sched_yield
+    10.78%     1.40%  [k] do_sched_yield
+     9.54%     9.00%  [k] __schedule
+     9.54%     0.08%  [k] schedule
+     8.07%     0.00%  [.] _RNvXs1_NtNtNtCs41Tbg0l6YZS_3mio3net3uds6streamNtB5_10UnixStreamNtNtCs9k3SxhrAWiO_3std2io5Write5write
+     7.99%     0.08%  [.] __send
+     7.91%     0.08%  [k] __sys_sendto
+     7.91%     0.00%  [.] _RNvMNtNtNtCs41Tbg0l6YZS_3mio3sys4unix5wakerNtB2_5Waker4wake
+     7.91%     0.00%  [k] __x64_sys_sendto
+     7.76%     0.54%  [.] write
+     7.29%     0.08%  [k] inet_sendmsg
+     7.21%     0.00%  [k] tcp_sendmsg
+     6.98%     0.47%  [.] oceanbase::storage::ObIKCJKProcessor::do_process(oceanbase::storage::TokenizeContext&, char const*, unsigned char, oceanbase::storage::ObFTCharUtil::CharType)
+     6.90%     0.16%  [k] tcp_sendmsg_locked
+     6.52%     0.08%  [k] __x64_sys_write
+     6.28%     0.00%  [k] ksys_write
+     6.21%     0.47%  [k] vfs_write
+     5.66%     0.08%  [k] __tcp_push_pending_frames
+     5.59%     0.08%  [k] tcp_write_xmit
+     5.59%     0.00%  [k] tcp_push
+     5.43%     5.43%  [k] __raw_spin_unlock_irq
+     5.43%     0.00%  [k] eventfd_write
+     5.20%     0.16%  [k] __tcp_transmit_skb
+     4.89%     0.16%  [k] __ip_queue_xmit
+     4.89%     0.00%  [k] ip_queue_xmit
+     4.73%     0.00%  [k] ip_local_out
+     4.58%     1.40%  [.] __sched_yield
+     4.42%     1.71%  [.] oceanbase::storage::ObFTDATReader<void>::match_with_hit(oceanbase::common::ObString const&, oceanbase::storage::ObDATrieHit const&, oceanbase::storage::ObDATrieHit&) const
+     3.34%     0.08%  [k] ip_output
+     3.10%     0.00%  [.] oceanbase::sql::ObSql::stmt_query(oceanbase::common::ObString const&, oceanbase::sql::ObSqlCtx&, oceanbase::sql::ObResultSet&)
+     2.95%     0.00%  [k] __ip_finish_output
+     2.95%     0.00%  [k] ip_finish_output
+     2.87%     0.00%  [k] ip_finish_output2
+     2.87%     0.00%  [k] neigh_hh_output
+     2.79%     0.23%  [k] __dev_queue_xmit
+     2.56%     2.56%  [.] oceanbase::storage::ObArrayHashMap::find(oceanbase::storage::ObFTSingleWord const&, int&) const
+     2.33%     0.08%  [k] handle_softirqs
+     2.33%     0.08%  [.] oceanbase::share::ObJsonWrapper::get_raw_binary(oceanbase::common::ObIJsonBase*, oceanbase::common::ObString&, oceanbase::common::ObIAllocator*)
+     2.33%     0.00%  [k] __do_softirq
+     2.33%     0.00%  [k] __local_bh_enable_ip
+     2.33%     0.00%  [k] do_softirq.part.0
+     2.25%     0.08%  [k] process_backlog
+     2.25%     0.00%  [k] __napi_poll
+     2.25%     0.00%  [k] net_rx_action
+     2.25%     0.00%  [.] oceanbase::sql::ObJsonExprHelper::pack_json_res(oceanbase::sql::ObExpr const&, oceanbase::sql::ObEvalCtx&, oceanbase::common::ObIAllocator&, oceanbase::common::ObIJsonBase*, oceanbase::common::ObDatum&)
+     2.17%     0.00%  [k] __netif_receive_skb
+     2.17%     0.00%  [k] __netif_receive_skb_one_core
+     2.17%     0.00%  [.] oceanbase::common::ObIJsonBase::get_raw_binary(oceanbase::common::ObString&, oceanbase::common::ObIAllocator*)
+     2.09%     0.08%  [k] ip_rcv
+     2.09%     0.08%  [.] oceanbase::common::ObJsonBin::parse_tree(oceanbase::common::ObJsonNode*)
+     2.09%     0.00%  [.] oceanbase::common::ObJsonBaseFactory::transform(oceanbase::common::ObIAllocator*, oceanbase::common::ObIJsonBase*, oceanbase::common::ObJsonInType, oceanbase::common::ObIJsonBase*&)
+     1.94%     0.16%  [.] oceanbase::storage::ObIKQuantifierProcessor::do_process(oceanbase::storage::TokenizeContext&, char const*, unsigned char, oceanbase::storage::ObFTCharUtil::CharType)
+     1.94%     0.00%  [.] oceanbase::common::ObJsonBinSerializer::serialize(oceanbase::common::ObJsonNode*, oceanbase::common::ObString&)
+     1.94%     0.00%  [.] oceanbase::common::ObJsonBinSerializer::serialize_json_value(oceanbase::common::ObJsonNode*, oceanbase::common::ObStringBuffer&, bool)
+     1.94%     0.00%  [.] oceanbase::sql::ObSql::pc_get_plan(oceanbase::sql::ObPlanCacheCtx&, oceanbase::sql::ObCacheObjGuard&, int&, bool&)
+     1.94%     0.00%  [.] oceanbase::storage::ObAddWord::process_word(char const*, long, long, long)
+     1.86%     0.62%  [.] oceanbase::storage::ObAddWord::groupby_word(oceanbase::storage::ObFTWord const&, long)
+     1.86%     0.00%  [.] oceanbase::observer::ObMPPacketSender::append_response(oceanbase::obmysql::ObMySQLPacket&, long&)
+     1.86%     0.00%  [.] oceanbase::sql::ObPlanCache::get_plan(oceanbase::common::ObIAllocator&, oceanbase::sql::ObPlanCacheCtx&, oceanbase::sql::ObCacheObjGuard&)
+     1.78%     0.16%  [.] oceanbase::common::ObJsonBinSerializer::serialize_json_object(oceanbase::common::ObJsonNode*, oceanbase::common::ObStringBuffer&, bool, unsigned int)
+     1.71%     0.23%  [.] oceanbase::storage::ObFTRangeDict::match(oceanbase::common::ObString const&, oceanbase::storage::ObDATrieHit&) const
+     1.71%     0.00%  [.] oceanbase::observer::(anonymous namespace)::encode_row_packet(oceanbase::obmysql::OMPKRow const&, NioConnectionHandle*, unsigned long, long*, int&)
+     1.63%     0.00%  [k] ip_local_deliver
+     1.63%     0.00%  [k] ip_local_deliver_finish
+     1.55%     0.23%  [.] oceanbase::common::ObSMUtils::build_cell_value(oceanbase::common::ObObj const&, oceanbase::obmysql::MYSQL_PROTOCOL_TYPE, oceanbase::common::ObIAllocator&, oceanbase::obmysql::ObMySQLCellValue&, oceanbase::common::ObDataTypeCastParams const&, oceanbase::common::ObField const*, oceanbase::sql::ObSQLSessionInfo const&, oceanbase::share::schema::ObSchemaGetterGuard*)
+     1.55%     0.00%  [k] ip_protocol_deliver_rcu
+     1.55%     0.00%  [.] oceanbase::common::ObSMRow::build_cell_value(long, oceanbase::common::ObIAllocator&, oceanbase::obmysql::ObMySQLCellValue&) const
+     1.55%     0.00%  [.] oceanbase::common::SV<oceanbase::observer::ObMySQLResultSet, false>::~SV()
+     1.55%     0.00%  [k] tcp_v4_rcv
+     1.47%     0.16%  [.] oceanbase::sql::ObResultSet::~ObResultSet()
+     1.47%     0.00%  [k] tcp_v4_do_rcv
+     1.40%     0.47%  [.] oceanbase::storage::ObIKQuantifierProcessor::process_CN_number(oceanbase::storage::TokenizeContext&, char const*, unsigned char, oceanbase::storage::ObFTCharUtil::CharType)
+     1.40%     0.31%  [k] nf_hook_slow
+     1.40%     0.16%  [k] __ip_local_out
+     1.40%     0.16%  [.] oceanbase::storage::ObIKArbitrator::output_result(oceanbase::storage::TokenizeContext&)
+     1.40%     0.00%  [k] tcp_rcv_established
+     1.32%     0.62%  [.] oceanbase::storage::ObFTParseHelper::make_token_array_json(oceanbase::common::hash::ObHashMap<oceanbase::storage::ObFTWord, long, oceanbase::common::hash::NoPthreadDefendMode, oceanbase::common::hash::hash_func<oceanbase::storage::ObFTWord>, oceanbase::common::hash::equal_to<oceanbase::storage::ObFTWord>, oceanbase::common::hash::SimpleAllocer<oceanbase::common::hash::ObHashTableNode<oceanbase::common::hash::HashMapPair<oceanbase::storage::ObFTWord, long> >, 97, oceanbase::common::hash::SpinMutexDefendMode, oceanbase::common::hash::DefaultSimpleAllocerAllocator>, oceanbase::common::hash::NormalPointer, oceanbase::common::ObMalloc, 1l> const&, oceanbase::common::ObIJsonBase*&)
+     1.24%     0.16%  [.] oceanbase::common::ObIJsonBase::print(oceanbase::common::ObStringBuffer&, bool, unsigned long, bool, unsigned long) const
+     1.24%     0.08%  [.] oceanbase::storage::ObIKArbitrator::process(oceanbase::storage::TokenizeContext&)
+     1.16%     0.00%  [.] oceanbase::lib::__MemoryContext__::destory_context(oceanbase::lib::__MemoryContext__*)
+     1.09%     0.08%  [.] oceanbase::common::ObIJsonBase::print_array(oceanbase::common::ObStringBuffer&, unsigned long, bool) const
+     1.09%     0.08%  [.] oceanbase::sql::ObPlanCache::get_cache_obj(oceanbase::sql::ObILibCacheCtx&, oceanbase::sql::ObILibCacheKey*, oceanbase::sql::ObCacheObjGuard&)
+     1.09%     0.00%  [.] oceanbase::lib::_S<(oceanbase::lib::ContextSource)1>::~_S()
+     1.01%     0.85%  [.] epoll_wait
+     1.01%     0.23%  [.] oceanbase::sql::ObExecContext::~ObExecContext()
+     1.01%     0.00%  [.] oceanbase::common::DefHashFunc<oceanbase::common::DatumStrHashCalculator<(oceanbase::common::ObCollationType)45, false, oceanbase::common::ObDefaultHash, false> >::hash(oceanbase::common::ObDatum const&, unsigned long, unsigned long&, oceanbase::common::ObDatumAccessContext const*)
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

@@ -1,0 +1,63 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'task-clock:ppp'
+# Event count (approx.): 1290290289
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+# ........  ...........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    15.59%  [.] oceanbase::omt::ObServerRuntime::get_new_request(long, oceanbase::rpc::ObRequest*&, bool)
+     9.00%  [k] __schedule
+     6.75%  [.] __sched_yield
+     5.43%  [k] __raw_spin_unlock_irq
+     2.56%  [.] oceanbase::storage::ObArrayHashMap::find(oceanbase::storage::ObFTSingleWord const&, int&) const
+     1.78%  [k] do_syscall_64
+     1.71%  [.] oceanbase::storage::ObFTDATReader<void>::match_with_hit(oceanbase::common::ObString const&, oceanbase::storage::ObDATrieHit const&, oceanbase::storage::ObDATrieHit&) const
+     1.40%  [k] do_sched_yield
+     0.93%  [.] oceanbase::storage::ObFTRangeDict::find_first_char_range(oceanbase::common::ObString const&, oceanbase::storage::ObIFTDict*&) const
+     0.85%  [.] epoll_wait
+     0.85%  [.] std::enable_if<((((oceanbase::common::ObCharsetType)2)==((oceanbase::common::ObCharsetType)2))||(((oceanbase::common::ObCharsetType)2)==((oceanbase::common::ObCharsetType)4)))||(((oceanbase::common::ObCharsetType)2)==((oceanbase::common::ObCharsetType)10)), int>::type oceanbase::storage::ObFTCharUtil::decode_unicode<(oceanbase::common::ObCharsetType)2>(char const*, unsigned char, unsigned long&)
+     0.70%  [.] oceanbase::common::ObJsonBin::print_plain_string_array(oceanbase::common::ObStringBuffer&, bool&) const
+     0.70%  [.] oceanbase::storage::ObUnicodeBlockUtils::is_unicode_cn_number(unsigned long)
+     0.62%  [.] ob_hash_sort_utf8mb4(ObCharsetInfo const*, unsigned char const*, unsigned long, unsigned long*, unsigned long*, bool, unsigned long (*)(void const*, unsigned long, unsigned long))
+     0.62%  [.] oceanbase::storage::ObAddWord::groupby_word(oceanbase::storage::ObFTWord const&, long)
+     0.62%  [.] oceanbase::storage::ObFTParseHelper::make_token_array_json(oceanbase::common::hash::ObHashMap<oceanbase::storage::ObFTWord, long, oceanbase::common::hash::NoPthreadDefendMode, oceanbase::common::hash::hash_func<oceanbase::storage::ObFTWord>, oceanbase::common::hash::equal_to<oceanbase::storage::ObFTWord>, oceanbase::common::hash::SimpleAllocer<oceanbase::common::hash::ObHashTableNode<oceanbase::common::hash::HashMapPair<oceanbase::storage::ObFTWord, long> >, 97, oceanbase::common::hash::SpinMutexDefendMode, oceanbase::common::hash::DefaultSimpleAllocerAllocator>, oceanbase::common::hash::NormalPointer, oceanbase::common::ObMalloc, 1l> const&, oceanbase::common::ObIJsonBase*&)
+     0.62%  [.] oceanbase::storage::ObIKFTParser::process_next_batch()
+     0.62%  [.] 0x00000000000008a4
+     0.54%  [k] _raw_spin_unlock_irqrestore
+     0.54%  [.] ob_well_formed_len_utf8mb4(ObCharsetInfo const*, char const*, char const*, unsigned long, int*)
+     0.54%  [.] oceanbase::common::ObStringBuffer::append(char const*, unsigned long, signed char)
+     0.54%  [.] oceanbase::common::PageArena<char, oceanbase::common::ModulePageAllocator>::_alloc_aligned(long, long)
+     0.54%  [.] oceanbase::storage::ObIIKProcessor::process(oceanbase::storage::TokenizeContext&, char const*, unsigned char, oceanbase::storage::ObFTCharUtil::CharType)
+     0.54%  [k] srso_alias_safe_ret
+     0.54%  [.] write
+     0.47%  [.] oceanbase::common::obvectorutil::ObVsagLogger::Trace(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)
+     0.47%  [.] oceanbase::storage::ObIKCJKProcessor::do_process(oceanbase::storage::TokenizeContext&, char const*, unsigned char, oceanbase::storage::ObFTCharUtil::CharType)
+     0.47%  [.] oceanbase::storage::ObIKQuantifierProcessor::process_CN_number(oceanbase::storage::TokenizeContext&, char const*, unsigned char, oceanbase::storage::ObFTCharUtil::CharType)
+     0.47%  [k] vfs_write
+     0.47%  [k] x64_sys_call
+     0.39%  [k] irqentry_exit_to_user_mode
+     0.39%  [.] oceanbase::common::ObCharset::get_charset(oceanbase::common::ObCollationType)
+     0.39%  [.] oceanbase::sql::ObExprTokenize::tokenize_fulltext(oceanbase::sql::ObExprTokenize::TokenizeParam const&, oceanbase::sql::ObExprTokenize::TokenizeParam::OUTPUT_MODE, oceanbase::common::ObIAllocator&, oceanbase::common::ObIJsonBase*&)
+     0.39%  [.] oceanbase::sql::ObResultSet::do_close(int*)
+     0.39%  [.] oceanbase::storage::ObFTSortList::add_token(oceanbase::storage::ObIKToken const&)
+     0.39%  [k] syscall_trace_enter
+     0.31%  [.] arena_large_dalloc_stats_update
+     0.31%  [.] extent_merge_impl
+     0.31%  [k] nf_hook_slow
+     0.31%  [.] oceanbase::common::ObCharset::first_valid_char(oceanbase::common::ObCollationType, char const*, long, long&)
+     0.31%  [.] oceanbase::observer::ObInnerSQLConnection::execute_proc(oceanbase::common::ObIAllocator&, oceanbase::common::Ob2DArray<oceanbase::common::ObObjParam, 2079744, oceanbase::common::ObWrapperAllocator, false, oceanbase::common::ObSEArray<oceanbase::common::ObObjParam*, 1l, oceanbase::common::ObWrapperAllocator, false>, false, true>&, oceanbase::common::ObString&, oceanbase::share::schema::ObRoutineInfo const&, oceanbase::common::ObIArray<oceanbase::pl::ObUserDefinedType const*> const&, oceanbase::common::ObTimeZoneInfo const*, oceanbase::common::ObObj*, bool)
+     0.31%  [.] oceanbase::observer::ObMPQuery::process()
+     0.31%  [.] oceanbase::observer::ObMPQuery::process_single_stmt(oceanbase::sql::ObMultiStmtItem const&, oceanbase::observer::ObSMConnection*, oceanbase::sql::ObSQLSessionInfo&, bool, bool, bool&, bool&)
+     0.31%  [.] oceanbase::storage::ObFTCharUtil::classify_first_char(oceanbase::common::ObCollationType, char const*, unsigned char, oceanbase::storage::ObFTCharUtil::CharType&)
+     0.31%  [k] schedule_debug.constprop.0
+     0.31%  [k] tcp_clean_rtx_queue.constprop.0
+     0.31%  [.] 0x00000000001a08c6
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
