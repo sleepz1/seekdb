@@ -1,0 +1,77 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 624  of event 'task-clock:ppp'
+# Event count (approx.): 624624624
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+# ........  ......................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    12.50%  [.] oceanbase::storage::ObTextBMWIter::try_exhaustive_top_k(bool&)
+     7.85%  [.] oceanbase::blocksstable::batch_load_data_to_datum(oceanbase::common::ObObjType const&, char const**, long, long, oceanbase::common::ObDatum*)
+     6.41%  [.] oceanbase::sql::ObExprBM25::eval_batch_bm25_relevance_expr(oceanbase::sql::ObExpr const&, oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObBitVectorImpl<unsigned long> const&, long)
+     5.13%  [.] oceanbase::blocksstable::ObStringDiffDecoder::batch_decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::blocksstable::ObIRowIndex const*, int const*, char const**, long, oceanbase::common::ObDatum*) const
+     4.49%  [.] oceanbase::omt::ObServerRuntime::get_new_request(long, oceanbase::rpc::ObRequest*&, bool)
+     3.04%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::at(long) const
+     2.88%  [.] oceanbase::common::ObIArrayWrap<oceanbase::common::ObTuple<oceanbase::sql::ObRawExpr*, oceanbase::sql::ObRawExpr*> >::at(long)
+     2.72%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::set(long)
+     2.72%  [.] oceanbase::storage::ObSRBMWIterImpl::process_collected_row(oceanbase::common::ObDatum const&, double)
+     2.40%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::save_relevances_and_docids()
+     2.08%  [.] 0x00000000001a6937
+     1.92%  [.] oceanbase::blocksstable::ObConstDecoder::batch_decode_without_dict(oceanbase::blocksstable::ObColumnDecoderCtx const&, long, oceanbase::common::ObDatum*) const
+     1.92%  [.] oceanbase::blocksstable::ObIntegerBaseDiffDecoder::batch_get_bitpacked_values(oceanbase::blocksstable::ObColumnDecoderCtx const&, int const*, long, long, long, oceanbase::common::ObDatum*) const
+     0.96%  [.] oceanbase::sql::ObExpr::do_eval_batch(oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObBitVectorImpl<unsigned long> const&, long) const
+     0.96%  [.] oceanbase::storage::ObBlockBatchedRowStore::get_row_ids(oceanbase::blocksstable::ObIMicroBlockReader*, long&, long, long&, bool, oceanbase::storage::ObFilterResult const&)
+     0.80%  [.] oceanbase::blocksstable::ObDictDecoder::batch_get_bitpacked_refs(int const*, long, unsigned char const*, oceanbase::common::ObDatum*) const
+     0.80%  [.] oceanbase::common::ObIOService::get_io_config()
+     0.80%  [.] oceanbase::keybtree::GetHandle<oceanbase::memtable::ObStoreRowkeyWrapper, oceanbase::memtable::ObMvccRow*>::get(oceanbase::keybtree::BtreeNode<oceanbase::memtable::ObStoreRowkeyWrapper, oceanbase::memtable::ObMvccRow*>*, oceanbase::memtable::ObStoreRowkeyWrapper, oceanbase::memtable::ObMvccRow*&, oceanbase::memtable::ObStoreRowkeyWrapper**)
+     0.64%  [k] __raw_spin_unlock_irq
+     0.64%  [.] oceanbase::blocksstable::ObDictDecoder::batch_decode_dict(oceanbase::common::ObObjType const&, char const**, long, long, oceanbase::common::ObDatum*) const
+     0.64%  [.] oceanbase::common::HazptrHolder::protect(bool&, oceanbase::common::ObKVMemBlockHandle*, int)
+     0.64%  [.] pthread_mutex_trylock
+     0.48%  [k] ep_poll
+     0.48%  [.] je_malloc_default
+     0.48%  [.] oceanbase::blocksstable::ObStorageDatumCmpFunc::compare(oceanbase::blocksstable::ObStorageDatum const&, oceanbase::blocksstable::ObStorageDatum const&, int&) const
+     0.48%  [.] oceanbase::common::ObArenaAllocator::alloc(long, oceanbase::lib::ObMemAttr const&)
+     0.48%  [.] oceanbase::common::PageArena<oceanbase::common::ObJsonSchemaCache::ObSchemaCacheStat, oceanbase::common::ModulePageAllocator>::alloc_new_page(long)
+     0.48%  [.] oceanbase::sql::ObDASCacheLookupIter::IndexProjRowStore::init(oceanbase::common::ObIAllocator&, oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const&, oceanbase::sql::ObEvalCtx*, long)
+     0.48%  [.] oceanbase::sql::ObFastParserMysql::parse_next_token()
+     0.48%  [.] pthread_mutex_unlock
+     0.32%  [k] __schedule
+     0.32%  [k] _raw_spin_unlock_irqrestore
+     0.32%  [k] finish_task_switch.isra.0
+     0.32%  [.] je_arena_extent_alloc_large
+     0.32%  [.] je_emap_remap
+     0.32%  [.] je_eset_fit
+     0.32%  [.] je_te_event_trigger
+     0.32%  [.] ob_strnncollsp_utf8mb4(ObCharsetInfo const*, unsigned char const*, unsigned long, unsigned char const*, unsigned long, bool)
+     0.32%  [.] oceanbase::blocksstable::MacroBlockId::is_valid() const
+     0.32%  [.] oceanbase::blocksstable::ObConstDecoder::batch_decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::blocksstable::ObIRowIndex const*, int const*, char const**, long, oceanbase::common::ObDatum*) const
+     0.32%  [.] oceanbase::blocksstable::ObFixRowIndex::get(long, char const*&, long&) const
+     0.32%  [.] oceanbase::blocksstable::ObIndexBlockRowScanner::get_next_idx_row(oceanbase::blocksstable::ObMicroIndexInfo&)
+     0.32%  [.] oceanbase::blocksstable::ObMacroBlockReader::~ObMacroBlockReader()
+     0.32%  [.] oceanbase::blocksstable::ObMicroBlockDecoder::do_init(oceanbase::blocksstable::ObMicroBlockData const&)
+     0.32%  [.] oceanbase::blocksstable::ObMicroBlockDecoder::get_col_datums(int, int const*, char const**, long, oceanbase::common::ObDatum*)
+     0.32%  [.] oceanbase::blocksstable::ObMicroBlockDecoder::get_row(long, oceanbase::blocksstable::ObDatumRow&)
+     0.32%  [.] oceanbase::blocksstable::ObRowkeyVector::locate_key(long, long, oceanbase::blocksstable::ObDatumRowkey const&, oceanbase::blocksstable::ObStorageDatumUtils const&, long&, bool) const
+     0.32%  [.] oceanbase::blocksstable::ObStringDiffDecoder::decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::common::ObDatum&, long, oceanbase::blocksstable::ObBitStream const&, char const*, long) const
+     0.32%  [.] oceanbase::blocksstable::ObTFMIndexBlockRowIterator::get_current(oceanbase::blocksstable::ObIndexBlockRowHeader const*&, oceanbase::blocksstable::ObCommonDatumRowkey&)
+     0.32%  [.] oceanbase::blocksstable::ObTFMIndexBlockRowIterator::get_next(oceanbase::blocksstable::ObIndexBlockRowHeader const*&, oceanbase::blocksstable::ObCommonDatumRowkey&, bool&, bool&, oceanbase::blocksstable::ObIndexBlockRowMinorMetaInfo const*&, char const*&, long&, long&)
+     0.32%  [.] oceanbase::blocksstable::load_data_to_datum(oceanbase::common::ObObjType const&, char const*, long, long, oceanbase::common::ObDatum&)
+     0.32%  [.] oceanbase::common::ObIArrayWrap<oceanbase::common::hash::ObHashSet<unsigned long, oceanbase::common::hash::NoPthreadDefendMode, oceanbase::common::hash::hash_func<unsigned long>, oceanbase::common::hash::equal_to<unsigned long>, oceanbase::common::hash::SimpleAllocer<oceanbase::common::hash::ObHashTableNode<oceanbase::common::hash::HashMapPair<unsigned long, oceanbase::common::hash::HashNullObj> >, 108, oceanbase::common::hash::SpinMutexDefendMode, oceanbase::common::hash::DefaultSimpleAllocerAllocator>, oceanbase::common::hash::NormalPointer, oceanbase::common::ObMalloc, 1l>*>::at(long)
+     0.32%  [.] oceanbase::common::ObKVCacheMap::get(long, oceanbase::common::ObIKVCacheKey const&, oceanbase::common::ObIKVCacheValue const*&, oceanbase::common::HazptrHolder&)
+     0.32%  [.] oceanbase::common::ObWrapperAllocatorWithAttr::alloc(long)
+     0.32%  [.] oceanbase::common::PageArena<char, oceanbase::common::ModulePageAllocator>::_alloc_aligned(long, long)
+     0.32%  [.] oceanbase::omt::ObThWorker::worker(long&, long&, int&)
+     0.32%  [.] oceanbase::sql::ObExpr::locate_datums_for_update(oceanbase::sql::ObEvalCtx&, long) const
+     0.32%  [.] oceanbase::sql::ObFastParserMysql::process_identifier(bool)
+     0.32%  [.] oceanbase::storage::ObIndexBlockScanEstimator::estimate_excluded_border_result(bool, bool, oceanbase::blocksstable::ObDatumRange const&, bool, oceanbase::storage::ObEstimatedResult&)
+     0.32%  [.] oceanbase::storage::ObMultipleMerge::get_next_normal_rows(long&, long)
+     0.32%  [.] oceanbase::storage::ObTxCommitData::reset()
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
