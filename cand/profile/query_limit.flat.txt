@@ -1,0 +1,52 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'task-clock:ppp'
+# Event count (approx.): 1763763762
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+# ........  ....................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    17.03%  [.] oceanbase::storage::ObTextBMWIter::try_exhaustive_top_k(bool&)
+    12.32%  [.] oceanbase::sql::ObExprBM25::eval_batch_bm25_relevance_expr(oceanbase::sql::ObExpr const&, oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObBitVectorImpl<unsigned long> const&, long)
+     5.73%  [.] oceanbase::blocksstable::ObStringDiffDecoder::batch_decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::blocksstable::ObIRowIndex const*, int const*, char const**, long, oceanbase::common::ObDatum*) const
+     3.18%  [.] oceanbase::blocksstable::batch_load_data_to_datum(oceanbase::common::ObObjType const&, char const**, long, long, oceanbase::common::ObDatum*)
+     3.18%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::save_relevances_and_docids()
+     2.84%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::at(long) const
+     1.99%  [.] oceanbase::common::ObIArrayWrap<oceanbase::common::ObTuple<oceanbase::sql::ObRawExpr*, oceanbase::sql::ObRawExpr*> >::at(long)
+     1.93%  [.] oceanbase::storage::ObSRBMWIterImpl::process_collected_row(oceanbase::common::ObDatum const&, double)
+     1.70%  [.] oceanbase::blocksstable::ObConstDecoder::batch_decode_without_dict(oceanbase::blocksstable::ObColumnDecoderCtx const&, long, oceanbase::common::ObDatum*) const
+     1.65%  [.] 0x00000000001a0905
+     1.25%  [.] oceanbase::blocksstable::ObIntegerBaseDiffDecoder::batch_get_bitpacked_values(oceanbase::blocksstable::ObColumnDecoderCtx const&, int const*, long, long, long, oceanbase::common::ObDatum*) const
+     1.25%  [.] oceanbase::storage::ObBlockBatchedRowStore::get_row_ids(oceanbase::blocksstable::ObIMicroBlockReader*, long&, long, long&, bool, oceanbase::storage::ObFilterResult const&)
+     1.19%  [.] oceanbase::blocksstable::ObDictDecoder::batch_get_bitpacked_refs(int const*, long, unsigned char const*, oceanbase::common::ObDatum*) const
+     1.02%  [.] oceanbase::blocksstable::ObStringDiffDecoder::decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::common::ObDatum&, long, oceanbase::blocksstable::ObBitStream const&, char const*, long) const
+     1.02%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::set(long)
+     0.85%  [.] oceanbase::omt::ObServerRuntime::get_new_request(long, oceanbase::rpc::ObRequest*&, bool)
+     0.74%  [.] oceanbase::sql::ObDocIdExt::ObDocIdExt()
+     0.74%  [.] oceanbase::sql::ObExpr::do_eval_batch(oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObBitVectorImpl<unsigned long> const&, long) const
+     0.68%  [k] __schedule
+     0.62%  [.] oceanbase::sql::ObDASCacheLookupIter::IndexProjRowStore::init(oceanbase::common::ObIAllocator&, oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const&, oceanbase::sql::ObEvalCtx*, long)
+     0.57%  [.] oceanbase::common::ObIArrayWrap<int (*)(oceanbase::common::ObDatum const&, oceanbase::common::ObDatum const&, int&, oceanbase::common::ObDatumAccessContext const*)>::at(long) const
+     0.51%  [.] oceanbase::common::PageArena<char, oceanbase::common::ModulePageAllocator>::_alloc_aligned(long, long)
+     0.51%  [.] 0x00000000001a0880
+     0.51%  [.] 0x00000000001a08b3
+     0.45%  [.] oceanbase::blocksstable::ObMicroBlockDecoder::compare_rowkey(oceanbase::blocksstable::ObDatumRowkey const&, long, int&)
+     0.45%  [.] oceanbase::common::datum_cmp::ObDatumStrCmp<(oceanbase::common::ObCollationType)45, false>::cmp(oceanbase::common::ObDatum const&, oceanbase::common::ObDatum const&, int&)
+     0.40%  [.] oceanbase::blocksstable::ObDictDecoder::batch_decode_dict(oceanbase::common::ObObjType const&, char const**, long, long, oceanbase::common::ObDatum*) const
+     0.40%  [.] oceanbase::common::ObFixedArrayImpl<oceanbase::sql::ObDocIdExt, oceanbase::common::ObIAllocator>::prepare_allocate(long)
+     0.34%  [.] __sched_yield
+     0.34%  [.] bool __gnu_cxx::__ops::_Iter_comp_val<oceanbase::blocksstable::EncodingRangeCompareV2>::operator()<oceanbase::blocksstable::ObRowIndexIterator, oceanbase::blocksstable::ObDatumRange const>(oceanbase::blocksstable::ObRowIndexIterator, oceanbase::blocksstable::ObDatumRange const&)
+     0.34%  [.] je_eset_fit
+     0.34%  [.] oceanbase::blocksstable::ObMicroBlockDecoder::get_col_datums(int, int const*, char const**, long, oceanbase::common::ObDatum*)
+     0.34%  [.] oceanbase::blocksstable::ObStorageDatumCmpFunc::compare(oceanbase::blocksstable::ObStorageDatum const&, oceanbase::blocksstable::ObStorageDatum const&, int&) const
+     0.34%  [.] oceanbase::common::ObBinaryHeap<oceanbase::storage::ObSRBMWIterImpl::TopKItem, oceanbase::storage::ObSRBMWIterImpl::TopKItemCmp, 50l>::downheap(long)
+     0.34%  [.] oceanbase::sql::ObExpr::locate_datums_for_update(oceanbase::sql::ObEvalCtx&, long) const
+     0.34%  [.] oceanbase::sql::ObPushdownOperator::clear_evaluated_flag()
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
