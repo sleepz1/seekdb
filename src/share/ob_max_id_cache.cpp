@@ -25,8 +25,9 @@ namespace oceanbase
 namespace share
 {
 
-ObMaxIdCacheItem::ObMaxIdCacheItem(const ObMaxIdType &type) : 
-  min_id_(OB_INVALID_ID), size_(OB_INVALID_SIZE), type_(type), latch_()
+ObMaxIdCacheItem::ObMaxIdCacheItem(const ObMaxIdType &type, const uint64_t cache_size) :
+  min_id_(OB_INVALID_ID), size_(OB_INVALID_SIZE), type_(type),
+  cache_size_(cache_size > 0 ? cache_size : CACHE_SIZE), latch_()
 {
 }
 
@@ -42,7 +43,7 @@ int ObMaxIdCacheItem::fetch_max_id(const ObMaxIdType max_id_type,
   if (max_id_type != type_) {
     ret = OB_ERR_UNEXPECTED;
   } else if (!cached_id_valid_() || size_ < size) {
-    const uint64_t fetch_size = common::max(CACHE_SIZE, size);
+    const uint64_t fetch_size = common::max(cache_size_, size);
     if (OB_FAIL(fetch_ids_from_inner_table_(fetch_size, sql_proxy))) {
     }
   }
@@ -98,7 +99,9 @@ int ObMaxIdCacheItem::fetch_ids_by_cache_(const uint64_t size, uint64_t &id)
 }
 
 ObMaxIdCache::ObMaxIdCache() : object_id_cache_(OB_MAX_USED_OBJECT_ID_TYPE),
-  normal_rowid_table_tablet_id_cache_(OB_MAX_USED_NORMAL_ROWID_TABLE_TABLET_ID_TYPE)
+  normal_rowid_table_tablet_id_cache_(OB_MAX_USED_NORMAL_ROWID_TABLE_TABLET_ID_TYPE),
+  sys_pl_object_id_cache_(OB_MAX_USED_SYS_PL_OBJECT_ID_TYPE,
+                          ObMaxIdCacheItem::SYS_PL_OBJECT_ID_CACHE_SIZE)
 {
 }
 
@@ -111,6 +114,8 @@ int ObMaxIdCache::fetch_max_id(const ObMaxIdType max_id_type,
     item = &object_id_cache_;
   } else if (OB_MAX_USED_NORMAL_ROWID_TABLE_TABLET_ID_TYPE == max_id_type) {
     item = &normal_rowid_table_tablet_id_cache_;
+  } else if (OB_MAX_USED_SYS_PL_OBJECT_ID_TYPE == max_id_type) {
+    item = &sys_pl_object_id_cache_;
   } else {
     ret = OB_ERR_UNEXPECTED;
   }

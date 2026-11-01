@@ -1,1 +1,0 @@
-sdb07: cache sys PL object ids in ObMaxIdCache (batch 128) so loading the system packages after first startup no longer commits one inner-table transaction per package/routine while holding the DDL serialization lock; docs section 14 with the first-build stall analysis

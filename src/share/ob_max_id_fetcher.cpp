@@ -288,7 +288,11 @@ int ObMaxIdFetcher::check_use_max_id_cache_(const ObMaxIdType &max_id_type, bool
   } else if (max_id_type != OB_MAX_USED_OBJECT_ID_TYPE && OB_MAX_USED_OBJECT_ID_TYPE == real_type) {
     ret = OB_INVALID_ARGUMENT;
   } else if (OB_MAX_USED_OBJECT_ID_TYPE == max_id_type 
-      || OB_MAX_USED_NORMAL_ROWID_TABLE_TABLET_ID_TYPE == max_id_type) {
+      || OB_MAX_USED_NORMAL_ROWID_TABLE_TABLET_ID_TYPE == max_id_type
+      // Loading the system packages allocates one sys PL object id per package and
+      // routine (50 for the dbms_stats spec alone) while holding the DDL serialization
+      // lock; without the cache each id is a separate inner-table transaction.
+      || OB_MAX_USED_SYS_PL_OBJECT_ID_TYPE == max_id_type) {
     use_cache = true;
   } else {
     use_cache = false;

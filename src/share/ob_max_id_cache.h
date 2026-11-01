@@ -28,20 +28,24 @@ namespace share
 class ObMaxIdCacheItem
 {
 public:
-  ObMaxIdCacheItem(const ObMaxIdType &type);
+  ObMaxIdCacheItem(const ObMaxIdType &type, const uint64_t cache_size = CACHE_SIZE);
   int fetch_max_id(const ObMaxIdType max_id_type, uint64_t &id,
       const uint64_t size, ObMySQLProxy *sql_proxy);
 private:
   int fetch_ids_from_inner_table_(const uint64_t size, ObMySQLProxy *sql_proxy);
   int fetch_ids_by_cache_(const uint64_t size, uint64_t &id);
   bool cached_id_valid_();
-private:
+public:
   static const uint64_t CACHE_SIZE = 1024;
+  // Sys PL object ids come from a bounded range (see OB_MIN/MAX_SYS_PL_OBJECT_ID), so the
+  // batch is kept small: ids left in the batch at shutdown are skipped, not reused.
+  static const uint64_t SYS_PL_OBJECT_ID_CACHE_SIZE = 128;
 private:
   // [min_id, min_id + size) is valid
   uint64_t min_id_;
   uint64_t size_;
   ObMaxIdType type_;
+  uint64_t cache_size_;
   common::ObLatch latch_;
 };
 
@@ -54,6 +58,7 @@ public:
 private:
   ObMaxIdCacheItem object_id_cache_;
   ObMaxIdCacheItem normal_rowid_table_tablet_id_cache_;
+  ObMaxIdCacheItem sys_pl_object_id_cache_;
 };
 
 class ObMaxIdCacheMgr
