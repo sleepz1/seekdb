@@ -1,0 +1,1 @@
+sdb07: worker that just finished a request polls the request queue for up to 100us before blocking; revert the package-load pacing (no build gain in the official run, count queries slower); DDL index tasks waiting for async work re-read their task record / child error messages every 100ms instead of every 10ms; docs and package-load timeline evidence

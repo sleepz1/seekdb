@@ -1,0 +1,116 @@
+diff --git a/src/observer/omt/ob_server_runtime.cpp b/src/observer/omt/ob_server_runtime.cpp
+index 828d679..119e46f 100644
+--- a/src/observer/omt/ob_server_runtime.cpp
++++ b/src/observer/omt/ob_server_runtime.cpp
+@@ -15,6 +15,7 @@
+  */
+ 
+ #define USING_LOG_PREFIX SERVER_OMT
++#include <sched.h>
+ #include "config_bridge.h"
+ #include "ob_server_runtime.h"
+ #include "observer/ob_server.h"   // T3d
+@@ -318,7 +319,8 @@ ObServerRuntime::ObServerRuntime()
+       recv_task_cnt_(0),
+       lock_(),
+       workers_lock_(common::ObLatchIds::SERVER_RUNTIME_WORKER_LOCK),
+-      completion_cnt_(0)
++      completion_cnt_(0),
++      req_spinning_cnt_(0)
+ {
+ }
+ 
+@@ -582,12 +584,33 @@ int64_t ObServerRuntime::max_worker_cnt() const
+ 
+ int ObServerRuntime::get_new_request(
+     int64_t timeout,
+-    rpc::ObRequest *&req)
++    rpc::ObRequest *&req,
++    const bool spin_first)
+ {
+   int ret = OB_SUCCESS;
+   ObLink* task = nullptr;
+ 
+   req = nullptr;
++  if (spin_first && timeout > 0 && req_queue_.size() <= 0 && !has_stopped()) {
++    int64_t spinners = ATOMIC_LOAD(&req_spinning_cnt_);
++    if (spinners < MAX_REQ_SPINNERS && ATOMIC_BCAS(&req_spinning_cnt_, spinners, spinners + 1)) {
++      // Bounded poll before blocking: the request (if any) is still taken by the pop below
++      // and processed exactly as before; only the wait is shortened.
++      const int64_t deadline = ObTimeUtility::current_time() + MIN(timeout, REQ_SPIN_US);
++      int64_t loop = 0;
++      while (req_queue_.size() <= 0) {
++        PAUSE();
++        if (0 == (++loop & 0x1F)) {
++          if (ObTimeUtility::current_time() >= deadline) {
++            break;
++          }
++          // let other runnable threads on this CPU (e.g. the client) go first
++          sched_yield();
++        }
++      }
++      ATOMIC_DEC(&req_spinning_cnt_);
++    }
++  }
+   ret = req_queue_.pop(task, timeout);
+ 
+   if (OB_SUCC(ret)) {
+diff --git a/src/observer/omt/ob_server_runtime.h b/src/observer/omt/ob_server_runtime.h
+index 15cc92c..b18c17e 100644
+--- a/src/observer/omt/ob_server_runtime.h
++++ b/src/observer/omt/ob_server_runtime.h
+@@ -224,7 +224,13 @@ public:
+ 
+   // get request from request queue, waiting at most TIMEOUT us.
+   // if IN_HIGH_PRIORITY is set, get request from hp queue.
+-  int get_new_request(int64_t timeout, rpc::ObRequest *&req);
++  // SPIN_FIRST: the calling worker has just finished a request; poll the queue for up to
++  // REQ_SPIN_US (yielding the CPU between polls) before blocking, so that a client that sends
++  // its next statement right after reading the previous result does not pay a futex wake-up.
++  // At most MAX_REQ_SPINNERS workers poll at the same time.
++  int get_new_request(int64_t timeout, rpc::ObRequest *&req, const bool spin_first = false);
++  static constexpr int64_t REQ_SPIN_US = 100;
++  static constexpr int64_t MAX_REQ_SPINNERS = 1;
+ 
+   // receive request from network
+   int recv_request(rpc::ObRequest &req);
+@@ -299,6 +305,8 @@ public:
+   lib::ObMutex workers_lock_;
+ 
+   std::atomic<int64_t> completion_cnt_;
++  // workers currently polling the request queue in get_new_request()
++  int64_t req_spinning_cnt_;
+ 
+ }; // end of class ObServerRuntime
+ 
+diff --git a/src/observer/omt/ob_th_worker.cpp b/src/observer/omt/ob_th_worker.cpp
+index e4471d9..4b4aa69 100644
+--- a/src/observer/omt/ob_th_worker.cpp
++++ b/src/observer/omt/ob_th_worker.cpp
+@@ -220,6 +220,7 @@ void ObThWorker::worker(int64_t &tid, int64_t &req_recv_timestamp, int32_t &work
+     auto *pm = common::ObPageManager::thread_local_instance();
+     snprintf(module_name_, MAX_MODULE_NAME_LEN, "ReqWorker");
+     int64_t idle_since = 0;
++    bool just_processed = false;
+     while (!has_set_stop()) {
+       worker_level = get_worker_level();
+       if (OB_NOT_NULL(runtime_)) {
+@@ -265,8 +266,9 @@ void ObThWorker::worker(int64_t &tid, int64_t &req_recv_timestamp, int32_t &work
+             // get request from queue and process it
+             wait_start_time = ObTimeUtility::current_time();
+             ret = runtime_->pop_with_idle([&]() {
+-              return runtime_->get_new_request(POLL_INTERVAL, req);
++              return runtime_->get_new_request(POLL_INTERVAL, req, just_processed);
+             }, expand);
++            just_processed = false;
+             wait_end_time = ObTimeUtility::current_time();
+           }
+           if (OB_SUCC(ret)) {
+@@ -283,6 +285,7 @@ void ObThWorker::worker(int64_t &tid, int64_t &req_recv_timestamp, int32_t &work
+               query_enqueue_time_ = req->get_enqueue_timestamp();
+               last_check_time_ = wait_end_time;
+               process_request(*req);
++              just_processed = true;
+               runtime_->completion_cnt_.fetch_add(1, std::memory_order_relaxed);
+               query_enqueue_time_ = INT64_MAX;
+               query_start_time_ = INT64_MAX;

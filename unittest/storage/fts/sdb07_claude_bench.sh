@@ -128,15 +128,17 @@ run_variant() {
   python3 .github/script/seekdb/sdb.py wait-ready --client "$CLIENT" --base-dir "$INSTANCE" --host 127.0.0.1 --port 2881 --user root --timeout 180
   echo "ready $(date '+%Y-%m-%d %H:%M:%S.%6N')" > "$dir/startup-timeline.txt"
   LABEL=$label ROWS=20000 BATCH=500 ROUNDS=3000 QUERY_ROUNDS=200 SAMPLES=3 WARMUP=30 SKIP_LOAD=0 OUTPUT="$dir/report.txt" bash tools/benchmark/fts_large_bench.sh > "$dir/benchmark.log" 2>&1 &
-  local bench_pid=$! b3="" b4=""
+  local bench_pid=$! b3="" b4="" b5=""
   # Wall-clock window of the benchmark's index build phase ([3/5] .. [4/5]) to keep the server
   # log of exactly these three CREATE FULLTEXT INDEX statements (first build after the load).
   while kill -0 "$bench_pid" 2>/dev/null; do
     [[ -z "$b3" ]] && grep -q '^\[3/5\]' "$dir/benchmark.log" 2>/dev/null && b3=$(date '+%Y-%m-%d %H:%M:%S.%6N')
     [[ -z "$b4" ]] && grep -q '^\[4/5\]' "$dir/benchmark.log" 2>/dev/null && b4=$(date '+%Y-%m-%d %H:%M:%S.%6N')
-    if [[ -n "$b4" ]]; then sleep 1; else sleep 0.05; fi
+    [[ -z "$b5" ]] && grep -q '^\[5/5\]' "$dir/benchmark.log" 2>/dev/null && b5=$(date '+%Y-%m-%d %H:%M:%S.%6N')
+    if [[ -n "$b5" ]]; then sleep 1; elif [[ -n "$b4" ]]; then sleep 0.2; else sleep 0.05; fi
   done
   wait "$bench_pid"
+  local bend; bend=$(date '+%Y-%m-%d %H:%M:%S.%6N')
   if [[ -n "$b3" && -n "$b4" ]]; then
     echo "build_window $b3 $b4" > "$dir/bench-build-window.txt"
     cat "$INSTANCE"/log/seekdb.log* 2>/dev/null | awk -v s="[$b3" -v e="[$b4" 'substr($0,1,28) >= s && substr($0,1,28) <= e' \
@@ -149,6 +151,12 @@ run_variant() {
     cat "$INSTANCE"/log/seekdb.log* 2>/dev/null | awk -v e="[$b4" 'substr($0,1,28) <= e' \
       | grep -E "tabletchange\]|get unpersist_tablet_ids\(|need try|load sys package list|load all common sys package|yielded to user ddl|bootstrap succ|finish bootstrap|start_service|start service|observer start service" \
       | cut -c1-400 | head -3000 >> "$dir/startup-timeline.txt" || true
+    # System package loading over the whole benchmark (build, TOKENIZE [4/5], MATCH [5/5] phases)
+    echo "phases tokenize=$b4 match=$b5 end=$bend" >> "$dir/startup-timeline.txt"
+    cat "$INSTANCE"/log/seekdb.log* 2>/dev/null | awk -v e="[$bend" 'substr($0,1,28) <= e' \
+      | grep -E "load sys package|load all common sys package|yielded to user ddl|finish loading sys packages" \
+      | cut -c1-300 | head -1000 > "$dir/package-load-timeline.txt" || true
+    notice "$label package load" "phases tokenize=$b4 match=$b5 end=$bend; $(grep -E 'load sys package list begin|load all common sys package success|finish loading sys packages' "$dir/package-load-timeline.txt" | cut -c1-28 | tr '\n' ' ')"
   fi
   python3 tools/benchmark/fts_large_bench_score.py "$dir/report.txt" --json > "$dir/repository-score.json" 2>&1
   notice "$label metrics" "$(grep -E '_sec:|_avg_ms:|_hits:' "$dir/report.txt" | tr -s ' ' | tr '\n' ';')"
