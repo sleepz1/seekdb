@@ -1,1 +1,0 @@
-sdb07: string-diff column batch decode rebuilds each value from a per-batch template of the common bytes (one copy + merged diff ranges per row, same bytes); inline 16 byte doc id copy and compare, unchecked posting buffer access and one-shot evaluated flags in the text retrieval merge; docs and startup timeline evidence

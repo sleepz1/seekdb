@@ -40,7 +40,27 @@ public:
 
   int hash(uint64_t &hash_val) const;
   const common::ObDatum &get_datum() const;
-  int from_datum(const common::ObDatum &datum);
+  // Inline: called for every posting read by the text retrieval token iterators.
+  // Same result as ObDatum::deep_copy into buf_.
+  inline int from_datum(const common::ObDatum &datum)
+  {
+    int ret = common::OB_SUCCESS;
+    const char *src = datum.ptr_;
+    datum_ = datum;
+    if (!datum_.is_null()) {
+      if (OB_UNLIKELY(datum_.len_ > OB_DOC_ID_EXT_SIZE)) {
+        ret = common::OB_BUF_NOT_ENOUGH;
+      } else {
+        if (16 == datum_.len_) {
+          MEMCPY(buf_, src, 16);
+        } else {
+          MEMCPY(buf_, src, datum_.len_);
+        }
+        datum_.ptr_ = buf_;
+      }
+    }
+    return ret;
+  }
   int from_obj(const common::ObObj &obj);
 
   ObDocIdExt &operator=(const ObDocIdExt &other);

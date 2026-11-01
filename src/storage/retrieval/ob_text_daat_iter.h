@@ -81,14 +81,36 @@ private:
   bool can_use_linear_merge() const;
   void prepare_linear_merge();
   int linear_merge_round(int64_t &count);
+public:
+  // Binary collation compare of two non-null doc ids (memcmp, then length); only the sign of
+  // the result is meaningful, as with memcmp. 16 byte ids (the FTS doc id) compare as two
+  // big-endian words, which is the same unsigned lexicographic byte order.
+  static OB_INLINE int binary_id_cmp(const ObDatum &l, const ObDatum &r)
+  {
+    int cmp_ret = 0;
+    if (16 == l.len_ && 16 == r.len_) {
+      uint64_t lw = 0;
+      uint64_t rw = 0;
+      MEMCPY(&lw, l.ptr_, 8);
+      MEMCPY(&rw, r.ptr_, 8);
+      if (lw == rw) {
+        MEMCPY(&lw, l.ptr_ + 8, 8);
+        MEMCPY(&rw, r.ptr_ + 8, 8);
+      }
+      cmp_ret = lw == rw ? 0 : (__builtin_bswap64(lw) < __builtin_bswap64(rw) ? -1 : 1);
+    } else {
+      const uint32_t min_len = l.len_ < r.len_ ? l.len_ : r.len_;
+      const int mem_ret = 0 == min_len ? 0 : MEMCMP(l.ptr_, r.ptr_, min_len);
+      cmp_ret = 0 != mem_ret ? mem_ret : (l.len_ > r.len_ ? 1 : (l.len_ < r.len_ ? -1 : 0));
+    }
+    return cmp_ret;
+  }
+private:
   OB_INLINE int linear_cmp_id(const ObDatum &l, const ObDatum &r, int &cmp_ret) const
   {
     int ret = common::OB_SUCCESS;
     if (linear_binary_id_ && OB_LIKELY(!l.is_null() && !r.is_null())) {
-      // same result as the binary collation compare function (memcmp, then length)
-      const uint32_t min_len = l.len_ < r.len_ ? l.len_ : r.len_;
-      const int mem_ret = 0 == min_len ? 0 : MEMCMP(l.ptr_, r.ptr_, min_len);
-      cmp_ret = 0 != mem_ret ? mem_ret : (l.len_ > r.len_ ? 1 : (l.len_ < r.len_ ? -1 : 0));
+      cmp_ret = binary_id_cmp(l, r);
     } else {
       ret = id_cmp_func_(l, r, cmp_ret, nullptr);
     }

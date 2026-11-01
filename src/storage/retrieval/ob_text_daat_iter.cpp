@@ -404,9 +404,7 @@ int ObTextBMWIter::try_exhaustive_top_k(bool &done)
           pending[pending_cnt++] = i;
         } else {
           if (binary_id && OB_LIKELY(!id->is_null() && !min_id->is_null())) {
-            const uint32_t min_len = id->len_ < min_id->len_ ? id->len_ : min_id->len_;
-            const int mem_ret = 0 == min_len ? 0 : MEMCMP(id->ptr_, min_id->ptr_, min_len);
-            cmp_ret = 0 != mem_ret ? mem_ret : (id->len_ > min_id->len_ ? 1 : (id->len_ < min_id->len_ ? -1 : 0));
+            cmp_ret = ObTextDaaTIter::binary_id_cmp(*id, *min_id);
           } else if (OB_FAIL(cmp_func(*id, *min_id, cmp_ret, nullptr))) {
             LOG_WARN("fail to compare doc id", K(ret));
           }

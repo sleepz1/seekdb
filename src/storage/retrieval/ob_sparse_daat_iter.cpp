@@ -440,8 +440,9 @@ int ObSRDaaTIterImpl::project_results(const int64_t count)
     sql::ObBitVector &id_evaluated_flags = id_proj_expr->get_evaluated_flags(*eval_ctx);
     for (int64_t i = 0; i < count; ++i) {
       set_datum_func_(id_datums[i], buffered_ids[i]);
-      id_evaluated_flags.set(i);
     }
+    // == id_evaluated_flags.set(i) for every i < count
+    id_evaluated_flags.set_all(count);
     id_proj_expr->set_evaluated_projected(*eval_ctx);
     if (iter_param_->need_project_relevance()) {
       const double *buffered_relevances = buffered_relevances_.get_data();
@@ -449,8 +450,8 @@ int ObSRDaaTIterImpl::project_results(const int64_t count)
       sql::ObBitVector &relevance_evaluated_flags = relevance_proj_expr->get_evaluated_flags(*eval_ctx);
       for (int64_t i = 0; i < count; ++i) {
         relevance_datums[i].set_double(buffered_relevances[i]);
-        relevance_evaluated_flags.set(i);
       }
+      relevance_evaluated_flags.set_all(count);
       relevance_proj_expr->set_evaluated_projected(*eval_ctx);
     }
   } else if (eval_ctx->is_vectorized()) {

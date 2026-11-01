@@ -157,14 +157,44 @@ int ObStringDiffDecoder::batch_decode(
       }
     }
 
-    // Fill string data
+    // Fill string data.
+    // Every row is the common data with the row's diff bytes copied into the diff positions.
+    // The common data is laid out once into a template and the diff positions are resolved once
+    // per batch, so that each row costs one copy of the template plus the diff copies, instead of
+    // two walks over the diff descriptors with a memcpy for every descriptor. The produced bytes
+    // are identical to the per-descriptor copies.
     const uint16_t string_size = header_->string_size_;
     const static uint16_t min_buf_size = 128;
     const int64_t buf_size = std::max(string_size, min_buf_size);
+    const bool use_template = !header_->is_hex_packing() && string_size <= MAX_TEMPLATE_STRING_SIZE;
+    char tmpl[MAX_TEMPLATE_STRING_SIZE];
+    DiffRange ranges[MAX_DIFF_DESC_CNT];
+    int64_t range_cnt = 0;
     char *buf = nullptr;
     if (OB_FAIL(ret)) {
     } else if (OB_ISNULL(buf = static_cast<char *>(ctx.allocator_->alloc(buf_size * row_cap)))) {
       ret = OB_ALLOCATE_MEMORY_FAILED;
+    } else if (use_template) {
+      header_->copy_string(ObStringDiffHeader::LeftToRight(), std::logical_not<uint8_t>(),
+          header_->common_data(), tmpl);
+      int64_t ppos = 0;
+      int64_t fpos = 0;
+      for (int64_t i = 0; i < header_->diff_desc_cnt_; ++i) {
+        const int64_t cnt = header_->diff_descs_[i].count_;
+        if (0 != header_->diff_descs_[i].diff_ && cnt > 0) {
+          if (range_cnt > 0 && ranges[range_cnt - 1].fpos_ + ranges[range_cnt - 1].cnt_ == fpos) {
+            // adjacent diff descriptors: their stored bytes are adjacent as well
+            ranges[range_cnt - 1].cnt_ = static_cast<uint16_t>(ranges[range_cnt - 1].cnt_ + cnt);
+          } else {
+            ranges[range_cnt].fpos_ = static_cast<uint16_t>(fpos);
+            ranges[range_cnt].ppos_ = static_cast<uint16_t>(ppos);
+            ranges[range_cnt].cnt_ = static_cast<uint16_t>(cnt);
+            ++range_cnt;
+          }
+          ppos += cnt;
+        }
+        fpos += cnt;
+      }
     } else {
       for (int64_t i = 0; i < row_cap; ++i) {
         header_->copy_string(ObStringDiffHeader::LeftToRight(), std::logical_not<uint8_t>(),
@@ -184,7 +214,10 @@ int ObStringDiffDecoder::batch_decode(
           row_id = row_ids[i];
           cell_data = col_data + data_offset + row_id * header_->length_;
           str_ptr = buf + i * buf_size;
-          if (header_->is_hex_packing()) {
+          if (use_template) {
+            fill_from_template(tmpl, string_size, ranges, range_cnt,
+                reinterpret_cast<const char *>(cell_data), str_ptr);
+          } else if (header_->is_hex_packing()) {
             ObHexStringUnpacker unpacker(header_->hex_char_array(),
                 reinterpret_cast<const unsigned char *>(cell_data));
             header_->copy_hex_string(unpacker,
@@ -216,7 +249,9 @@ int ObStringDiffDecoder::batch_decode(
         } else if (OB_FAIL(ObRawDecoder::locate_cell_data(cell_data, cell_len, row_data, row_len,
             *ctx.micro_block_header_, *ctx.col_header_, *header_))) {
         } else {
-          if (header_->is_hex_packing()) {
+          if (use_template) {
+            fill_from_template(tmpl, string_size, ranges, range_cnt, cell_data, str_ptr);
+          } else if (header_->is_hex_packing()) {
             ObHexStringUnpacker unpacker(header_->hex_char_array(),
                 reinterpret_cast<const unsigned char *>(cell_data));
             header_->copy_hex_string(unpacker,

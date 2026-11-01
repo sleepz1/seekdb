@@ -229,15 +229,6 @@ int ObDocIdExt::from_obj(const ObObj &obj)
   return ret;
 }
 
-int ObDocIdExt::from_datum(const ObDatum &datum)
-{
-  int ret = common::OB_SUCCESS;
-  int64_t dummy_pos = 0;
-  if (OB_FAIL(datum_.deep_copy(datum, buf_, OB_DOC_ID_EXT_SIZE, dummy_pos))) {
-  }
-  return ret;
-}
-
 ObDocIdExt &ObDocIdExt::operator=(const ObDocIdExt &other)
 {
   if (this != &other) {

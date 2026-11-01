@@ -63,6 +63,34 @@ public:
 
   bool is_inited() const { return NULL != header_; }
 private:
+  // batch_decode fast path: strings up to this size are rebuilt from a per-batch template
+  static const int64_t MAX_TEMPLATE_STRING_SIZE = 256;
+  static const int64_t MAX_DIFF_DESC_CNT = 256; // diff_desc_cnt_ is an uint8_t
+  struct DiffRange
+  {
+    uint16_t fpos_; // position in the full string
+    uint16_t ppos_; // position in the row's stored diff bytes
+    uint16_t cnt_;
+  };
+  static OB_INLINE void fill_from_template(const char *tmpl, const uint16_t string_size,
+      const DiffRange *ranges, const int64_t range_cnt, const char *cell_data, char *str)
+  {
+    if (16 == string_size) {
+      MEMCPY(str, tmpl, 16);
+    } else {
+      MEMCPY(str, tmpl, string_size);
+    }
+    for (int64_t r = 0; r < range_cnt; ++r) {
+      const DiffRange &range = ranges[r];
+      if (range.cnt_ <= 8) {
+        for (int64_t k = 0; k < range.cnt_; ++k) {
+          str[range.fpos_ + k] = cell_data[range.ppos_ + k];
+        }
+      } else {
+        MEMCPY(str + range.fpos_, cell_data + range.ppos_, range.cnt_);
+      }
+    }
+  }
 
 private:
   const ObStringDiffHeader *header_;

@@ -153,13 +153,14 @@ public:
     } else if (OB_FAIL(get_next_row())) {
     }
     if (OB_SUCC(ret)) {
-      id_datum = &doc_id_[cur_idx_].get_datum();
+      // 0 <= cur_idx_ < count_ <= max_batch_size_ == doc_id_.count(): unchecked access
+      id_datum = &doc_id_.get_data()[cur_idx_].get_datum();
     }
     return ret;
   }
   OB_INLINE double curr_score() const
   {
-    return nullptr != relevance_expr_ ? relevance_[cur_idx_] : 1.0;
+    return nullptr != relevance_expr_ ? relevance_.get_data()[cur_idx_] : 1.0;
   }
   virtual int get_dim_max_score(double &score) override {
     int ret = OB_SUCCESS;
