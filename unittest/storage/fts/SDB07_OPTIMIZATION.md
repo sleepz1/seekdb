@@ -241,3 +241,29 @@ TOKENIZE 的 profile（`tokenize_ik`，CI 41271498726 候选）中：JSON 结果
 剩余热点为分词本身（`segment` 32%，词典查找 `ObArrayHashMap::find` 6.5%）与 JSON 树→二进制打包（`pack_json_res` 3.6%）。
 413 项语义（含 TOKENIZE 默认 / `detail` / 对象模式输出）三者完全一致，600 万组比较等价 0 差异，`tokenize_function`、
 `parser_properties` 两项 mysqltest 通过。
+
+## 14. 首次建索偶发 +3s：系统包加载逐个取 id（c7d8bd80 之后）
+
+官方评测 c7d8bd80 得 30.522：与 020a1afe（41.007）相比，TOKENIZE 与 MATCH 各项持平或更好，
+差距全部来自 `build_beng_en` 5.002s（正常约 2.1s，多出约 3s）。历次官方结果里这类 +3s 的首轮建索停顿
+在 ik_all / ik_content / beng 三项上都出现过，位置不固定。
+
+用 CI 41292608225 的完整日志定位到原因（cand 的 `build_ik_all` 8.2s，而重建只需 2.4s）：
+
+1. 服务启动约 3s 后，后台任务 `ObSystemPackageLoadTask` 加载 13 个系统包（只在新集群首次启动时执行一次）。每条
+   `CREATE PACKAGE` 都通过进程级的 Root Service 串行锁（`serialize_root_service_call`）执行，并在 DDL 事务里持有
+   运行时 DDL 锁。
+2. 包里每个 package / routine 都要分配一个 sys PL object id，`OB_MAX_USED_SYS_PL_OBJECT_ID_TYPE` 不在
+   `ObMaxIdCache` 的缓存类型里，每个 id 都是一次独立的内部表事务提交。启动后的 MDS mini merge、slog 写入
+   让磁盘很忙，每次提交约 55ms；`dbms_stats` 的 spec 一条语句就取了 50 个 id，从 42.94 到 45.62，持锁 2.7s。
+3. 基准的 `ALTER TABLE ... ADD FULLTEXT INDEX` 在 42.81 发出，排在同一把串行锁后面，到 45.78 才开始执行；
+   之后 DDL 任务的 `create_aux_index` 又与后续包语句争运行时锁，等 2.1s 后锁超时（-4012），重试一次才继续。
+   基线另一轮里包加载失败重试了两次（03.0 → 14.3），`ik_content` 的 ALTER 在串行锁上又等了 0.9s。
+   包加载如果碰巧在建索前完成（base，21.21 → 21.43，共 0.22s），就不会出现停顿。
+
+修改：`ObMaxIdCache` 增加 sys PL object id 缓存项，每次批量预留 128 个 id（其他类型仍为 1024；
+sys PL id 只有 31 万到 50 万这一段，批量取小一些），`check_use_max_id_cache_` 把这一类型列为走缓存。
+同一进程内分配到的 id 序列不变（仍从 310001 起连续）；没用完的 id 在重启后跳过，不会重复使用；缓存失败时
+仍回退到原来的逐个取 id。这样一次包加载的 117 次 id 事务变成 1 次，每条包语句持有串行锁的时间
+从“id 个数 × 一次提交”降为一两次提交。这是引擎通用路径的改动，不涉及全文索引的语义，
+也不改变包加载的时机：包加载仍按原样在后台异步执行。
