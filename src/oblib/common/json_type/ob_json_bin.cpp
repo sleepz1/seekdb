@@ -351,6 +351,32 @@ int ObJsonBin::get_child_for_read(uint64_t index, ObJsonBin &child) const
   return ret;
 }
 
+int ObJsonBin::print_plain_string_element(uint64_t index, ObJsonBuffer &j_buf, bool &handled) const
+{
+  INIT_SUCC(ret);
+  handled = false;
+  uint64_t value_offset = 0;
+  uint8_t value_type = 0;
+  if (OB_FAIL(get_value_entry(index, value_offset, value_type))) {
+  } else if (J_STRING_V0 == value_type) {
+    // [vertype(uint8_t)][length(vi64)][data], see init_string_node_v0()
+    int64_t offset = pos_ + value_offset + sizeof(uint8_t);
+    int64_t str_len = 0;
+    ObString data;
+    if (OB_FAIL(cursor_->decode_vi64(offset, &str_len))) {
+    } else if (OB_FAIL(cursor_->get(offset, str_len, data))) {
+    } else if (0 == str_len) {
+      ret = j_buf.append("\"\"", 2, 0);
+    } else if (OB_ISNULL(data.ptr())) {
+      ret = OB_ERR_NULL_VALUE;
+    } else {
+      ret = ObJsonBaseUtil::add_double_quote(j_buf, data.ptr(), static_cast<uint64_t>(str_len));
+    }
+    handled = OB_SUCC(ret);
+  }
+  return ret;
+}
+
 int ObJsonBin::get_object_value(uint64_t index, ObIJsonBase *&value) const
 {
   INIT_SUCC(ret);

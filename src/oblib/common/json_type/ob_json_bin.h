@@ -601,6 +601,11 @@ public:
   // copying this node or its node stack (read-only use such as printing; the child does not know
   // its parent). Same element, type and data as get_array_element() / get_object_value(index).
   int get_child_for_read(uint64_t index, ObJsonBin &child) const;
+  // Prints the index-th element of this J_ARRAY_V0 / J_OBJECT_V0 container in quoted form when it
+  // is a plain (non-inlined, non-forwarded) string, reading its length and bytes in place; the
+  // output is the same as get_child_for_read() followed by print(j_buf, true, ...). Sets handled to
+  // false and prints nothing for any other element type.
+  int print_plain_string_element(uint64_t index, ObJsonBuffer &j_buf, bool &handled) const;
   int get_object_value(uint64_t index, ObIJsonBase *&value) const override;
   int get_object_value(const ObString &key, ObIJsonBase *&value) const override;
   int get_object_value(uint64_t index, ObString &key, ObIJsonBase *&value) const override;
