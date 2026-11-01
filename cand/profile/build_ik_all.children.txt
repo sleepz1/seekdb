@@ -1,0 +1,188 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 12K of event 'task-clock:ppp'
+# Event count (approx.): 12334334322
+#
+# Children      Self  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+# ........  ........  ..............................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    97.87%     0.00%  [.] oceanbase::lib::Thread::__th_start(void*)
+    97.87%     0.00%  [.] 0x00007fa893494a83
+    97.50%     0.00%  [.] oceanbase::lib::Thread::run()
+    94.83%     0.00%  [.] oceanbase::omt::ObPxPool::handle(oceanbase::common::ObLink*)
+    94.83%     0.00%  [.] oceanbase::omt::ObPxPool::run(long)
+    94.83%     0.00%  [.] oceanbase::omt::ObPxPool::run1()
+    94.83%     0.00%  [.] oceanbase::sql::PxWorkerFunctor::operator()(bool)
+    94.81%     0.00%  [.] oceanbase::sql::ObPxTaskProcess::do_process()
+    94.81%     0.00%  [.] oceanbase::sql::ObPxTaskProcess::execute(oceanbase::sql::ObOpSpec const&)
+    94.81%     0.00%  [.] oceanbase::sql::ObPxTaskProcess::process()
+    94.81%     0.00%  [.] oceanbase::sql::ObPxTaskProcess::run()
+    90.20%     4.87%  [.] oceanbase::sql::ObOperator::get_next_batch(long, oceanbase::sql::ObBatchRows const*&)
+    88.98%     0.06%  [.] oceanbase::sql::ObPxTransmitOp::next_batch(long)
+    84.40%     0.47%  [.] oceanbase::sql::ObOperator::get_next_batch_with_onlyone_row()
+    83.84%     1.56%  [.] oceanbase::sql::ObOperator::get_next_row()
+    61.93%     0.00%  [.] oceanbase::sql::ObOperator::open()
+    61.90%     0.00%  [.] oceanbase::sql::ObPxTransmitOp::fetch_first_row()
+    61.90%     0.00%  [.] oceanbase::sql::ObPxTransmitOp::inner_open()
+    61.67%     0.00%  [.] oceanbase::sql::ObPxMultiPartSSTableInsertOp::inner_get_next_row()
+    61.60%     0.11%  [.] oceanbase::sql::ObPxMultiPartSSTableInsertOp::write_ordered_slice_by_row()
+    38.36%     0.11%  [.] oceanbase::sql::ObPxMultiPartSSTableInsertOp::get_next_row_from_child(long*)
+    37.13%     0.02%  [.] oceanbase::sql::ObOperator::get_next_row_vectorizely()
+    37.00%     0.28%  [.] oceanbase::sql::ObBatchRowIter::get_next_row(oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObOpSpec const&)
+    34.20%     0.08%  [.] oceanbase::sql::ObSortOp::inner_get_next_batch(long)
+    32.92%     0.00%  [.] oceanbase::sql::ObPxDistTransmitOp::do_range_dist()
+    32.92%     0.00%  [.] oceanbase::sql::ObPxDistTransmitOp::do_transmit()
+    32.92%     0.00%  [.] oceanbase::sql::ObPxTransmitOp::transmit()
+    32.87%     0.40%  [.] int oceanbase::sql::ObPxTransmitOp::send_rows_in_batch<(oceanbase::sql::ObSliceIdxCalc::SliceCalcType)10>(oceanbase::sql::ObSliceIdxCalc&)
+    29.95%     0.00%  [.] oceanbase::sql::ObSortOp::process_sort_batch()
+    27.39%     0.07%  [.] oceanbase::sql::ObPxDistTransmitOp::next_batch(long)
+    26.05%     0.05%  [.] oceanbase::sql::ObStatCollectorOp::inner_get_next_batch(long)
+    24.99%     0.45%  [.] oceanbase::sql::ObSubPlanScanOp::next_batch(long)
+    23.24%     0.02%  [.] oceanbase::sql::ObGranuleIteratorOp::inner_get_next_batch(long)
+    23.18%     0.15%  [.] oceanbase::sql::ObGranuleIteratorOp::try_get_rows(long)
+    21.94%     0.06%  [.] oceanbase::data_plane::(anonymous namespace)::ObDirectInsertWriterAdapter::append_row(oceanbase::data_plane::ObDirectInsertRowView const&)
+    21.51%     0.02%  [.] oceanbase::sql::ObTableScanOp::inner_get_next_row()
+    21.30%     0.05%  [.] oceanbase::sql::ObTableScanOp::inner_get_next_fts_index_row()
+    21.05%     0.06%  [.] oceanbase::storage::ObTabletSliceWriter::append_row(oceanbase::blocksstable::ObDatumRow const&)
+    20.91%     0.03%  [.] oceanbase::blocksstable::ObMacroBlockWriter::append_row(oceanbase::blocksstable::ObDatumRow const&, oceanbase::blocksstable::ObMacroBlockDesc const*)
+    20.45%     0.29%  [.] oceanbase::blocksstable::ObMacroBlockWriter::append_row(oceanbase::blocksstable::ObDatumRow const&, long)
+    19.53%     0.04%  [.] oceanbase::sql::ObTableScanOp::fetch_next_fts_index_rows()
+    18.19%     0.01%  [.] oceanbase::sql::ObFTIndexRowCache::segment(oceanbase::common::ObObjMeta const&, oceanbase::common::ObDatum const&, oceanbase::common::ObString const&)
+    18.04%     0.47%  [.] oceanbase::sql::ObDASDomainUtils::generate_fulltext_word_rows(oceanbase::common::ObIAllocator&, oceanbase::storage::ObFTParseHelper*, oceanbase::common::ObObjMeta const&, oceanbase::common::ObDatum const&, oceanbase::common::ObString const&, bool, oceanbase::common::ObSEArray<oceanbase::blocksstable::ObDatumRow*, 32l, oceanbase::common::ModulePageAllocator, false>&)
+    17.78%     0.08%  [.] oceanbase::sql::ObSortOp::scan_all_then_sort_batch()
+    16.79%     0.00%  [.] oceanbase::sql::ObDASDomainUtils::segment_and_calc_word_count(oceanbase::common::ObIAllocator&, oceanbase::storage::ObFTParseHelper*, oceanbase::common::ObObjMeta const&, oceanbase::common::ObString const&, long&, oceanbase::common::hash::ObHashMap<oceanbase::storage::ObFTWord, long, oceanbase::common::hash::NoPthreadDefendMode, oceanbase::common::hash::hash_func<oceanbase::storage::ObFTWord>, oceanbase::common::hash::equal_to<oceanbase::storage::ObFTWord>, oceanbase::common::hash::SimpleAllocer<oceanbase::common::hash::ObHashTableNode<oceanbase::common::hash::HashMapPair<oceanbase::storage::ObFTWord, long> >, 97, oceanbase::common::hash::SpinMutexDefendMode, oceanbase::common::hash::DefaultSimpleAllocerAllocator>, oceanbase::common::hash::NormalPointer, oceanbase::common::ObMalloc, 1l>&)
+    16.77%     0.02%  [.] oceanbase::storage::ObFTParseHelper::segment(oceanbase::common::ObObjMeta const&, char const*, long, long&, oceanbase::common::hash::ObHashMap<oceanbase::storage::ObFTWord, long, oceanbase::common::hash::NoPthreadDefendMode, oceanbase::common::hash::hash_func<oceanbase::storage::ObFTWord>, oceanbase::common::hash::equal_to<oceanbase::storage::ObFTWord>, oceanbase::common::hash::SimpleAllocer<oceanbase::common::hash::ObHashTableNode<oceanbase::common::hash::HashMapPair<oceanbase::storage::ObFTWord, long> >, 97, oceanbase::common::hash::SpinMutexDefendMode, oceanbase::common::hash::DefaultSimpleAllocerAllocator>, oceanbase::common::hash::NormalPointer, oceanbase::common::ObMalloc, 1l>&) const
+    16.71%     0.04%  [.] oceanbase::storage::ObFTParseHelper::segment(oceanbase::storage::ObFTParserProperty const&, long, oceanbase::storage::ObIFTParserDesc const*, ObCharsetInfo const*, char const*, long, oceanbase::common::ObIAllocator&, oceanbase::storage::ObAddWord&)
+    15.83%     0.00%  [.] oceanbase::sql::ObSortOpImpl::sort_inmem_data()
+    14.71%     3.76%  [.] oceanbase::sql::ObSortOpImpl::Compare::operator()(oceanbase::sql::ObChunkDatumStore::StoredRow const*, oceanbase::sql::ObChunkDatumStore::StoredRow const*)
+    13.85%     0.07%  [.] oceanbase::storage::ObIKFTParser::get_next_token(char const*&, long&, long&, long&)
+    13.25%     0.65%  [.] oceanbase::storage::ObIKFTParser::process_next_batch()
+    12.50%     0.00%  [.] void oceanbase::lib::ob_sort<oceanbase::sql::ObChunkDatumStore::StoredRow**, oceanbase::sql::ObSortOpImpl::CopyableComparer>(oceanbase::sql::ObChunkDatumStore::StoredRow**, oceanbase::sql::ObChunkDatumStore::StoredRow**, oceanbase::sql::ObSortOpImpl::CopyableComparer)
+    12.48%     0.45%  [.] void std::__introsort_loop<oceanbase::sql::ObChunkDatumStore::StoredRow**, long, __gnu_cxx::__ops::_Iter_comp_iter<oceanbase::sql::ObSortOpImpl::CopyableComparer> >(oceanbase::sql::ObChunkDatumStore::StoredRow**, oceanbase::sql::ObChunkDatumStore::StoredRow**, long, __gnu_cxx::__ops::_Iter_comp_iter<oceanbase::sql::ObSortOpImpl::CopyableComparer>)
+    12.01%     0.00%  [.] oceanbase::sql::ObSortOpImpl::sort()
+    11.68%     0.01%  [.] oceanbase::blocksstable::ObMacroBlockWriter::build_micro_block()
+    10.91%     0.04%  [.] oceanbase::blocksstable::ObMacroBlockWriter::append(oceanbase::blocksstable::ObDatumRow const&)
+     8.30%     0.01%  [.] oceanbase::sql::ObSortOpImpl::do_dump()
+     6.56%     0.10%  [.] oceanbase::sql::ObSortOpImpl::before_add_row()
+     6.03%     0.02%  [.] oceanbase::sql::ObCompactStore::add_batch(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const&, oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObBitVectorImpl<unsigned long> const&, long, long&, oceanbase::sql::ObChunkDatumStore::StoredRow**, long)
+     5.96%     0.14%  [.] oceanbase::sql::ObCompactStore::add_batch(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const&, oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObBitVectorImpl<unsigned long> const&, long, unsigned short const*, long, oceanbase::sql::ObChunkDatumStore::StoredRow**)
+     5.93%     0.00%  [.] oceanbase::blocksstable::ObIMicroBlockWriter::build_micro_block_desc(oceanbase::blocksstable::ObMicroBlockDesc&)
+     5.92%     0.00%  [.] oceanbase::blocksstable::ObMicroBlockEncoder::build_block(char*&, long&)
+     5.84%     0.10%  [.] oceanbase::sql::ObCompactBlockWriter::add_row(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const&, oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObChunkDatumStore::StoredRow**)
+     5.78%     0.28%  [.] oceanbase::blocksstable::ObMicroBlockEncoder::append_row(oceanbase::blocksstable::ObDatumRow const&)
+     4.81%     0.63%  [.] oceanbase::storage::ObIKCJKProcessor::do_process(oceanbase::storage::TokenizeContext&, char const*, unsigned char, oceanbase::storage::ObFTCharUtil::CharType)
+     4.77%     0.06%  [.] oceanbase::sql::ObCompactStore::get_next_row(oceanbase::sql::ObChunkDatumStore::StoredRow const*&)
+     4.67%     0.09%  [.] oceanbase::sql::ObCompactStore::inner_get_next_row(oceanbase::sql::ObChunkDatumStore::StoredRow const*&)
+     4.59%     0.00%  [.] oceanbase::blocksstable::ObMicroBlockEncoder::encoder_detection(long&)
+     4.32%     0.00%  [.] oceanbase::blocksstable::ObMicroBlockBufferHelper::compress_micro_block(oceanbase::blocksstable::ObMicroBlockDesc&)
+     4.28%     4.28%  [.] oceanbase::common::ObNullSafeDatumStrCmp<(oceanbase::common::ObCollationType)45, false, true>::cmp(oceanbase::common::ObDatum const&, oceanbase::common::ObDatum const&, int&, oceanbase::common::ObDatumAccessContext const*)
+     4.20%     0.00%  [.] oceanbase::blocksstable::ObMicroBlockEncoder::prescan(long)
+     4.16%     0.05%  [.] oceanbase::sql::ObSortOp::sort_impl_next_batch(long)
+     4.11%     0.05%  [.] oceanbase::sql::ObSortOpImpl::get_next_batch(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const&, long, long&)
+     4.11%     0.01%  [.] oceanbase::sql::ObTempBlockStore::write_compressed_block(oceanbase::sql::ObTempBlockStore::Block*, oceanbase::sql::ObTempBlockStore::BlockIndex*)
+     4.11%     0.00%  [.] oceanbase::sql::ObTempBlockStore::dump(bool, long)
+     4.11%     0.00%  [.] oceanbase::sql::ObTempBlockStore::dump_block(oceanbase::sql::ObTempBlockStore::Block*, long&)
+     4.11%     0.00%  [.] oceanbase::sql::ObTempBlockStore::new_block(long, oceanbase::sql::ObTempBlockStore::Block*&, bool)
+     4.09%     0.00%  [.] oceanbase::blocksstable::ObMicroBlockBufferHelper::check_micro_block(char const*, long, char const*, long, oceanbase::blocksstable::ObMicroBlockDesc const&)
+     4.00%     0.07%  [.] oceanbase::blocksstable::ObMicroBlockBufferHelper::check_micro_block_checksum(char const*, long, long)
+     3.86%     0.01%  [.] oceanbase::common::zstd_1_3_8::ObZstdCompressor_1_3_8::compress(char const*, long, char*, long, long&)
+     3.85%     0.00%  [.] oceanbase::common::zstd_1_3_8::ObZstdWrapper::compress(oceanbase::common::zstd_1_3_8::OB_ZSTD_customMem&, char const*, unsigned long, char*, unsigned long, unsigned long&)
+     3.73%     0.00%  [.] ZSTD_compressCCtx
+     3.69%     0.74%  [.] oceanbase::blocksstable::ObEncodingHashTableBuilder::build(oceanbase::blocksstable::ObPodFix2dArray<oceanbase::common::ObDatum, 1048576l, 7936l> const&, oceanbase::share::schema::ObColDesc const&)
+     3.64%     0.00%  [.] ZSTD_compressContinue_internal
+     3.64%     0.00%  [.] ZSTD_compressEnd
+     3.63%     0.00%  [.] oceanbase::sql::ObChunkBlockCompressor::compress(char const*, long, long, char*, long&)
+     3.62%     0.21%  [.] ZSTD_compressBlock_internal
+     3.39%     2.54%  [.] oceanbase::common::datum_cmp::ObDatumStrCmp<(oceanbase::common::ObCollationType)45, false>::cmp(oceanbase::common::ObDatum const&, oceanbase::common::ObDatum const&, int&)
+     3.29%     0.11%  [.] void std::__final_insertion_sort<oceanbase::sql::ObChunkDatumStore::StoredRow**, __gnu_cxx::__ops::_Iter_comp_iter<oceanbase::sql::ObSortOpImpl::CopyableComparer> >(oceanbase::sql::ObChunkDatumStore::StoredRow**, oceanbase::sql::ObChunkDatumStore::StoredRow**, __gnu_cxx::__ops::_Iter_comp_iter<oceanbase::sql::ObSortOpImpl::CopyableComparer>)
+     2.91%     0.60%  [.] oceanbase::sql::ObRangeSliceIdCalc::get_slice_idx_batch_inner(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const&, oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObBitVectorImpl<unsigned long>&, long, long*&)
+     2.61%     2.61%  [.] oceanbase::common::crc64_sse42(unsigned long, char const*, long)
+     2.57%     0.50%  [.] oceanbase::blocksstable::ObMicroBlockDecoder::get_row(long, oceanbase::blocksstable::ObDatumRow&)
+     2.48%     0.02%  [.] oceanbase::sql::ObCompactStore::add_row(oceanbase::sql::ObChunkDatumStore::StoredRow const&, oceanbase::sql::ObChunkDatumStore::StoredRow**)
+     2.46%     0.03%  [.] oceanbase::sql::ObCompactBlockWriter::add_row(oceanbase::sql::ObChunkDatumStore::StoredRow const&, oceanbase::sql::ObChunkDatumStore::StoredRow**)
+     2.42%     0.17%  [.] oceanbase::sql::ObCompactBlockReader::get_row(oceanbase::sql::ObChunkDatumStore::StoredRow const*&)
+     2.41%     2.41%  [.] oceanbase::common::ObIArrayWrap<int (*)(oceanbase::common::ObDatum const&, oceanbase::common::ObDatum const&, int&, oceanbase::common::ObDatumAccessContext const*)>::at(long) const
+     2.37%     0.74%  [.] oceanbase::blocksstable::ObMicroBlockEncoder::copy_and_append_row(oceanbase::blocksstable::ObDatumRow const&, long&)
+     2.36%     0.08%  [.] oceanbase::sql::ObSortOpImpl::get_next_batch_stored_rows(long, long&)
+     2.25%     0.84%  [.] oceanbase::storage::ObFTDATReader<void>::match_with_hit(oceanbase::common::ObString const&, oceanbase::storage::ObDATrieHit const&, oceanbase::storage::ObDATrieHit&) const
+     2.22%     0.09%  [.] oceanbase::storage::ObAddWord::process_word(char const*, long, long, long)
+     2.19%     0.06%  [.] oceanbase::sql::ObSortOpImpl::ems_heap_next_stored_row(oceanbase::sql::ObChunkDatumStore::StoredRow const*&)
+     2.16%     0.00%  [.] oceanbase::sql::ObTempBlockStore::get_block(oceanbase::sql::ObTempBlockStore::BlockReader&, long, oceanbase::sql::ObTempBlockStore::Block const*&)
+     2.15%     0.00%  [.] oceanbase::common::zstd_1_3_8::ObZstdCompressor_1_3_8::decompress(char const*, long, char*, long, long&)
+     2.15%     0.00%  [.] oceanbase::common::zstd_1_3_8::ObZstdWrapper::decompress(oceanbase::common::zstd_1_3_8::OB_ZSTD_customMem&, char const*, unsigned long, char*, unsigned long, unsigned long&)
+     2.10%     0.00%  [.] oceanbase::sql::ObTempBlockStore::decompr_block(oceanbase::sql::ObTempBlockStore::BlockReader&, oceanbase::sql::ObTempBlockStore::Block const*&)
+     2.09%     0.00%  [.] oceanbase::sql::ObChunkBlockCompressor::decompress(char const*, long, long, char*, long&)
+     2.06%     0.00%  [.] ZSTD_decompressDCtx
+     2.06%     0.00%  [.] ZSTD_decompressMultiFrame
+     2.04%     0.10%  [.] oceanbase::sql::ObSortOpImpl::ems_heap_next(oceanbase::sql::ObSortOpChunk*&)
+     2.04%     0.00%  [.] ZSTD_decompressBlock_internal
+     2.02%     0.00%  [.] oceanbase::lib::Threads::run(long)
+     1.96%     1.04%  [.] int oceanbase::blocksstable::ObMicroBlockChecksumHelper::cal_row_checksum<oceanbase::blocksstable::ObStorageDatum>(oceanbase::blocksstable::ObStorageDatum const*, long)
+     1.94%     1.93%  [.] ZSTD_compressBlock_fast
+     1.92%     0.62%  [.] int oceanbase::sql::ObCompactBlockWriter::inner_add_row<unsigned short>(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const&, oceanbase::sql::ObEvalCtx&)
+     1.86%     0.22%  [.] oceanbase::common::ObCharset::hash(oceanbase::common::ObCollationType, char const*, long, unsigned long, bool, unsigned long (*)(void const*, unsigned long, unsigned long))
+     1.84%     1.84%  [.] oceanbase::common::ObIArrayWrap<oceanbase::sql::ObOptParamHint::OptParamType>::at(long) const
+     1.75%     0.26%  [.] oceanbase::storage::ObFTRangeDict::match(oceanbase::common::ObString const&, oceanbase::storage::ObDATrieHit&) const
+     1.73%     1.01%  [.] int oceanbase::sql::ObCompactBlockReader::get_stored_row<unsigned short>(oceanbase::sql::ObChunkDatumStore::StoredRow*&)
+     1.71%     0.01%  [.] oceanbase::observer::ObInnerSQLConnection::query(oceanbase::common::sqlclient::ObIExecutor&, oceanbase::observer::ObInnerSQLResult&, oceanbase::observer::ObVirtualTableIteratorFactory*)
+     1.70%     0.41%  [.] oceanbase::storage::ObAddWord::groupby_word(oceanbase::storage::ObFTWord const&, long)
+     1.68%     0.00%  [.] oceanbase::observer::ObInnerSQLConnection::do_query(oceanbase::common::sqlclient::ObIExecutor&, oceanbase::observer::ObInnerSQLResult&)
+     1.65%     1.64%  [.] ZSTD_decompressSequences_bmi2
+     1.62%     1.56%  [.] void oceanbase::sql::ObChunkDatumStore::Iterator::attach_rows<false>(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const&, oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObChunkDatumStore::StoredRow const**, long)
+     1.57%     1.57%  [.] oceanbase::common::ObNullSafeDatumStrCmp<(oceanbase::common::ObCollationType)63, false, true>::cmp(oceanbase::common::ObDatum const&, oceanbase::common::ObDatum const&, int&, oceanbase::common::ObDatumAccessContext const*)
+     1.54%     0.03%  [.] oceanbase::sql::ObChunkStoreWrapper::get_next_row(oceanbase::sql::ObChunkDatumStore::StoredRow const*&)
+     1.52%     0.32%  [.] oceanbase::sql::ObCompactBlockWriter::ensure_write(oceanbase::sql::ObChunkDatumStore::StoredRow const&)
+     1.52%     0.00%  [k] asm_exc_page_fault
+     1.52%     0.00%  [k] exc_page_fault
+     1.48%     0.50%  [.] oceanbase::sql::ObTableScanOp::fill_generated_fts_cols(oceanbase::blocksstable::ObDatumRow*)
+     1.48%     0.21%  [k] do_user_addr_fault
+     1.42%     0.37%  [.] oceanbase::blocksstable::ObMicroBlockChecksumHelper::cal_column_checksum(oceanbase::blocksstable::ObDatumRow const&, long*)
+     1.41%     0.00%  [.] oceanbase::sql::ObTableScanOp::inner_get_next_row_for_tsc()
+     1.40%     0.00%  [.] oceanbase::share::ObReentrantThread::blocking_run()
+     1.40%     0.00%  [.] oceanbase::share::ObReentrantThread::run1()
+     1.39%     0.00%  [.] oceanbase::blocksstable::ObSkipIndexDataAggregator::eval(oceanbase::blocksstable::ObIMicroBlockWriter const&)
+     1.37%     0.70%  [.] int oceanbase::sql::ObCompactBlockWriter::inner_process_datum<unsigned short>(oceanbase::common::ObDatum const&, long, oceanbase::sql::ChunkRowMeta const&, oceanbase::sql::ObCompactBlockWriter::CurRowInfo&)
+     1.36%     0.05%  [.] oceanbase::blocksstable::ObMacroBlockWriter::save_last_key(oceanbase::blocksstable::ObDatumRow const&)
+     1.29%     0.00%  [.] oceanbase::common::ObStrHashBatchImpl::hash_v2_batch(unsigned long*, oceanbase::common::ObDatum*, bool, oceanbase::sql::ObBitVectorImpl<unsigned long> const&, long, unsigned long const*, bool, oceanbase::common::ObCollationType, bool, unsigned long (*)(void const*, unsigned long, unsigned long), bool, oceanbase::common::ObDatumAccessContext const*)
+     1.28%     1.28%  [.] oceanbase::storage::ObArrayHashMap::find(oceanbase::storage::ObFTSingleWord const&, int&) const
+     1.27%     0.14%  [.] oceanbase::common::DefStrHashFunc<false>::hash_v2_batch(unsigned long*, oceanbase::common::ObDatum*, bool, oceanbase::sql::ObBitVectorImpl<unsigned long> const&, long, unsigned long const*, bool, oceanbase::common::ObCollationType, bool, unsigned long (*)(void const*, unsigned long, unsigned long), oceanbase::common::ObDatumAccessContext const*)
+     1.26%     0.13%  [.] oceanbase::storage::ObIKArbitrator::output_result(oceanbase::storage::TokenizeContext&)
+     1.25%     1.00%  [.] ob_hash_sort_utf8mb4(ObCharsetInfo const*, unsigned char const*, unsigned long, unsigned long*, unsigned long*, bool, unsigned long (*)(void const*, unsigned long, unsigned long))
+     1.23%     0.00%  [.] oceanbase::rootserver::ObDDLScheduler::do_work()
+     1.23%     0.00%  [.] oceanbase::rootserver::ObServerThreadHelper::run2()
+     1.22%     0.32%  [.] oceanbase::blocksstable::ObMacroBlockWriter::check_order(oceanbase::blocksstable::ObDatumRow const&)
+     1.21%     1.21%  [.] oceanbase::storage::ObFTRangeDict::find_first_char_range(oceanbase::common::ObString const&, oceanbase::storage::ObIFTDict*&) const
+     1.21%     0.06%  [k] handle_mm_fault
+     1.21%     0.00%  [.] oceanbase::sql::ObResultSet::open()
+     1.18%     0.03%  [.] oceanbase::sql::ObPxTransmitOp::send_row(long, long&, long)
+     1.14%     0.00%  [.] oceanbase::observer::ObInnerSQLConnection::execute_read(oceanbase::common::ObString const&, oceanbase::common::ObISQLClient::ReadResult&, bool)
+     1.13%     0.01%  [.] oceanbase::observer::ObInnerSQLConnection::execute_read_inner(oceanbase::common::ObString const&, oceanbase::common::ObISQLClient::ReadResult&, bool)
+     1.13%     0.00%  [.] oceanbase::sql::ObDASMergeIter::inner_get_next_row()
+     1.13%     0.00%  [.] oceanbase::sql::ObTableScanOp::get_next_row_with_das()
+     1.11%     0.20%  [.] oceanbase::storage::ObIKArbitrator::process(oceanbase::storage::TokenizeContext&)
+     1.11%     0.01%  [.] oceanbase::sql::ObDASMergeIter::get_next_seq_row()
+     1.10%     0.00%  [.] oceanbase::sql::ObDASDomainIdMergeIter::inner_get_next_row()
+     1.10%     0.00%  [.] oceanbase::share::ObDDLErrorMessageTableOperator::get_ddl_error_message(long, long, oceanbase::common::ObAddr const&, bool, oceanbase::common::ObMySQLProxy&, oceanbase::share::ObDDLErrorMessageTableOperator::ObBuildDDLErrorMessage&, long&)
+     1.09%     0.00%  [.] oceanbase::sql::ObResultSet::execute()
+     1.08%     0.01%  [.] oceanbase::common::ObCommonSqlProxy::read(oceanbase::common::ObISQLClient::ReadResult&, char const*, int)
+     1.07%     0.67%  [.] oceanbase::blocksstable::ObMacroBlockWriter::save_last_key(oceanbase::blocksstable::ObDatumRowkey const&)
+     1.07%     0.03%  [k] __handle_mm_fault
+     1.07%     0.03%  [.] oceanbase::sql::ObDASDomainIdMergeIter::concat_row()
+     1.06%     0.24%  [.] oceanbase::storage::TokenizeContext::step_next()
+     1.03%     0.02%  [k] handle_pte_fault
+     1.02%     1.02%  [.] 0x0000000000199e3d
+     1.02%     0.00%  [.] non-virtual thunk to oceanbase::omt::ObThWorker::run(long)
+     1.02%     0.00%  [.] oceanbase::omt::ObThWorker::worker(long&, long&, int&)
+     1.02%     0.00%  [.] oceanbase::sql::ObCmdExecutor::execute(oceanbase::sql::ObExecContext&, oceanbase::sql::ObICmd&)
+     1.02%     0.00%  [.] 0x00007fa893599e3d
+     1.01%     0.00%  [.] oceanbase::omt::ObThWorker::process_request(oceanbase::rpc::ObRequest&)
+     1.01%     0.00%  [.] oceanbase::omt::ObWorkerProcessor::process(oceanbase::rpc::ObRequest&)
+     1.01%     0.00%  [.] oceanbase::omt::ObWorkerProcessor::process_one(oceanbase::rpc::ObRequest&)
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

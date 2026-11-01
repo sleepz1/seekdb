@@ -1,0 +1,154 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'task-clock:ppp'
+# Event count (approx.): 1210210209
+#
+# Children      Self  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+# ........  ........  ......................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    96.03%     0.00%  [.] oceanbase::lib::Thread::__th_start(void*)
+    96.03%     0.00%  [.] 0x00007fa893494a83
+    95.78%     0.00%  [.] oceanbase::lib::Thread::run()
+    95.45%     0.08%  [.] oceanbase::omt::ObThWorker::worker(long&, long&, int&)
+    95.45%     0.00%  [.] non-virtual thunk to oceanbase::omt::ObThWorker::run(long)
+    87.51%     0.00%  [.] oceanbase::omt::ObThWorker::process_request(oceanbase::rpc::ObRequest&)
+    87.51%     0.00%  [.] oceanbase::omt::ObWorkerProcessor::process(oceanbase::rpc::ObRequest&)
+    87.51%     0.00%  [.] oceanbase::omt::ObWorkerProcessor::process_one(oceanbase::rpc::ObRequest&)
+    87.34%     0.08%  [.] oceanbase::observer::ObMPQuery::process()
+    87.34%     0.00%  [.] oceanbase::rpc::frame::ObSqlProcessor::run()
+    86.85%     0.17%  [.] oceanbase::observer::ObMPQuery::process_single_stmt(oceanbase::sql::ObMultiStmtItem const&, oceanbase::observer::ObSMConnection*, oceanbase::sql::ObSQLSessionInfo&, bool, bool, bool&, bool&)
+    84.37%     0.00%  [.] oceanbase::observer::ObSyncPlanDriver::response_result(oceanbase::observer::ObMySQLResultSet&)
+    79.82%     0.08%  [.] oceanbase::sql::ObResultSet::get_next_row(oceanbase::common::ObNewRow const*&)
+    79.82%     0.00%  [.] oceanbase::observer::ObQueryDriver::response_query_result(oceanbase::sql::ObResultSet&, bool, bool, bool&, long)
+    79.74%     0.08%  [.] oceanbase::sql::ObOperator::get_next_batch(long, oceanbase::sql::ObBatchRows const*&)
+    79.74%     0.00%  [.] oceanbase::sql::ObBatchRowIter::get_next_row()
+    79.74%     0.00%  [.] oceanbase::sql::ObExecuteResult::get_next_row(oceanbase::sql::ObExecContext&, oceanbase::common::ObNewRow const*&)
+    79.57%     0.00%  [.] oceanbase::sql::ObScalarAggregateOp::inner_get_next_batch(long)
+    79.57%     0.00%  [.] oceanbase::sql::ObSubPlanScanOp::next_batch(long)
+    79.57%     0.00%  [.] oceanbase::sql::ObTableScanOp::inner_get_next_batch_for_tsc(long)
+    71.30%     0.08%  [.] oceanbase::sql::ObTableScanOp::get_next_batch_with_das(long&, long)
+    71.22%     0.00%  [.] oceanbase::sql::ObDASMergeIter::get_next_seq_rows(long&, long)
+    71.22%     0.00%  [.] oceanbase::sql::ObDASMergeIter::inner_get_next_rows(long&, long)
+    71.13%     0.00%  [.] oceanbase::sql::ObDASCacheLookupIter::inner_get_next_rows(long&, long)
+    62.20%     0.08%  [.] oceanbase::sql::ObDASSortIter::do_sort(bool)
+    62.20%     0.00%  [.] oceanbase::sql::ObDASSortIter::inner_get_next_rows(long&, long)
+    61.54%     0.00%  [.] oceanbase::storage::ObTextBMWIter::get_next_rows(long, long&)
+    60.38%    11.41%  [.] oceanbase::storage::ObTextBMWIter::try_exhaustive_top_k(bool&)
+    39.12%     0.00%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::get_next_row()
+    28.62%     0.25%  [.] oceanbase::storage::ObTableScanIterator::get_next_rows(long&, long)
+    28.62%     0.17%  [.] oceanbase::sql::ObDASScanIter::inner_get_next_rows(long&, long)
+    28.12%     0.17%  [.] oceanbase::storage::ObMultipleMerge::get_next_rows(long&, long)
+    27.63%     0.25%  [.] oceanbase::storage::ObMultipleMerge::get_next_normal_rows(long&, long)
+    22.91%     0.17%  [.] oceanbase::storage::ObTextRetrievalTokenIter::get_next_batch(long, long&)
+    20.68%     0.00%  [.] oceanbase::storage::ObMultipleScanMerge::inner_get_next_rows()
+    20.68%     0.00%  [.] oceanbase::storage::ObSSTableRowScanner<oceanbase::storage::ObIndexTreeMultiPassPrefetcher<32, 3> >::get_next_rows()
+    20.60%     0.08%  [.] oceanbase::storage::ObSSTableRowScanner<oceanbase::storage::ObIndexTreeMultiPassPrefetcher<32, 3> >::fetch_rows(oceanbase::storage::ObSSTableReadHandle&)
+    20.51%     0.33%  [.] oceanbase::blocksstable::ObIMicroBlockRowScanner::get_next_rows()
+    20.18%     0.08%  [.] oceanbase::storage::ObVectorStore::fill_rows(long, oceanbase::blocksstable::ObIMicroBlockRowScanner&, long&, long, oceanbase::storage::ObFilterResult const&)
+    20.10%     0.08%  [.] oceanbase::storage::ObVectorStore::fill_output_rows(long, oceanbase::blocksstable::ObIMicroBlockRowScanner&, long&, long, oceanbase::storage::ObFilterResult const&)
+    18.86%     0.17%  [.] oceanbase::blocksstable::ObMicroBlockDecoder::get_rows(oceanbase::common::ObIArray<int> const&, oceanbase::common::ObIArray<oceanbase::share::schema::ObColumnParam const*> const&, bool, int const*, char const**, long, oceanbase::common::ObIArray<oceanbase::blocksstable::ObSqlDatumInfo>&, long)
+    18.86%     0.00%  [.] oceanbase::blocksstable::ObIMicroBlockRowScanner::get_rows_for_old_format(oceanbase::common::ObIArray<int> const&, oceanbase::common::ObIArray<oceanbase::share::schema::ObColumnParam const*> const&, int const*, long, long, char const**, oceanbase::common::ObIArray<oceanbase::sql::ObExpr*>&, oceanbase::common::ObIArray<oceanbase::blocksstable::ObSqlDatumInfo>&, oceanbase::common::ObIArray<oceanbase::blocksstable::ObStorageDatum> const*, bool)
+    17.62%     0.41%  [.] oceanbase::blocksstable::ObMicroBlockDecoder::get_col_datums(int, int const*, char const**, long, oceanbase::common::ObDatum*)
+    16.21%     1.08%  [.] oceanbase::sql::ObExpr::do_eval_batch(oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObBitVectorImpl<unsigned long> const&, long) const
+    14.31%    11.75%  [.] oceanbase::sql::ObExprBM25::eval_batch_bm25_relevance_expr(oceanbase::sql::ObExpr const&, oceanbase::sql::ObEvalCtx&, oceanbase::sql::ObBitVectorImpl<unsigned long> const&, long)
+     8.60%     8.35%  [.] oceanbase::blocksstable::ObStringDiffDecoder::batch_decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::blocksstable::ObIRowIndex const*, int const*, char const**, long, oceanbase::common::ObDatum*) const
+     8.27%     0.00%  [.] oceanbase::sql::ObTableScanOp::do_init_before_get_row()
+     7.44%     0.08%  [.] oceanbase::sql::ObDASRef::execute_all_task(oceanbase::common::ObObjStore<oceanbase::sql::ObDasAggregatedTask*, oceanbase::common::ObIAllocator&, false>&)
+     7.44%     0.00%  [.] oceanbase::sql::ObDASMergeIter::do_table_scan()
+     7.36%     0.00%  [.] oceanbase::sql::ObDASScanOp::open_op()
+     7.36%     0.00%  [.] oceanbase::sql::ObDataAccessService::do_local_das_task(oceanbase::common::ObIArray<oceanbase::sql::ObIDASTaskOp*>&)
+     7.36%     0.00%  [.] oceanbase::sql::ObDataAccessService::execute_local_das_task(oceanbase::sql::ObDasAggregatedTask&)
+     7.36%     0.00%  [.] oceanbase::sql::ObIDASTaskOp::start_das_task()
+     6.37%     0.00%  [.] oceanbase::sql::ObDASScanIter::do_table_scan()
+     6.29%     0.00%  [.] oceanbase::storage::ObAccessService::table_scan(oceanbase::common::ObVTableScanParam&, oceanbase::common::ObNewRowIterator*&)
+     5.29%     0.08%  [.] oceanbase::storage::ObLSTabletService::table_scan(oceanbase::storage::ObTabletHandle&, oceanbase::storage::ObTableScanIterator&, oceanbase::storage::ObTableScanParam&)
+     5.13%     0.00%  [.] oceanbase::storage::ObLSTabletService::inner_table_scan(oceanbase::storage::ObTabletHandle&, oceanbase::storage::ObTableScanIterator&, oceanbase::storage::ObTableScanParam&)
+     5.13%     0.00%  [.] oceanbase::storage::ObTableScanIterator::init(oceanbase::storage::ObTableScanParam&, oceanbase::storage::ObTabletHandle const&)
+     4.88%     0.08%  [.] oceanbase::sql::ObDASLegacyTRMergeIter::do_table_scan()
+     4.80%     0.00%  [.] oceanbase::storage::ObMultipleScanMerge::inner_get_next_row(oceanbase::blocksstable::ObDatumRow&)
+     4.71%     0.00%  [.] oceanbase::storage::ObMultipleScanMerge::supply_consume()
+     4.63%     0.00%  [.] oceanbase::storage::ObSSTableRowScanner<oceanbase::storage::ObIndexTreeMultiPassPrefetcher<32, 3> >::inner_get_next_row(oceanbase::blocksstable::ObDatumRow const*&)
+     4.38%     0.00%  [.] oceanbase::storage::ObTableScanIterator::open_iter()
+     4.30%     1.49%  [.] __sched_yield
+     4.22%     0.00%  [.] oceanbase::storage::ObMultipleMultiScanMerge::inner_get_next_row(oceanbase::blocksstable::ObDatumRow&)
+     4.05%     0.00%  [k] entry_SYSCALL_64_after_hwframe
+     3.97%     0.74%  [k] do_syscall_64
+     3.97%     0.08%  [.] oceanbase::storage::ObTableScanIterator::init_and_open_scan_merge_iter_()
+     3.47%     0.08%  [.] oceanbase::sql::ObResultSet::do_close(int*)
+     3.39%     3.06%  [.] oceanbase::omt::ObServerRuntime::get_new_request(long, oceanbase::rpc::ObRequest*&, bool)
+     3.39%     0.00%  [.] oceanbase::blocksstable::ObIMicroBlockReader::locate_range(oceanbase::blocksstable::ObDatumRange const&, bool, bool, long&, long&, bool)
+     3.31%     0.08%  [.] oceanbase::sql::ObOperator::close()
+     3.23%     1.99%  [.] oceanbase::storage::ObSRBMWIterImpl::process_collected_row(oceanbase::common::ObDatum const&, double)
+     3.23%     0.17%  [.] oceanbase::storage::ObTextRetrievalTokenIter::estimate_token_doc_cnt()
+     3.14%     0.00%  [.] oceanbase::sql::ObDASMergeIter::inner_reuse()
+     3.14%     0.00%  [.] oceanbase::sql::ObTableScanOp::inner_close()
+     3.14%     0.00%  [.] oceanbase::storage::ObSSTableRowScanner<oceanbase::storage::ObIndexTreeMultiPassPrefetcher<32, 3> >::fetch_row(oceanbase::storage::ObSSTableReadHandle&, oceanbase::blocksstable::ObDatumRow const*&)
+     3.06%     3.06%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::save_relevances_and_docids()
+     3.06%     0.08%  [.] oceanbase::sql::ObDASRef::close_all_task()
+     3.06%     0.08%  [.] oceanbase::sql::ObDASScanOp::release_op()
+     3.06%     0.08%  [k] x64_sys_call
+     3.06%     0.00%  [.] oceanbase::sql::ObDASIter::release()
+     2.89%     0.08%  [.] oceanbase::storage::ObAccessService::estimate_row_count(oceanbase::storage::ObTableScanParam const&, oceanbase::storage::ObTableScanRange const&, long, oceanbase::common::ObIArray<oceanbase::common::ObEstRowCountRecord>&, long&, long&) const
+     2.89%     0.00%  [.] oceanbase::storage::ObSSTableRowScanner<oceanbase::storage::ObIndexTreeMultiPassPrefetcher<32, 3> >::open_cur_data_block(oceanbase::storage::ObSSTableReadHandle&)
+     2.81%     0.00%  [.] oceanbase::storage::ObLSTabletService::estimate_row_count(oceanbase::storage::ObTableScanParam const&, oceanbase::storage::ObTableScanRange const&, long, oceanbase::common::ObIArray<oceanbase::common::ObEstRowCountRecord>&, long&, long&)
+     2.73%     0.00%  [.] oceanbase::blocksstable::ObMicroBlockRowScanner::open(oceanbase::blocksstable::MacroBlockId const&, oceanbase::blocksstable::ObMicroBlockData const&, bool, bool)
+     2.73%     0.00%  [.] oceanbase::storage::ObTableEstimator::estimate_multi_scan_row_count(oceanbase::storage::ObTableEstimateBaseInput const&, oceanbase::storage::ObITable*, oceanbase::common::ObIArray<oceanbase::blocksstable::ObDatumRange> const&, oceanbase::storage::ObPartitionEst&)
+     2.73%     0.00%  [.] oceanbase::storage::ObTableEstimator::estimate_row_count_for_scan(oceanbase::storage::ObTableEstimateBaseInput&, oceanbase::common::ObIArray<oceanbase::blocksstable::ObDatumRange> const&, oceanbase::storage::ObPartitionEst&, oceanbase::common::ObIArray<oceanbase::common::ObEstRowCountRecord>&)
+     2.48%     0.08%  [.] oceanbase::blocksstable::ObDictDecoder::batch_decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::blocksstable::ObIRowIndex const*, int const*, char const**, long, oceanbase::common::ObDatum*) const
+     2.48%     0.00%  [.] oceanbase::sql::ObDASLocalLookupIter::do_index_lookup()
+     2.48%     0.00%  [.] oceanbase::storage::ObIndexBlockScanEstimator::cal_total_estimate_result(oceanbase::blocksstable::ObSSTable&, oceanbase::blocksstable::ObDatumRange const&, oceanbase::storage::ObEstimatedResult&)
+     2.40%     2.40%  [.] oceanbase::blocksstable::ObIntegerBaseDiffDecoder::batch_get_bitpacked_values(oceanbase::blocksstable::ObColumnDecoderCtx const&, int const*, long, long, long, oceanbase::common::ObDatum*) const
+     2.40%     0.00%  [.] oceanbase::storage::ObIndexBlockScanEstimator::estimate_excluded_border_result(bool, bool, oceanbase::blocksstable::ObDatumRange const&, bool, oceanbase::storage::ObEstimatedResult&)
+     2.15%     2.15%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::at(long) const
+     2.15%     0.00%  [.] oceanbase::sql::ObDASScanIter::inner_release()
+     2.07%     0.00%  [.] oceanbase::sql::ObSql::stmt_query(oceanbase::common::ObString const&, oceanbase::sql::ObSqlCtx&, oceanbase::sql::ObResultSet&)
+     2.07%     0.00%  [.] oceanbase::storage::ObAccessService::revert_scan_iter(oceanbase::common::ObNewRowIterator*)
+     2.07%     0.00%  [.] oceanbase::storage::ObMultipleScanMerge::construct_iters()
+     1.99%     0.08%  [k] __x64_sys_sched_yield
+     1.99%     0.00%  [.] oceanbase::blocksstable::ObSSTable::scan(oceanbase::storage::ObTableIterParam const&, oceanbase::storage::ObTableAccessContext&, oceanbase::blocksstable::ObDatumRange const&, oceanbase::storage::ObStoreRowIterator*&)
+     1.90%     0.00%  [.] oceanbase::blocksstable::ObIMicroBlockDecoder::find_bound(oceanbase::blocksstable::ObDatumRowkey const&, bool, long, long&, bool&)
+     1.90%     0.00%  [.] oceanbase::storage::ObTableScanIterator::~ObTableScanIterator()
+     1.82%     0.50%  [.] oceanbase::blocksstable::ObMicroBlockDecoder::compare_rowkey(oceanbase::blocksstable::ObDatumRowkey const&, long, int&)
+     1.82%     0.08%  [k] do_sched_yield
+     1.82%     0.08%  [.] oceanbase::storage::ObSSTableRowScanner<oceanbase::storage::ObIndexTreeMultiPassPrefetcher<32, 3> >::inner_open(oceanbase::storage::ObTableIterParam const&, oceanbase::storage::ObTableAccessContext&, oceanbase::storage::ObITable*, void const*)
+     1.82%     0.00%  [.] oceanbase::sql::ObDASIterUtils::create_das_scan_iter_tree(oceanbase::sql::ObDASIterTreeType, oceanbase::storage::ObTableScanParam&, oceanbase::sql::ObDASScanCtDef const*, oceanbase::sql::ObDASScanRtDef*, oceanbase::sql::ObDASScanCtDef const*, oceanbase::sql::ObDASScanRtDef*, oceanbase::sql::ObDASBaseCtDef const*, oceanbase::sql::ObDASBaseRtDef*, oceanbase::sql::ObDASRelatedTabletID const&, oceanbase::transaction::ObTxDesc*, oceanbase::transaction::ObTxReadSnapshot*, oceanbase::common::ObIAllocator&, oceanbase::sql::ObDASIter*&)
+     1.82%     0.00%  [.] oceanbase::sql::ObDASIterUtils::create_text_retrieval_tree(oceanbase::storage::ObTableScanParam&, oceanbase::common::ObIAllocator&, oceanbase::sql::ObDASBaseCtDef const*, oceanbase::sql::ObDASBaseRtDef*, oceanbase::sql::ObDASRelatedTabletID const&, oceanbase::transaction::ObTxDesc*, oceanbase::transaction::ObTxReadSnapshot*, oceanbase::sql::ObDASIter*&, bool)
+     1.82%     0.00%  [k] schedule
+     1.74%     1.57%  [k] __schedule
+     1.74%     0.00%  [.] oceanbase::storage::ObIndexTreeMultiPassPrefetcher<32, 3>::prefetch_index_tree()
+     1.65%     1.65%  [.] oceanbase::blocksstable::batch_load_data_to_datum(oceanbase::common::ObObjType const&, char const**, long, long, oceanbase::common::ObDatum*)
+     1.57%     1.32%  [.] oceanbase::blocksstable::ObConstDecoder::batch_decode_without_dict(oceanbase::blocksstable::ObColumnDecoderCtx const&, long, oceanbase::common::ObDatum*) const
+     1.57%     0.08%  [.] oceanbase::storage::ObTableScanIterator::reset()
+     1.49%     1.49%  [.] oceanbase::common::ObIArrayWrap<oceanbase::common::ObTuple<oceanbase::sql::ObRawExpr*, oceanbase::sql::ObRawExpr*> >::at(long)
+     1.49%     0.08%  [.] oceanbase::blocksstable::ObIMicroBlockDecoder::find_bound(oceanbase::blocksstable::ObDatumRange const&, long, long&, bool&, long&, long&)
+     1.41%     0.17%  [.] oceanbase::blocksstable::ObIndexBlockRowScanner::get_next(oceanbase::blocksstable::ObMicroIndexInfo&, bool, bool, oceanbase::storage::ObAdvanceScanHelper*)
+     1.41%     0.00%  [.] oceanbase::sql::ObSql::pc_get_plan(oceanbase::sql::ObPlanCacheCtx&, oceanbase::sql::ObCacheObjGuard&, int&, bool&)
+     1.41%     0.00%  [.] oceanbase::storage::ObMultipleGetMerge::inner_get_next_row(oceanbase::blocksstable::ObDatumRow&)
+     1.32%     0.17%  [.] bool __gnu_cxx::__ops::_Iter_comp_val<oceanbase::blocksstable::EncodingRangeCompareV2>::operator()<oceanbase::blocksstable::ObRowIndexIterator, oceanbase::blocksstable::ObDatumRange const>(oceanbase::blocksstable::ObRowIndexIterator, oceanbase::blocksstable::ObDatumRange const&)
+     1.32%     0.08%  [.] oceanbase::memtable::ObMemtable::get(oceanbase::storage::ObTableIterParam const&, oceanbase::storage::ObTableAccessContext&, oceanbase::blocksstable::ObDatumRowkey const&, oceanbase::blocksstable::ObDatumRow&)
+     1.32%     0.00%  [.] oceanbase::memtable::ObMemtableMGetIterator::inner_get_next_row(oceanbase::blocksstable::ObDatumRow const*&)
+     1.32%     0.00%  [.] oceanbase::sql::ObPlanCache::get_plan(oceanbase::common::ObIAllocator&, oceanbase::sql::ObPlanCacheCtx&, oceanbase::sql::ObCacheObjGuard&)
+     1.32%     0.00%  [.] oceanbase::storage::ObIndexBlockScanEstimator::goto_next_level(oceanbase::blocksstable::ObDatumRange const&, oceanbase::blocksstable::ObMicroIndexInfo const&, bool, oceanbase::storage::ObEstimatedResult&)
+     1.24%     1.24%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::set(long)
+     1.24%     0.17%  [.] oceanbase::blocksstable::ObIndexBlockRowScanner::get_next_idx_row(oceanbase::blocksstable::ObMicroIndexInfo&)
+     1.24%     0.00%  [.] oceanbase::blocksstable::ObIndexBlockRowScanner::open(oceanbase::blocksstable::MacroBlockId const&, oceanbase::blocksstable::ObMicroBlockData const&, oceanbase::blocksstable::ObDatumRange const&, long, bool, bool, oceanbase::blocksstable::ObMicroIndexInfo const*)
+     1.24%     0.00%  [.] oceanbase::sql::ObDASIterUtils::create_text_retrieval_sub_tree(oceanbase::common::ObIAllocator&, oceanbase::sql::ObDASIRScanCtDef const*, oceanbase::sql::ObDASIRScanRtDef*, oceanbase::sql::ObDASFTSTabletID const&, bool, oceanbase::transaction::ObTxDesc*, oceanbase::transaction::ObTxReadSnapshot*, oceanbase::sql::ObDASIter*&)
+     1.24%     0.00%  [.] oceanbase::storage::ObMultipleScanMerge::init(oceanbase::storage::ObTableAccessParam&, oceanbase::storage::ObTableAccessContext&, oceanbase::storage::ObGetTableParam&)
+     1.16%     1.16%  [.] oceanbase::storage::ObBlockBatchedRowStore::get_row_ids(oceanbase::blocksstable::ObIMicroBlockReader*, long&, long, long&, bool, oceanbase::storage::ObFilterResult const&)
+     1.16%     0.33%  [.] oceanbase::storage::ObIndexTreeMultiPassPrefetcher<32, 3>::prefetch_micro_data()
+     1.16%     0.08%  [.] oceanbase::storage::ObMultipleMerge::init(oceanbase::storage::ObTableAccessParam&, oceanbase::storage::ObTableAccessContext&, oceanbase::storage::ObGetTableParam&)
+     1.16%     0.08%  [.] oceanbase::storage::ObMultipleMerge::~ObMultipleMerge()
+     1.16%     0.00%  [.] oceanbase::storage::ObIndexBlockScanEstimator::estimate_data_block_row_count(oceanbase::blocksstable::ObDatumRange const&, oceanbase::storage::ObMicroBlockDataHandle&, bool, oceanbase::storage::ObPartitionEst&)
+     1.08%     0.08%  [.] oceanbase::sql::ObPCVSet::inner_get_cache_obj(oceanbase::sql::ObILibCacheCtx&, oceanbase::sql::ObILibCacheKey*, oceanbase::sql::ObILibCacheObject*&)
+     1.08%     0.00%  [.] oceanbase::blocksstable::ObMicroBlockRowScanner::estimate_row_count(oceanbase::storage::ObITableReadInfo const&, oceanbase::blocksstable::ObMicroBlockData const&, oceanbase::blocksstable::ObDatumRange const&, bool, oceanbase::storage::ObPartitionEst&)
+     1.08%     0.00%  [.] oceanbase::sql::ObDASLegacyTRMergeIter::build_query_tokens(oceanbase::sql::ObDASIRScanCtDef const*, oceanbase::sql::ObDASIRScanRtDef*, oceanbase::common::ObIAllocator&, oceanbase::common::ObArray<oceanbase::common::ObString, oceanbase::common::ModulePageAllocator, false>&, oceanbase::common::ObArray<double, oceanbase::common::ModulePageAllocator, false>&, oceanbase::sql::ObFtsEvalNode*&, bool&)
+     1.08%     0.00%  [.] oceanbase::sql::ObPlanCache::get_cache_obj(oceanbase::sql::ObILibCacheCtx&, oceanbase::sql::ObILibCacheKey*, oceanbase::sql::ObCacheObjGuard&)
+     1.08%     0.00%  [.] oceanbase::sql::ObResultSet::open()
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
