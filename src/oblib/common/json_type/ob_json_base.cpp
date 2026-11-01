@@ -3278,9 +3278,18 @@ int ObIJsonBase::print_array(ObJsonBuffer &j_buf, uint64_t depth, bool is_pretty
   if (OB_FAIL(j_buf.append("["))) {
   } else {
     uint64_t arr_size = element_count();
+    // binary arrays: one child positioned directly on each element (as the binary deserializer
+    // does) instead of cloning this node and its node stack for every element
+    const bool read_bin_child = is_bin()
+        && ObJBVerType::J_ARRAY_V0 == static_cast<const ObJsonBin *>(this)->get_vertype();
+    ObJsonBin child_bin(allocator_);
     for (uint64_t i = 0; OB_SUCC(ret) && i < arr_size; ++i) {
       if (i > 0 && OB_FAIL(ObJsonBaseUtil::append_comma(j_buf, is_pretty))) {
       } else if (is_pretty && OB_FAIL(ObJsonBaseUtil::append_newline_and_indent(j_buf, depth))) {
+      } else if (read_bin_child) {
+        if (OB_FAIL(static_cast<const ObJsonBin *>(this)->get_child_for_read(i, child_bin))) {
+        } else if (OB_FAIL(child_bin.print(j_buf, true, 0, is_pretty, depth))) {
+        }
       } else {
         ObIJsonBase *jb_ptr = NULL;
         ObJsonBin j_bin(allocator_);
@@ -3319,6 +3328,10 @@ int ObIJsonBase::print_object(ObJsonBuffer &j_buf, uint64_t depth, bool is_prett
   } else {
     bool is_first = true;
     uint64_t count = element_count();
+    // see print_array
+    const bool read_bin_child = is_bin()
+        && ObJBVerType::J_OBJECT_V0 == static_cast<const ObJsonBin *>(this)->get_vertype();
+    ObJsonBin child_bin(allocator_);
     for (uint64_t i = 0; OB_SUCC(ret) && i < count; i++) {
       if (!is_first && OB_FAIL(ObJsonBaseUtil::append_comma(j_buf, is_pretty))) {
       } else {
@@ -3330,6 +3343,10 @@ int ObIJsonBase::print_object(ObJsonBuffer &j_buf, uint64_t depth, bool is_prett
         } else if (!key.empty() && OB_FAIL(ObJsonBaseUtil::append_string(j_buf, true, key.ptr(), key.length()))) { // key
         } else if (OB_FAIL(pint_colon(j_buf, is_pretty))) {
         } else if (OB_FAIL(j_buf.append(" "))) {
+        } else if (read_bin_child) {
+          if (OB_FAIL(static_cast<const ObJsonBin *>(this)->get_child_for_read(i, child_bin))) {
+          } else if (OB_FAIL(child_bin.print(j_buf, true, 0, is_pretty, depth))) {
+          }
         } else {
           ObIJsonBase *jb_ptr = NULL;
           ObJsonBin j_bin(allocator_);

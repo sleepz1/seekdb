@@ -338,6 +338,19 @@ int ObJsonBin::get_array_element(uint64_t index, ObIJsonBase *&value) const
   return ret;
 }
 
+int ObJsonBin::get_child_for_read(uint64_t index, ObJsonBin &child) const
+{
+  INIT_SUCC(ret);
+  const ObJBVerType vertype = get_vertype();
+  if (ObJBVerType::J_ARRAY_V0 != vertype && ObJBVerType::J_OBJECT_V0 != vertype) {
+    ret = OB_OBJ_TYPE_ERROR;
+  } else if (index >= get_element_count()) {
+    ret = OB_OUT_OF_ELEMENT;
+  } else if (OB_FAIL(get_value(index, child))) {
+  }
+  return ret;
+}
+
 int ObJsonBin::get_object_value(uint64_t index, ObIJsonBase *&value) const
 {
   INIT_SUCC(ret);

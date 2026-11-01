@@ -1013,7 +1013,65 @@ int ObFTParserJsonProps::show_parser_properties(const ObFTParserJsonProps &prope
 
 #undef __FT_PARSER_PROPERTY_SHOW_COMMA
 
+namespace
+{
+// parse_for_parser_helper() is a pure function of (parser, json_str) that writes a parser
+// specific subset of the fields; TOKENIZE and fulltext DML run it once per statement or row with
+// the same properties. Each thread keeps the last successful input and its result.
+struct ParserPropertyParseCache
+{
+  ParserPropertyParseCache() : valid_(false), parser_(), props_len_(0), result_() {}
+  bool valid_;
+  ObFTParser parser_;
+  int64_t props_len_;
+  char props_[1024];
+  ObFTParserProperty result_;
+};
+thread_local ParserPropertyParseCache tl_parser_property_parse_cache;
+
+// copies exactly the fields parse_for_parser_helper sets for this parser
+void assign_parsed_fields(const ObFTParser &parser, const ObFTParserProperty &src, ObFTParserProperty &dst)
+{
+  if (parser.is_ik()) {
+    dst.dict_table_ = src.dict_table_;
+    dst.stopword_table_ = src.stopword_table_;
+    dst.quantifier_table_ = src.quantifier_table_;
+    dst.ik_mode_smart_ = src.ik_mode_smart_;
+  } else if (parser.is_space() || parser.is_beng()) {
+    dst.min_token_size_ = src.min_token_size_;
+    dst.max_token_size_ = src.max_token_size_;
+  } else if (parser.is_ngram()) {
+    dst.ngram_token_size_ = src.ngram_token_size_;
+  } else if (parser.is_ngram2()) {
+    dst.min_ngram_token_size_ = src.min_ngram_token_size_;
+    dst.max_ngram_token_size_ = src.max_ngram_token_size_;
+  }
+}
+} // namespace
+
 int ObFTParserProperty::parse_for_parser_helper(const ObFTParser &parser, const ObString &json_str)
+{
+  int ret = OB_SUCCESS;
+  ParserPropertyParseCache &cache = tl_parser_property_parse_cache;
+  const bool cacheable = json_str.length() <= static_cast<int64_t>(sizeof(cache.props_));
+  if (cacheable && cache.valid_ && cache.parser_ == parser && cache.props_len_ == json_str.length()
+      && (0 == json_str.length() || 0 == MEMCMP(cache.props_, json_str.ptr(), json_str.length()))) {
+    assign_parsed_fields(parser, cache.result_, *this);
+  } else if (OB_FAIL(parse_for_parser_helper_uncached(parser, json_str))) {
+  } else if (cacheable) {
+    cache.valid_ = false;
+    cache.parser_ = parser;
+    cache.props_len_ = json_str.length();
+    if (json_str.length() > 0) {
+      MEMCPY(cache.props_, json_str.ptr(), json_str.length());
+    }
+    cache.result_ = *this;
+    cache.valid_ = true;
+  }
+  return ret;
+}
+
+int ObFTParserProperty::parse_for_parser_helper_uncached(const ObFTParser &parser, const ObString &json_str)
 {
   int ret = OB_SUCCESS;
   ObFTParserJsonProps props;
