@@ -1,1 +1,3 @@
-base HEAD 2
+base aa3a40f1 0
+cand HEAD 3
+base2 aa3a40f1 0

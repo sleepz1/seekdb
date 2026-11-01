@@ -204,8 +204,8 @@ run_variant() {
     rm -rf "$test_out/tmp"
   done
   repeat_builds "$dir"
-  if [[ "$profile" == 1 ]]; then profile_variant "$label"; fi
-  if [[ "$profile" == 2 ]]; then dop_sweep "$dir"; fi
+  if [[ "$profile" == 1 || "$profile" == 3 ]]; then profile_variant "$label"; fi
+  if [[ "$profile" == 2 || "$profile" == 3 ]]; then dop_sweep "$dir"; fi
   python3 .github/script/seekdb/sdb.py stop --base-dir "$INSTANCE"
   grep -E "ddl|DDL" "$INSTANCE/log/seekdb.log" 2>/dev/null | grep -E "INFO|WARN" | tail -4000 | gzip > "$dir/seekdb-ddl.log.gz" || true
   rm -rf "$INSTANCE"
@@ -225,7 +225,7 @@ cmp_equiv() {
   echo "$out" > "$OUT/cmp-equiv.txt"
 }
 cmp_equiv
-# variants file: label sha profile(0/1 perf/2 PARALLEL sweep); first line must be base
+# variants file: label sha profile(0/1 perf/2 PARALLEL sweep/3 both); first line must be base
 git diff --name-only 5d7919353d73cbbd0012c777b9beb22abf5692eb "$HEAD_SHA" -- src > "$OUT/changed-sources.txt"
 while read -r label sha profile; do
   [[ -z "$label" || "$label" == \#* ]] && continue
