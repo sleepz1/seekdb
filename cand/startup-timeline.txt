@@ -1,0 +1,18 @@
+ready 2026-11-01 04:19:15.047079
+build_window 2026-11-01 04:19:15.691802 2026-11-01 04:19:29.289383
+[2026-11-01 04:19:13.162712] INFO  [STORAGE] start_service (ob_local_management_service.cpp:219) [15185][seekdb][Y0-0000000000000001-0-0] [lt=1] start local management services(lbt()=0x5959a95 0x1e255aa 0x2374deb 0x1a891b9 0x5970440 0x1a8aa93 0x7fdba6e29d90 0x7fdba6e29e40 0x1a88025)
+[2026-11-01 04:19:13.162715] INFO  [STORAGE] start_service (ob_local_management_service.cpp:246) [15185][seekdb][Y0-0000000000000001-0-0] [lt=1] start local management services finished(ret=0, ret="OB_SUCCESS")
+[2026-11-01 04:19:13.862545] INFO  [PL] load_sys_package_list (ob_pl_package_manager.cpp:442) [15185][seekdb][Y0-0000000000000000-0-0] [lt=2] load sys package list begin(sys package total count=0)
+[2026-11-01 04:19:13.862547] INFO  [PL] load_sys_package_list (ob_pl_package_manager.cpp:448) [15185][seekdb][Y0-0000000000000000-0-0] [lt=1] load sys package list success(ret=0)
+[2026-11-01 04:19:13.864422] INFO  [STORAGE] finish_bootstrap (ob_local_management_service.cpp:581) [15185][seekdb][Y0-0000000000000000-0-0] [lt=2] finish bootstrap(ret=0, new_schema_version=1793506753862544)
+[2026-11-01 04:19:13.870612] INFO  [STORAGE] execute_bootstrap (ob_local_management_service.cpp:481) [15185][seekdb][Y0-0000000000000000-0-0] [lt=1] [bootstrap 10/10] cluster bootstrap success.
+[2026-11-01 04:19:14.884001] INFO  [STORAGE] start (ob_server.cpp:1355) [15185][seekdb][Y0-0000000000000000-0-0] [lt=4] [OBSERVER_NOTICE] observer start service(start_service_time=1793506754884000)
+[2026-11-01 04:19:18.165953] INFO  [STORAGE] runTimerTask (ob_tablet_gc_service.cpp:108) [15205][TimerWK0_][Y0-0000000000000000-0-0] [lt=1] ====== [tabletchange] timer task ======(GC_CHECK_INTERVAL=5000000)
+[2026-11-01 04:19:18.165958] INFO  [STORAGE] runTimerTask (ob_tablet_gc_service.cpp:130) [15205][TimerWK0_][Y0-0000000000000000-0-0] [lt=2] [tabletchange] task check ls(tablet_persist_trigger=3)
+[2026-11-01 04:19:19.188498] INFO  [PL] load_sys_package_list (ob_pl_package_manager.cpp:442) [15412][TxLoopWorker_SystemPkgLoad][Y0-0000000000000000-0-0] [lt=2] load sys package list begin(sys package total count=13)
+[2026-11-01 04:19:26.228313] INFO  [STORAGE] runTimerTask (ob_tablet_gc_service.cpp:198) [15205][TimerWK0_][Y0-0000000000000000-0-0] [lt=6] [tabletchange] tablet in a ls persist and gc process end(ret=0, ret="OB_SUCCESS", ls={running_state:{state:1}, ls_meta:{ls_persistent_state:{state:1}, clog_checkpoint_scn:{val:2, v:0}, clog_base_lsn:{lsn:0}, restore_status:{status_:0}, replayable_point:{val:18
+[2026-11-01 04:19:26.228348] INFO  [STORAGE] runTimerTask (ob_tablet_gc_service.cpp:212) [15205][TimerWK0_][Y0-0000000000000000-0-0] [lt=19] [tabletchange] succeed to gc_tablet(ret=0, ret="OB_SUCCESS", times=1)
+[2026-11-01 04:19:27.118825] INFO  [PL] load_sys_package_list (ob_pl_package_manager.cpp:442) [15831][TxLoopWorker_SystemPkgLoad][Y0-0000000000000000-0-0] [lt=2] load sys package list begin(sys package total count=13)
+[2026-11-01 04:19:27.303713] INFO  [PL] load_sys_package_list (ob_pl_package_manager.cpp:448) [15831][TxLoopWorker_SystemPkgLoad][Y0-0000000000000000-0-0] [lt=3] load sys package list success(ret=0)
+[2026-11-01 04:19:27.303718] INFO  [PL] load_all_common_sys_package (ob_pl_package_manager.cpp:461) [15831][TxLoopWorker_SystemPkgLoad][Y0-0000000000000000-0-0] [lt=3] load all common sys package success!(ret=0, from_file=false)
+phases tokenize=2026-11-01 04:19:29.289383 match=2026-11-01 04:19:30.502667 end=2026-11-01 04:19:31.503951

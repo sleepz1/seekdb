@@ -1,0 +1,102 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 277  of event 'task-clock:ppp'
+# Event count (approx.): 277277277
+#
+# Overhead  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+# ........  ................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    29.24%  [.] oceanbase::storage::ObTextDaaTIter::linear_merge_round(long&)
+    14.44%  [.] oceanbase::blocksstable::ObStringDiffDecoder::batch_decode(oceanbase::blocksstable::ObColumnDecoderCtx const&, oceanbase::blocksstable::ObIRowIndex const*, int const*, char const**, long, oceanbase::common::ObDatum*) const
+     7.22%  [.] oceanbase::omt::ObServerRuntime::get_new_request(long, oceanbase::rpc::ObRequest*&, bool)
+     3.97%  [.] int oceanbase::sql::ObAggregateProcessor::process_aggr_batch_result<oceanbase::sql::ObAggregateProcessor::ObBatchRowsSlice>(oceanbase::common::ObIArray<oceanbase::sql::ObExpr*> const*, oceanbase::sql::ObAggregateProcessor::AggrCell&, oceanbase::sql::ObAggrInfo const&, oceanbase::sql::ObAggregateProcessor::ObBatchRowsSlice const&)
+     3.25%  [.] oceanbase::common::ObIOService::get_io_config()
+     2.89%  [.] oceanbase::storage::ObTextRetrievalDaaTTokenIter::save_docids()
+     2.53%  [.] oceanbase::storage::ObBlockBatchedRowStore::get_row_ids(oceanbase::blocksstable::ObIMicroBlockReader*, long&, long, long&, bool, oceanbase::storage::ObFilterResult const&)
+     2.17%  [.] oceanbase::sql::(anonymous namespace)::set_doc_id_shallow(oceanbase::common::ObDatum&, oceanbase::sql::ObDocIdExt const&)
+     1.44%  [.] oceanbase::sql::ObBitVectorImpl<unsigned long>::at(long) const
+     1.08%  [k] _raw_spin_unlock_irqrestore
+     1.08%  [.] oceanbase::storage::ObSRDaaTIterImpl::project_results(long)
+     0.72%  [k] finish_task_switch.isra.0
+     0.72%  [k] handle_softirqs
+     0.72%  [.] je_emap_update_edata_state
+     0.72%  [.] je_eset_remove
+     0.72%  [.] je_te_event_trigger
+     0.72%  [.] oceanbase::sql::ObExpr::locate_datums_for_update(oceanbase::sql::ObEvalCtx&, long) const
+     0.72%  [.] oceanbase::sql::ObOperator::get_next_batch(long, oceanbase::sql::ObBatchRows const*&)
+     0.72%  [.] oceanbase::sql::ObTableScanOp::inner_get_next_batch_for_tsc(long)
+     0.72%  [.] oceanbase::storage::ObFTDATReader<void>::match_with_hit(oceanbase::common::ObString const&, oceanbase::storage::ObDATrieHit const&, oceanbase::storage::ObDATrieHit&) const
+     0.72%  [.] pthread_mutex_trylock
+     0.36%  [.] _RNvMs2_NtCs3vaRoP7qfw8_7sql_nio7reactorNtB5_9EventLoop14drive_writable
+     0.36%  [.] _RNvNtCs3vaRoP7qfw8_7sql_nio12response_api22publish_response_batch
+     0.36%  [.] _RNvNtCs3vaRoP7qfw8_7sql_nio4pump12drain_socket
+     0.36%  [k] __raw_spin_unlock_irq
+     0.36%  [k] __schedule
+     0.36%  [k] apparmor_file_permission
+     0.36%  [.] arena_large_dalloc_stats_update
+     0.36%  [k] dev_hard_start_xmit
+     0.36%  [k] do_sched_yield
+     0.36%  [.] extent_recycle
+     0.36%  [.] extent_split_impl
+     0.36%  [k] ip_finish_output2
+     0.36%  [.] je_emap_remap
+     0.36%  [.] je_eset_insert
+     0.36%  [.] je_pa_alloc
+     0.36%  [.] nstime_update_impl
+     0.36%  [.] oceanbase$config$cxxbridge1$205$enable_perf_event
+     0.36%  [.] oceanbase::blocksstable::MacroBlockId::is_valid() const
+     0.36%  [.] oceanbase::blocksstable::ObMicroBlockDecoder::get_col_datums(int, int const*, char const**, long, oceanbase::common::ObDatum*)
+     0.36%  [.] oceanbase::common::ObCharset::get_charset(oceanbase::common::ObCollationType)
+     0.36%  [.] oceanbase::common::ObDList<oceanbase::common::ObObjNode<oceanbase::sql::ObDasAggregatedTask*> >::add_last(oceanbase::common::ObObjNode<oceanbase::sql::ObDasAggregatedTask*>*)
+     0.36%  [.] oceanbase::common::ObFIFOAllocator::reset()
+     0.36%  [.] oceanbase::common::ObIArrayWrap<oceanbase::common::hash::ObHashSet<unsigned long, oceanbase::common::hash::NoPthreadDefendMode, oceanbase::common::hash::hash_func<unsigned long>, oceanbase::common::hash::equal_to<unsigned long>, oceanbase::common::hash::SimpleAllocer<oceanbase::common::hash::ObHashTableNode<oceanbase::common::hash::HashMapPair<unsigned long, oceanbase::common::hash::HashNullObj> >, 108, oceanbase::common::hash::SpinMutexDefendMode, oceanbase::common::hash::DefaultSimpleAllocerAllocator>, oceanbase::common::hash::NormalPointer, oceanbase::common::ObMalloc, 1l>*>::at(long)
+     0.36%  [.] oceanbase::common::ObIArrayWrap<oceanbase::data_plane::ObSparseVectorBlockColumnSpec>::at(long) const
+     0.36%  [.] oceanbase::common::ObLogger::alloc_log_item(int, long, oceanbase::common::ObPLogItem*&)
+     0.36%  [.] oceanbase::common::PageArena<char, oceanbase::common::ModulePageAllocator>::free_page(oceanbase::common::PageArena<char, oceanbase::common::ModulePageAllocator>::Page*)
+     0.36%  [.] oceanbase::common::datum_cmp::ObDatumStrCmp<(oceanbase::common::ObCollationType)45, false>::cmp(oceanbase::common::ObDatum const&, oceanbase::common::ObDatum const&, int&)
+     0.36%  [.] oceanbase::common::serialization::decode_i64(char const*, long, long&, long*)
+     0.36%  [.] oceanbase::data_plane::end_lock_wait_request()
+     0.36%  [.] oceanbase::share::ObLSLocation::ObLSLocation()
+     0.36%  [.] oceanbase::sql::AllocOpHelper<10>::alloc(oceanbase::common::ObIAllocator&, oceanbase::sql::ObExecContext&, oceanbase::sql::ObOpSpec const&, oceanbase::sql::ObOpInput*, long, oceanbase::sql::ObOperator*&)
+     0.36%  [.] oceanbase::sql::ObDASIter::release()
+     0.36%  [.] oceanbase::sql::ObDASIterUtils::create_text_retrieval_tree(oceanbase::storage::ObTableScanParam&, oceanbase::common::ObIAllocator&, oceanbase::sql::ObDASBaseCtDef const*, oceanbase::sql::ObDASBaseRtDef*, oceanbase::sql::ObDASRelatedTabletID const&, oceanbase::transaction::ObTxDesc*, oceanbase::transaction::ObTxReadSnapshot*, oceanbase::sql::ObDASIter*&, bool)
+     0.36%  [.] oceanbase::sql::ObDASMergeIter::get_next_seq_rows(long&, long)
+     0.36%  [.] oceanbase::sql::ObDASMergeIter::inner_get_next_rows(long&, long)
+     0.36%  [.] oceanbase::sql::ObDASScanOp::get_rtdef()
+     0.36%  [.] oceanbase::sql::ObDASScanOp::set_related_task_info(oceanbase::sql::ObDASBaseCtDef const*, oceanbase::sql::ObDASBaseRtDef*, oceanbase::common::ObTabletID const&)
+     0.36%  [.] oceanbase::sql::ObExprFrameInfo::pre_alloc_exec_memory(oceanbase::sql::ObExecContext&, oceanbase::common::ObIAllocator*) const
+     0.36%  [.] oceanbase::sql::ObFastParserMysql::process_identifier(bool)
+     0.36%  [.] oceanbase::sql::ObPreRangeGraph::get_tablet_ranges(oceanbase::common::ObIAllocator&, oceanbase::sql::ObExecContext&, oceanbase::common::ObSEArray<oceanbase::common::ObNewRange*, 1l, oceanbase::common::ModulePageAllocator, false>&, bool&, oceanbase::common::ObDataTypeCastParams const&) const
+     0.36%  [.] oceanbase::sql::ObPushdownOperator::clear_evaluated_flag()
+     0.36%  [.] oceanbase::sql::ObRangeGenerator::final_in_range_node(oceanbase::sql::ObRangeNode const*, long, oceanbase::sql::ObTmpRange*&)
+     0.36%  [.] oceanbase::sql::ObResolverUtils::resolver_param(oceanbase::sql::ObPlanCacheCtx&, oceanbase::sql::ObSQLSessionInfo&, oceanbase::common::Ob2DArray<oceanbase::common::ObObjParam, 2079744, oceanbase::common::ObWrapperAllocator, false, oceanbase::common::ObSEArray<oceanbase::common::ObObjParam*, 1l, oceanbase::common::ObWrapperAllocator, false>, false, true> const&, oceanbase::sql::stmt::StmtType, oceanbase::common::ObCharsetType, oceanbase::common::ObBitSet<256l, oceanbase::common::ModulePageAllocator, false> const&, oceanbase::common::ObBitSet<256l, oceanbase::common::ModulePageAllocator, false> const&, oceanbase::common::ObBitSet<256l, oceanbase::common::ModulePageAllocator, false> const&, oceanbase::common::ObBitSet<256l, oceanbase::common::ModulePageAllocator, false> const&, oceanbase::sql::ObPCParam const*, long, bool, oceanbase::common::ObObjParam&, bool&, bool)
+     0.36%  [.] oceanbase::sql::ObSelectResolver::resolve_normal_query(_ParseNode const&)
+     0.36%  [.] oceanbase::sql::ObSqlCtx::~ObSqlCtx()
+     0.36%  [.] oceanbase::sql::ObTableScanOp::add_ddl_column_checksum_batch(long)
+     0.36%  [.] oceanbase::storage::ObIKFTParser::process_next_batch()
+     0.36%  [.] oceanbase::storage::ObITable::is_memtable() const
+     0.36%  [.] oceanbase::storage::ObIndexTreeMultiPassPrefetcher<32, 3>::ObIndexBlockReadHandle::ObIndexBlockReadHandle()
+     0.36%  [.] oceanbase::storage::ObMultipleMerge::switch_table(oceanbase::storage::ObTableAccessParam&, oceanbase::storage::ObTableAccessContext&, oceanbase::storage::ObGetTableParam&)
+     0.36%  [.] oceanbase::storage::ObTableReadInfo::is_valid() const
+     0.36%  [.] oceanbase::storage::ObTableScanRange::reset()
+     0.36%  [.] oceanbase::storage::ObTabletHandle::reset()
+     0.36%  [.] oceanbase::storage::ObTxCommitData::reset()
+     0.36%  [.] pac_alloc_impl
+     0.36%  [.] pthread_mutex_unlock
+     0.36%  [k] read_tsc
+     0.36%  [.] rtree_read
+     0.36%  [.] std::_Hash_bytes(void const*, unsigned long, unsigned long)
+     0.36%  [.] sz_size2index_compute
+     0.36%  [k] tcp_ack
+     0.36%  [k] tcp_data_ready
+     0.36%  [.] 0x000000000000085c
+     0.36%  [.] 0x00000000001a6a65
+     0.36%  [.] 0x00000000001a71ef
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
