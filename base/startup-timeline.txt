@@ -1,0 +1,20 @@
+ready 2026-11-01 16:31:46.178274
+build_window 2026-11-01 16:31:46.773449 2026-11-01 16:31:55.450026
+[2026-11-01 16:31:39.582064] INFO  [STORAGE] start_service (ob_local_management_service.cpp:219) [12737][seekdb][Y0-0000000000000001-0-0] [lt=5] start local management services(lbt()=0x595aaa5 0x1e255aa 0x2374f3b 0x1a891b9 0x5971450 0x1a8aa93 0x7f4a25229d90 0x7f4a25229e40 0x1a88025)
+[2026-11-01 16:31:39.582070] INFO  [STORAGE] start_service (ob_local_management_service.cpp:246) [12737][seekdb][Y0-0000000000000001-0-0] [lt=2] start local management services finished(ret=0, ret="OB_SUCCESS")
+[2026-11-01 16:31:44.358104] INFO  [PL] load_sys_package_list (ob_pl_package_manager.cpp:470) [12737][seekdb][Y0-0000000000000000-0-0] [lt=2] load sys package list begin(sys package total count=0)
+[2026-11-01 16:31:44.358108] INFO  [PL] load_sys_package_list (ob_pl_package_manager.cpp:476) [12737][seekdb][Y0-0000000000000000-0-0] [lt=2] load sys package list success(ret=0)
+[2026-11-01 16:31:44.445339] INFO  [STORAGE] finish_bootstrap (ob_local_management_service.cpp:581) [12737][seekdb][Y0-0000000000000000-0-0] [lt=2] finish bootstrap(ret=0, new_schema_version=1793550704358112)
+[2026-11-01 16:31:44.469295] INFO  [STORAGE] execute_bootstrap (ob_local_management_service.cpp:481) [12737][seekdb][Y0-0000000000000000-0-0] [lt=3] [bootstrap 10/10] cluster bootstrap success.
+[2026-11-01 16:31:44.572076] INFO  [STORAGE] runTimerTask (ob_tablet_gc_service.cpp:108) [12803][TimerWK0_][Y0-0000000000000000-0-0] [lt=5] ====== [tabletchange] timer task ======(GC_CHECK_INTERVAL=5000000)
+[2026-11-01 16:31:44.572085] INFO  [STORAGE] runTimerTask (ob_tablet_gc_service.cpp:130) [12803][TimerWK0_][Y0-0000000000000000-0-0] [lt=5] [tabletchange] task check ls(tablet_persist_trigger=3)
+[2026-11-01 16:31:44.572151] INFO  [STORAGE] runTimerTask (ob_tablet_gc_service.cpp:198) [12803][TimerWK0_][Y0-0000000000000000-0-0] [lt=22] [tabletchange] tablet in a ls persist and gc process end(ret=0, ret="OB_SUCCESS", ls={running_state:{state:1}, ls_meta:{ls_persistent_state:{state:1}, clog_checkpoint_scn:{val:1, v:0}, clog_base_lsn:{lsn:0}, restore_status:{status_:0}, replayable_point:{val:1
+[2026-11-01 16:31:44.572167] INFO  [STORAGE] runTimerTask (ob_tablet_gc_service.cpp:200) [12803][TimerWK0_][Y0-0000000000000000-0-0] [lt=9] [tabletchange] persist or gc error, need try(ret=0, ret="OB_SUCCESS", ls={running_state:{state:1}, ls_meta:{ls_persistent_state:{state:1}, clog_checkpoint_scn:{val:1, v:0}, clog_base_lsn:{lsn:0}, restore_status:{status_:0}, replayable_point:{val:18446744073709
+[2026-11-01 16:31:44.572191] INFO  [STORAGE] runTimerTask (ob_tablet_gc_service.cpp:212) [12803][TimerWK0_][Y0-0000000000000000-0-0] [lt=3] [tabletchange] succeed to gc_tablet(ret=0, ret="OB_SUCCESS", times=1)
+[2026-11-01 16:31:45.486062] INFO  [STORAGE] start (ob_server.cpp:1355) [12737][seekdb][Y0-0000000000000000-0-0] [lt=3] [OBSERVER_NOTICE] observer start service(start_service_time=1793550705486062)
+[2026-11-01 16:31:46.045064] INFO  [PL] load_sys_package_list (ob_pl_package_manager.cpp:470) [12834][TimerWK0_SystemPkgLoad][Y0-0000000000000000-0-0] [lt=2] load sys package list begin(sys package total count=13)
+[2026-11-01 16:31:46.234888] INFO  [PL] load_sys_package_list (ob_pl_package_manager.cpp:476) [12834][TimerWK0_SystemPkgLoad][Y0-0000000000000000-0-0] [lt=4] load sys package list success(ret=0)
+[2026-11-01 16:31:46.234894] INFO  [PL] load_all_common_sys_package (ob_pl_package_manager.cpp:489) [12834][TimerWK0_SystemPkgLoad][Y0-0000000000000000-0-0] [lt=3] load all common sys package success!(ret=0, from_file=false)
+[2026-11-01 16:31:49.575422] INFO  [STORAGE] runTimerTask (ob_tablet_gc_service.cpp:108) [12827][TimerWK1_][Y0-0000000000000000-0-0] [lt=34] ====== [tabletchange] timer task ======(GC_CHECK_INTERVAL=5000000)
+[2026-11-01 16:31:49.575425] INFO  [STORAGE] runTimerTask (ob_tablet_gc_service.cpp:130) [12827][TimerWK1_][Y0-0000000000000000-0-0] [lt=1] [tabletchange] task check ls(tablet_persist_trigger=3)
+phases tokenize=2026-11-01 16:31:55.450026 match=2026-11-01 16:31:56.866237 end=2026-11-01 16:31:58.869492
