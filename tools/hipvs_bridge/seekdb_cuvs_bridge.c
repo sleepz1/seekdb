@@ -8,21 +8,99 @@
 #else
 #include <cuda_runtime.h>
 #endif
+#include <hip/hip_runtime_api.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <time.h>
 
 typedef struct {
   cuvsResources_t        res;
   cuvsCagraIndexParams_t ip;
   cuvsCagraIndex_t       idx;
   long n, dim;
+  void* d_dataset;  /* device buffers backing an index built from a custom graph */
+  void* d_graph;
 } sk_cuvs_index;
+
+/* Custom GPU graph builder (seekdb_cuvs_graph.hip): exact GPU kNN + CAGRA pruning. */
+int sk_build_cagra_graph(const float* d_x, long n, int dim, int K, int D,
+                         uint32_t* d_graph, hipStream_t st, double* t_knn, double* t_prune);
+
+#define SK_GRAPH_DEGREE 128
+#define SK_INTERMEDIATE_DEGREE 256
+#define SK_CUSTOM_MIN_ROWS 2048
+#define SK_CUSTOM_MAX_ROWS (8L << 20)
+
+static double sk_now(void)
+{
+  struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
+  return t.tv_sec + t.tv_nsec * 1e-9;
+}
+
+static void sk_tensor(DLManagedTensor* t, void* data, int on_device, long* shape, int code, int bits)
+{
+  memset(t, 0, sizeof(*t));
+  t->dl_tensor.data = data;
+  t->dl_tensor.device.device_type = on_device ? kDLCUDA : kDLCPU;
+  t->dl_tensor.device.device_id = 0;
+  t->dl_tensor.ndim = 2;
+  t->dl_tensor.dtype.code = code; t->dl_tensor.dtype.bits = bits; t->dl_tensor.dtype.lanes = 1;
+  t->dl_tensor.shape = shape;
+}
+
+/* Build the CAGRA index from a graph produced on the GPU by sk_build_cagra_graph.
+ * Returns 0 on success; on failure everything allocated here is released. */
+static int sk_build_custom(sk_cuvs_index* h, const float* base, long n, long dim)
+{
+  if (n < SK_CUSTOM_MIN_ROWS || n > SK_CUSTOM_MAX_ROWS || dim <= 0 || dim > 65536) return 1;
+  if (getenv("SEEKDB_CUVS_NND_BUILD") != NULL) return 1;
+  const double t0 = sk_now();
+  hipStream_t st = 0;
+  void* dx = NULL; void* dg = NULL;
+  double t_knn = 0, t_prune = 0;
+  int rc = 0;
+  if (hipStreamCreateWithFlags(&st, hipStreamNonBlocking) != hipSuccess) return 2;
+  if (hipMalloc(&dx, sizeof(float) * (size_t)n * dim) != hipSuccess ||
+      hipMalloc(&dg, sizeof(uint32_t) * (size_t)n * SK_GRAPH_DEGREE) != hipSuccess) { rc = 3; goto fail; }
+  if (hipMemcpyAsync(dx, base, sizeof(float) * (size_t)n * dim, hipMemcpyHostToDevice, st) != hipSuccess) { rc = 4; goto fail; }
+  rc = sk_build_cagra_graph((const float*)dx, n, (int)dim, SK_INTERMEDIATE_DEGREE, SK_GRAPH_DEGREE,
+                            (uint32_t*)dg, st, &t_knn, &t_prune);
+  if (rc != 0) { rc = 10 + rc; goto fail; }
+  if (cuvsCagraIndexCreate(&h->idx) != CUVS_SUCCESS) { rc = 5; goto fail; }
+  {
+    long gs[2] = {n, SK_GRAPH_DEGREE}, ds[2] = {n, dim};
+    DLManagedTensor gt, dt;
+    sk_tensor(&gt, dg, 1, gs, kDLUInt, 32);
+    sk_tensor(&dt, dx, 1, ds, kDLFloat, 32);
+    if (cuvsCagraIndexFromArgs(h->res, L2Expanded, &gt, &dt, h->idx) != CUVS_SUCCESS ||
+        cuvsStreamSync(h->res) != CUVS_SUCCESS) {
+      cuvsCagraIndexDestroy(h->idx); h->idx = 0; rc = 6; goto fail;
+    }
+  }
+  hipStreamDestroy(st);
+  h->d_dataset = dx; h->d_graph = dg;
+  fprintf(stderr, "[seekdb_cuvs] gpu graph build n=%ld dim=%ld knn=%.3fs prune=%.3fs total=%.3fs\n",
+          n, dim, t_knn, t_prune, sk_now() - t0);
+  return 0;
+fail:
+  if (st) { hipStreamSynchronize(st); hipStreamDestroy(st); }
+  if (dx) hipFree(dx);
+  if (dg) hipFree(dg);
+  fprintf(stderr, "[seekdb_cuvs] gpu graph build failed rc=%d, falling back to NN-Descent: %s\n",
+          rc, cuvsGetLastErrorText());
+  return rc;
+}
 
 void* seekdb_cuvs_build(const float* base, long n, long dim)
 {
   sk_cuvs_index* h = (sk_cuvs_index*)calloc(1, sizeof(*h));
   if (!h) return NULL;
   if (cuvsResourcesCreate(&h->res) != CUVS_SUCCESS) { free(h); return NULL; }
+  if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) { cuvsResourcesDestroy(h->res); free(h); return NULL; }
+  if (sk_build_custom(h, base, n, dim) == 0) { h->n = n; h->dim = dim; return h; }
+  cuvsCagraIndexParamsDestroy(h->ip); h->ip = 0;
 
   DLManagedTensor dset; long ds[2] = {n, dim};
   dset.dl_tensor.data = (void*)base;
@@ -93,6 +171,8 @@ void seekdb_cuvs_free(void* handle)
   if (!h) return;
   cuvsCagraIndexDestroy(h->idx);
   cuvsCagraIndexParamsDestroy(h->ip);
+  if (h->d_graph) hipFree(h->d_graph);
+  if (h->d_dataset) hipFree(h->d_dataset);
   cuvsResourcesDestroy(h->res);
   free(h);
 }
