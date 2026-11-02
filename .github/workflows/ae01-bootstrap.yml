@@ -8,19 +8,18 @@ jobs:
   mkbranch:
     runs-on: ubuntu-latest
     steps:
-      - name: create contest/ae01-hipvs at V5 frozen commit
+      - name: try refs
+        shell: bash {0}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SHA=634888d9b037153fa143d2c913ba4b25503e1d62
-          curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
-            https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs \
-            -d "{\"ref\":\"refs/heads/contest/ae01-hipvs\",\"sha\":\"$SHA\"}" > out.json || true
-          echo "::warning::API $(tr '\n' ' ' < out.json | head -c 600)"
-          if grep -q 'refs/heads/contest/ae01-hipvs' out.json && ! grep -q '"message"' out.json; then exit 0; fi
-          git init -q r && cd r
-          git remote add origin https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
-          git fetch -q --depth=50 https://github.com/zihaomu/seekdb $SHA 2>&1 | tail -3
-          git push origin $SHA:refs/heads/contest/ae01-hipvs > ../push.log 2>&1; rc=$?
-          echo "::warning::PUSH rc=$rc $(tr '\n' ' ' < ../push.log | head -c 800)"
-          exit $rc
+          mk() {
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+              https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs \
+              -d "{\"ref\":\"refs/heads/$1\",\"sha\":\"$2\"}" > o.json
+            echo "::warning::$1 $(tr '\n' ' ' < o.json | head -c 300)"
+          }
+          mk tmp/ae01-master-test ${GITHUB_SHA}
+          mk ae01/mergebase 977053bf16296429bab7b72522b2618e795ba6ae
+          mk contest/ae01-hipvs 634888d9b037153fa143d2c913ba4b25503e1d62
+          true
