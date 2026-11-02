@@ -1,0 +1,749 @@
+diff --git a/src/oblib/lib/vector/ob_vsag_adaptor.cpp b/src/oblib/lib/vector/ob_vsag_adaptor.cpp
+index 82d9d74..93425c3 100644
+--- a/src/oblib/lib/vector/ob_vsag_adaptor.cpp
++++ b/src/oblib/lib/vector/ob_vsag_adaptor.cpp
+@@ -55,6 +55,10 @@ extern "C" int   seekdb_cuvs_search(void *handle, const float *query, long nq, l
+ extern "C" void  seekdb_cuvs_free(void *handle);
+ extern "C" int seekdb_cuvs_serialize(void *handle, const char *filename);
+ extern "C" void *seekdb_cuvs_deserialize(const char *filename, long n, long dim);
++extern "C" long  seekdb_cuvs_graph_degree(void *handle);
++extern "C" int   seekdb_cuvs_export_graph(void *handle, unsigned int *out, long n, long degree);
++extern "C" void *seekdb_cuvs_from_graph(const float *base, const unsigned int *graph, long n,
++                                        long dim, long degree);
+ #else
+ // GPU backend not compiled in (OB_BUILD_CUVS=OFF): inert stubs so oblib links
+ // without libseekdb_cuvs_bridge.so. ob_cuvs_enabled() is false, so these are
+@@ -65,6 +69,9 @@ static int   seekdb_cuvs_search(void *, const float *, long, long, unsigned int
+ static void  seekdb_cuvs_free(void *) {}
+ static int seekdb_cuvs_serialize(void *, const char *) { return -1; }
+ static void *seekdb_cuvs_deserialize(const char *, long, long) { return nullptr; }
++static long  seekdb_cuvs_graph_degree(void *) { return -1; }
++static int   seekdb_cuvs_export_graph(void *, unsigned int *, long, long) { return -1; }
++static void *seekdb_cuvs_from_graph(const float *, const unsigned int *, long, long, long) { return nullptr; }
+ #endif
+ 
+ namespace oceanbase {
+@@ -321,6 +328,8 @@ static bool ob_cuvs_try_search(void *key, vsag::Allocator *alloc,
+ }
+ 
+ static const char OB_CUVS_SNAPSHOT_MAGIC[8] = {'O', 'B', 'C', 'U', 'V', 'S', '0', '2'};
++// Compact v3 snapshot: ids + vectors + raw CAGRA adjacency (no duplicated dataset).
++static const char OB_CUVS_SNAPSHOT_MAGIC3[8] = {'O', 'B', 'C', 'U', 'V', 'S', '0', '3'};
+ struct ObCuvsSnapshotFile {
+   FILE *file_ = ::tmpfile();
+   char path_[64] = {};
+@@ -335,10 +344,17 @@ struct ObCuvsSnapshotFile {
+ };
+ struct ObCuvsSnapshotJob {
+   const char *path_; void *handle_; long n_; long dim_; bool load_; int rc_;
++  int mode_ = 0;  // 0: file snapshot (load_ selects direction), 1: export graph, 2: from graph
++  unsigned int *graph_ = nullptr; const float *base_ = nullptr; long degree_ = 0;
+ };
+ static void *ob_cuvs_snapshot_job(void *arg) {
+   ObCuvsSnapshotJob *job = static_cast<ObCuvsSnapshotJob *>(arg);
+-  if (job->load_) {
++  if (job->mode_ == 1) {
++    job->rc_ = seekdb_cuvs_export_graph(job->handle_, job->graph_, job->n_, job->degree_);
++  } else if (job->mode_ == 2) {
++    job->handle_ = seekdb_cuvs_from_graph(job->base_, job->graph_, job->n_, job->dim_, job->degree_);
++    job->rc_ = job->handle_ == nullptr ? -1 : 0;
++  } else if (job->load_) {
+     job->handle_ = seekdb_cuvs_deserialize(job->path_, job->n_, job->dim_);
+     job->rc_ = job->handle_ == nullptr ? -1 : 0;
+   } else {
+@@ -405,6 +421,36 @@ static bool ob_cuvs_serialize(void *key, std::ostream &out, int &ret) {
+     ent->bridge_ = nb; ent->built_n_ = n; ent->ids_ = ent->buf_ids_;
+     built = true;
+   }
++  {
++    const long degree = seekdb_cuvs_graph_degree(ent->bridge_.get());
++    std::vector<unsigned int> adj;
++    if (degree > 0 && static_cast<size_t>(degree) < n && degree <= INT32_MAX) {
++      try { adj.resize(n * static_cast<size_t>(degree)); } catch (...) { adj.clear(); }
++    }
++    ObCuvsSnapshotJob gjob{nullptr, ent->bridge_.get(), static_cast<long>(n), ent->dim_, false, -1};
++    gjob.mode_ = 1; gjob.graph_ = adj.data(); gjob.degree_ = degree;
++    if (!adj.empty() && ob_cuvs_snapshot_big_stack(gjob)) {
++      const int64_t export_us = ObTimeUtility::current_time() - start_us;
++      const int32_t dim32 = ent->dim_;
++      const int32_t deg32 = static_cast<int32_t>(degree);
++      const int64_t n64 = static_cast<int64_t>(n);
++      if (!ob_cuvs_write(out, OB_CUVS_SNAPSHOT_MAGIC3, sizeof(OB_CUVS_SNAPSHOT_MAGIC3)) ||
++          !ob_cuvs_write(out, &n64, sizeof(n64)) ||
++          !ob_cuvs_write(out, &dim32, sizeof(dim32)) ||
++          !ob_cuvs_write(out, &deg32, sizeof(deg32)) ||
++          !ob_cuvs_write(out, ent->buf_ids_.data(), n * sizeof(int64_t)) ||
++          !ob_cuvs_write(out, ent->buf_vecs_.data(), ent->buf_vecs_.size() * sizeof(float)) ||
++          !ob_cuvs_write(out, adj.data(), adj.size() * sizeof(unsigned int))) {
++        ret = OB_ERR_UNEXPECTED;
++        LOG_WARN("[OBVSAG][cuVS] failed to write compact snapshot stream", K(ret), KP(key), K(n));
++        return true;
++      }
++      const int64_t total_us = ObTimeUtility::current_time() - start_us;
++      LOG_INFO("[OBVSAG][cuVS] serialized GPU CAGRA snapshot v3", KP(key), K(n), K(dim32),
++               K(deg32), K(built), K(export_us), K(total_us));
++      return true;
++    }
++  }
+   ObCuvsSnapshotFile graph;
+   ObCuvsSnapshotJob job{graph.path_, ent->bridge_.get(), static_cast<long>(n), ent->dim_, false, -1};
+   if (graph.file_ == nullptr || !ob_cuvs_snapshot_big_stack(job) ||
+@@ -444,6 +490,72 @@ static bool ob_cuvs_serialize(void *key, std::ostream &out, int &ret) {
+   return true;
+ }
+ 
++static void ob_cuvs_register_loaded(void *key, ObCuvsEntry *ent) {
++  {
++    std::lock_guard<std::mutex> guard(g_ob_cuvs_mu);
++    ObCuvsEntry *&slot = g_ob_cuvs_reg[key];
++    delete slot;
++    slot = ent;
++  }
++  {
++    std::lock_guard<std::mutex> guard(g_ob_cuvs_marked_mu);
++    g_ob_cuvs_marked.insert(key);
++  }
++}
++
++// Consumes a v3 stream after the magic.
++static int ob_cuvs_deserialize_v3(void *key, int expected_dim, std::istream &in) {
++  int ret = OB_SUCCESS;
++  int64_t n64 = 0;
++  int32_t dim32 = 0;
++  int32_t deg32 = 0;
++  if (!ob_cuvs_read(in, &n64, sizeof(n64)) || !ob_cuvs_read(in, &dim32, sizeof(dim32)) ||
++      !ob_cuvs_read(in, &deg32, sizeof(deg32))) {
++    ret = OB_ERR_UNEXPECTED;
++    LOG_WARN("[OBVSAG][cuVS] truncated v3 snapshot header", K(ret), KP(key));
++  } else if (dim32 <= 0 || dim32 != expected_dim || n64 <= 0 || n64 > UINT32_MAX ||
++             deg32 <= 0 || deg32 >= n64 ||
++             static_cast<uint64_t>(n64) > std::numeric_limits<size_t>::max() / sizeof(float) / dim32 ||
++             static_cast<uint64_t>(n64) > std::numeric_limits<size_t>::max() / sizeof(unsigned int) / deg32) {
++    ret = OB_ERR_UNEXPECTED;
++    LOG_WARN("[OBVSAG][cuVS] invalid v3 snapshot header", K(ret), KP(key), K(dim32),
++             K(expected_dim), K(n64), K(deg32));
++  } else {
++    const int64_t start_us = ObTimeUtility::current_time();
++    const size_t n = static_cast<size_t>(n64);
++    ObCuvsEntry *ent = new ObCuvsEntry();
++    std::vector<unsigned int> adj;
++    ent->dim_ = dim32;
++    ent->buf_ids_.resize(n);
++    ent->buf_vecs_.resize(n * static_cast<size_t>(dim32));
++    adj.resize(n * static_cast<size_t>(deg32));
++    if (!ob_cuvs_read(in, ent->buf_ids_.data(), n * sizeof(int64_t)) ||
++        !ob_cuvs_read(in, ent->buf_vecs_.data(), ent->buf_vecs_.size() * sizeof(float)) ||
++        !ob_cuvs_read(in, adj.data(), adj.size() * sizeof(unsigned int))) {
++      delete ent;
++      ret = OB_ERR_UNEXPECTED;
++      LOG_WARN("[OBVSAG][cuVS] truncated v3 snapshot payload", K(ret), KP(key), K(n64));
++      return ret;
++    }
++    ObCuvsSnapshotJob job{nullptr, nullptr, static_cast<long>(n), dim32, true, -1};
++    job.mode_ = 2; job.base_ = ent->buf_vecs_.data(); job.graph_ = adj.data(); job.degree_ = deg32;
++    if (!ob_cuvs_snapshot_big_stack(job)) {
++      delete ent;
++      ret = OB_ERR_VSAG_RETURN_ERROR;
++      LOG_WARN("[OBVSAG][cuVS] failed to load CAGRA graph from v3 snapshot", K(ret), KP(key), K(n64));
++      return ret;
++    }
++    ent->bridge_ = ob_cuvs_wrap(job.handle_);
++    ent->built_n_ = n;
++    ent->ids_ = ent->buf_ids_;
++    ob_cuvs_register_loaded(key, ent);
++    const int64_t load_us = ObTimeUtility::current_time() - start_us;
++    LOG_INFO("[OBVSAG][cuVS] deserialized GPU CAGRA snapshot v3", KP(key), K(n64), K(dim32),
++             K(deg32), K(load_us));
++  }
++  return ret;
++}
++
+ // Consumes the stream after the magic. Registers and marks the handle for GPU search.
+ static int ob_cuvs_deserialize(void *key, int expected_dim, std::istream &in) {
+   int ret = OB_SUCCESS;
+@@ -1944,6 +2056,10 @@ int fdeserialize(VectorIndexPtr &index_handler,
+           0 == memcmp(magic, OB_CUVS_SNAPSHOT_MAGIC, sizeof(magic))) {
+         return ob_cuvs_deserialize(index_handler, dim, in_stream);
+       }
++      if (got == static_cast<std::streamsize>(sizeof(magic)) &&
++          0 == memcmp(magic, OB_CUVS_SNAPSHOT_MAGIC3, sizeof(magic))) {
++        return ob_cuvs_deserialize_v3(index_handler, dim, in_stream);
++      }
+       if (sb->pubseekoff(-got, std::ios_base::cur, std::ios_base::in) == std::streampos(-1)) {
+         ret = OB_ERR_UNEXPECTED;
+         LOG_WARN("[OBVSAG] cannot rewind snapshot stream", K(ret), K(got));
+diff --git a/src/rootserver/ddl_task/ob_ddl_common_rs_impl.cpp b/src/rootserver/ddl_task/ob_ddl_common_rs_impl.cpp
+index 4f092a6..2156583 100644
+--- a/src/rootserver/ddl_task/ob_ddl_common_rs_impl.cpp
++++ b/src/rootserver/ddl_task/ob_ddl_common_rs_impl.cpp
+@@ -491,6 +491,12 @@ int ObDDLTaskUtil::generate_build_replica_sql(const int64_t data_table_id,
+           !dest_table_schema->is_multivalue_index_aux() &&
+           !dest_table_schema->is_vec_spiv_index_aux()) {
+           // generated columns cannot be row key.
++        } else if (dest_table_schema->is_vec_index_snapshot_data_type() &&
++                   (nullptr == source_table_schema->get_column_schema(col_id) ||
++                    !source_table_schema->get_column_schema(col_id)->is_rowkey_column())) {
++          // HNSW snapshot rows are produced by the vector index pipeline, not copied from the
++          // scan, so the scan only has to be ordered by the data table rowkey. Ordering by the
++          // snapshot key column as well forces an external sort of the full vector payload.
+         } else if (OB_FAIL(rowkey_column_names.push_back(ObColumnNameInfo(column_schema->get_column_name_str(), is_shadow_column)))) {
+         } else if (OB_FAIL(order_column_ids.push_back(col_id))) {
+         }
+diff --git a/src/sql/optimizer/ob_del_upd_log_plan.cpp b/src/sql/optimizer/ob_del_upd_log_plan.cpp
+index b25a1c2..f355c78 100644
+--- a/src/sql/optimizer/ob_del_upd_log_plan.cpp
++++ b/src/sql/optimizer/ob_del_upd_log_plan.cpp
+@@ -1025,6 +1025,7 @@ int ObDelUpdLogPlan::create_online_ddl_plan(ObLogicalOperator *&top,
+ {
+   int ret = OB_SUCCESS;
+   ObExchangeInfo final_exch_info;
++  bool skip_sort = false;
+   if (OB_ISNULL(top) || OB_ISNULL(table_partition_info)) {
+     ret = OB_ERR_UNEXPECTED;
+     LOG_WARN("get unexpected null", K(top), K(table_partition_info), K(ret));
+@@ -1044,7 +1045,8 @@ int ObDelUpdLogPlan::create_online_ddl_plan(ObLogicalOperator *&top,
+         ObStatCollectorType::SAMPLE_SORT, sample_sort_keys,
+         table_partition_info->get_part_level()))) {
+     } else if (OB_FAIL(allocate_exchange_as_top(top, exch_info))) {
+-    } else if (OB_FAIL(allocate_sort_as_top(top, sort_keys))) {
++    } else if (OB_FAIL(is_vec_snapshot_ddl_target(skip_sort))) {
++    } else if (!skip_sort && OB_FAIL(allocate_sort_as_top(top, sort_keys))) {
+     } else if (OB_FAIL(allocate_pdml_insert_as_top(top,
+                                                    is_index_maintenance,
+                                                    is_last_dml_op,
+@@ -1063,6 +1065,30 @@ int ObDelUpdLogPlan::create_online_ddl_plan(ObLogicalOperator *&top,
+   return ret;
+ }
+ 
++// Rows of a vector index snapshot complement are consumed by the HNSW append
++// pipeline, which does not depend on input order, so the sort can be skipped.
++int ObDelUpdLogPlan::is_vec_snapshot_ddl_target(bool &is_vec_snapshot)
++{
++  int ret = OB_SUCCESS;
++  is_vec_snapshot = false;
++  const ObInsertStmt *ins_stmt = static_cast<const ObInsertStmt *>(get_stmt());
++  ObSchemaGetterGuard *schema_guard = optimizer_context_.get_schema_guard();
++  if (OB_ISNULL(ins_stmt) || OB_ISNULL(schema_guard) || !ins_stmt->is_insert_stmt()) {
++    // keep default
++  } else {
++    TableItem *table_item = ins_stmt->get_table_item_by_id(ins_stmt->get_insert_table_info().table_id_);
++    const ObTableSchema *table_schema = nullptr;
++    if (OB_ISNULL(table_item)) {
++    } else if (OB_SUCCESS != schema_guard->get_table_schema(table_item->ddl_table_id_, table_schema)) {
++    } else if (OB_NOT_NULL(table_schema) &&
++               share::schema::is_vec_index_snapshot_data_type(table_schema->get_index_type())) {
++      is_vec_snapshot = true;
++      LOG_INFO("skip sort for vector index snapshot ddl", K(table_item->ddl_table_id_));
++    }
++  }
++  return ret;
++}
++
+ int ObDelUpdLogPlan::get_ddl_sample_sort_column_count(int64_t &sample_sort_column_count)
+ {
+   int ret = OB_SUCCESS;
+diff --git a/src/sql/optimizer/ob_del_upd_log_plan.h b/src/sql/optimizer/ob_del_upd_log_plan.h
+index 365d9e9..f4b588c 100644
+--- a/src/sql/optimizer/ob_del_upd_log_plan.h
++++ b/src/sql/optimizer/ob_del_upd_log_plan.h
+@@ -141,6 +141,7 @@ public:
+                              IndexDMLInfo *index_dml_info);
+ 
+   int get_ddl_sample_sort_column_count(int64_t &sample_sort_column_count);
++  int is_vec_snapshot_ddl_target(bool &is_vec_snapshot);
+ 
+   int get_ddl_sort_keys_with_part_expr(ObExchangeInfo &exch_info,
+                                        common::ObIArray<OrderItem> &sort_keys,
+diff --git a/src/sql/optimizer/ob_log_del_upd.cpp b/src/sql/optimizer/ob_log_del_upd.cpp
+index 5199b37..f316dc2 100644
+--- a/src/sql/optimizer/ob_log_del_upd.cpp
++++ b/src/sql/optimizer/ob_log_del_upd.cpp
+@@ -398,8 +398,13 @@ int ObLogDelUpd::generate_ddl_slice_id_expr()
+   ObLogExchange *producer = nullptr;
+   ObOptimizerContext &ctx = get_plan()->get_optimizer_context();
+   if (OB_FAIL(ObRawExprUtils::build_pseudo_ddl_slice_id(ctx.get_expr_factory(), *ctx.get_session_info(), ddl_slice_expr))) {
+-  } else if (OB_ISNULL(sort_op = get_child(ObLogicalOperator::first_child)) || sort_op->get_type() != log_op_def::LOG_SORT // sort op
+-      || OB_ISNULL(consumer = sort_op->get_child(ObLogicalOperator::first_child)) || consumer->get_type() != log_op_def::LOG_EXCHANGE // exchange consumer
++  } else if (OB_ISNULL(sort_op = get_child(ObLogicalOperator::first_child))) {
++    ret = OB_ERR_UNEXPECTED;
++    LOG_WARN("get ddl slice id producer failed", K(ret));
++  } else if (FALSE_IT(consumer = (sort_op->get_type() == log_op_def::LOG_EXCHANGE) ? sort_op // no sort (vector snapshot ddl)
++                                 : sort_op->get_child(ObLogicalOperator::first_child))) {
++  } else if ((sort_op->get_type() != log_op_def::LOG_SORT && sort_op->get_type() != log_op_def::LOG_EXCHANGE) // sort op
++      || OB_ISNULL(consumer) || consumer->get_type() != log_op_def::LOG_EXCHANGE // exchange consumer
+       || OB_ISNULL(producer = static_cast<ObLogExchange *>(consumer->get_child(ObLogicalOperator::first_child))) || !producer->is_producer()) {
+     ret = OB_ERR_UNEXPECTED;
+     LOG_WARN("get ddl slice id producer failed", K(ret), KPC(sort_op), KPC(consumer), KPC(producer));
+diff --git a/tools/hipvs_bridge/seekdb_cuvs_bridge.c b/tools/hipvs_bridge/seekdb_cuvs_bridge.c
+index 4596e90..af844f9 100644
+--- a/tools/hipvs_bridge/seekdb_cuvs_bridge.c
++++ b/tools/hipvs_bridge/seekdb_cuvs_bridge.c
+@@ -367,6 +367,74 @@ fail:
+   return NULL;
+ }
+ 
++/* Compact snapshot support: the caller persists ids + vectors itself, so the
++ * snapshot only needs the CAGRA adjacency list (n x degree uint32). */
++long seekdb_cuvs_graph_degree(void* handle)
++{
++  sk_cuvs_index* h = (sk_cuvs_index*)handle;
++  int64_t deg = 0;
++  if (!h || !h->idx || cuvsCagraIndexGetGraphDegree(h->idx, &deg) != CUVS_SUCCESS) return -1;
++  return (long)deg;
++}
++
++int seekdb_cuvs_export_graph(void* handle, unsigned int* out, long n, long degree)
++{
++  sk_cuvs_index* h = (sk_cuvs_index*)handle;
++  if (!h || !out || n != h->n || degree != seekdb_cuvs_graph_degree(handle)) return 1;
++  DLManagedTensor g;
++  memset(&g, 0, sizeof(g));
++  if (cuvsCagraIndexGetGraph(h->idx, &g) != CUVS_SUCCESS || g.dl_tensor.data == NULL) return 2;
++  const size_t bytes = sizeof(uint32_t) * (size_t)n * (size_t)degree;
++  const char* src = (const char*)g.dl_tensor.data + g.dl_tensor.byte_offset;
++  int rc = 0;
++  if (g.dl_tensor.ndim != 2 || g.dl_tensor.shape[0] != n || g.dl_tensor.shape[1] != degree ||
++      g.dl_tensor.dtype.bits != 32) {
++    rc = 3;
++  } else if (g.dl_tensor.device.device_type == kDLCPU) {
++    memcpy(out, src, bytes);
++  } else if (hipMemcpy(out, src, bytes, hipMemcpyDeviceToHost) != hipSuccess) {
++    rc = 4;
++  }
++  if (g.deleter) g.deleter(&g);
++  return rc;
++}
++
++void* seekdb_cuvs_from_graph(const float* base, const unsigned int* graph, long n, long dim, long degree)
++{
++  if (!base || !graph || n <= 0 || dim <= 0 || degree <= 0 || degree >= n) return NULL;
++  sk_cuvs_index* h = (sk_cuvs_index*)calloc(1, sizeof(*h));
++  if (!h) return NULL;
++  pthread_mutex_init(&h->mu, NULL);
++  void* dx = NULL; void* dg = NULL;
++  const size_t xb = sizeof(float) * (size_t)n * dim, gb = sizeof(uint32_t) * (size_t)n * degree;
++  if (cuvsResourcesCreate(&h->res) != CUVS_SUCCESS) { pthread_mutex_destroy(&h->mu); free(h); return NULL; }
++  if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) goto fail;
++  if (hipMalloc(&dx, xb) != hipSuccess || hipMalloc(&dg, gb) != hipSuccess) goto fail;
++  if (hipMemcpy(dx, base, xb, hipMemcpyHostToDevice) != hipSuccess ||
++      hipMemcpy(dg, graph, gb, hipMemcpyHostToDevice) != hipSuccess) goto fail;
++  if (cuvsCagraIndexCreate(&h->idx) != CUVS_SUCCESS) { h->idx = 0; goto fail; }
++  {
++    long gs[2] = {n, degree}, ds[2] = {n, dim};
++    DLManagedTensor gt, dt;
++    sk_tensor(&gt, dg, 1, gs, kDLUInt, 32);
++    sk_tensor(&dt, dx, 1, ds, kDLFloat, 32);
++    if (cuvsCagraIndexFromArgs(h->res, L2Expanded, &gt, &dt, h->idx) != CUVS_SUCCESS ||
++        cuvsStreamSync(h->res) != CUVS_SUCCESS) goto fail;
++  }
++  h->d_dataset = dx; h->d_graph = dg; h->n = n; h->dim = dim;
++  return h;
++fail:
++  fprintf(stderr, "[seekdb_cuvs] from_graph failed: %s\n", cuvsGetLastErrorText());
++  if (h->idx) cuvsCagraIndexDestroy(h->idx);
++  if (h->ip) cuvsCagraIndexParamsDestroy(h->ip);
++  if (dx) hipFree(dx);
++  if (dg) hipFree(dg);
++  cuvsResourcesDestroy(h->res);
++  pthread_mutex_destroy(&h->mu);
++  free(h);
++  return NULL;
++}
++
+ int seekdb_cuvs_cagra_knn(const float* base, long n, long dim,
+                           const float* query, long nq, long topk,
+                           unsigned int* out_ids)
+diff --git a/tools/hipvs_bridge/seekdb_cuvs_bridge.h b/tools/hipvs_bridge/seekdb_cuvs_bridge.h
+index e8a7769..5302d7e 100644
+--- a/tools/hipvs_bridge/seekdb_cuvs_bridge.h
++++ b/tools/hipvs_bridge/seekdb_cuvs_bridge.h
+@@ -25,6 +25,11 @@ int   seekdb_cuvs_search(void* handle, const float* query, long nq, long topk,
+ void  seekdb_cuvs_free(void* handle);
+ int seekdb_cuvs_serialize(void* handle, const char* filename);
+ void* seekdb_cuvs_deserialize(const char* filename, long n, long dim);
++/* Compact snapshots: export the n x degree uint32 CAGRA graph to host memory and
++ * rebuild a searchable index from host vectors + graph. */
++long  seekdb_cuvs_graph_degree(void* handle);
++int   seekdb_cuvs_export_graph(void* handle, unsigned int* out, long n, long degree);
++void* seekdb_cuvs_from_graph(const float* base, const unsigned int* graph, long n, long dim, long degree);
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/tools/hipvs_bridge/seekdb_cuvs_graph.hip b/tools/hipvs_bridge/seekdb_cuvs_graph.hip
+index 3a8fb20..5bbb852 100644
+--- a/tools/hipvs_bridge/seekdb_cuvs_graph.hip
++++ b/tools/hipvs_bridge/seekdb_cuvs_graph.hip
+@@ -6,6 +6,7 @@
+ #include <math.h>
+ 
+ #include <stdlib.h>
++#include <string.h>
+ static void sk_memdbg(const char* tag) {
+   static int on = -1;
+   if (on < 0) on = getenv("SK_MEMDBG") != nullptr;
+@@ -160,8 +161,12 @@ sk_select_chunk(const float* __restrict__ tile, int ldt, int w, long c0, long ro
+ 
+ // Rank-based detour pruning (CAGRA optimize, first phase). One block per node.
+ #define SK_HASH 1024
++__device__ __forceinline__ uint32_t sk_perm(uint32_t c, unsigned long long pa, unsigned long long pb, long n) {
++  return (uint32_t)(((unsigned long long)c * pa + pb) % (unsigned long long)n);
++}
+ __global__ void __launch_bounds__(256)
+-sk_prune(const uint32_t* __restrict__ knn, long n, int K, int D, uint32_t* __restrict__ out) {
++sk_prune(const uint32_t* __restrict__ knn, long n, int K, int D, uint32_t* __restrict__ out,
++         unsigned long long pa, unsigned long long pb) {
+   __shared__ uint32_t la[512];
+   __shared__ uint32_t cnt[512];
+   __shared__ uint32_t hk[SK_HASH];
+@@ -204,7 +209,7 @@ sk_prune(const uint32_t* __restrict__ knn, long n, int K, int D, uint32_t* __res
+     uint32_t ck = cnt[k];
+     int pos = 0;
+     for (int j = 0; j < K; j++) { uint32_t cj = cnt[j]; pos += (cj < ck) || (cj == ck && j < k); }
+-    if (pos < D) out[a * D + pos] = la[k];
++    if (pos < D) out[(long)sk_perm((uint32_t)a, pa, pb, n) * D + pos] = la[k] < n ? sk_perm(la[k], pa, pb, n) : la[k];
+   }
+ }
+ 
+@@ -239,6 +244,297 @@ __global__ void sk_merge(uint32_t* __restrict__ g, const uint32_t* __restrict__
+   }
+ }
+ 
++// ---------------- fp16 WMMA kNN (gfx11) ----------------
++// Dataset is converted to fp16 (scaled by a power of two, zero padded to dimp % 16 == 0) in a
++// pseudo-random column order p(c) = (c * pa + pb) % n, so that the running top-K threshold
++// tightens quickly regardless of the physical data order. Distances are |x_c|^2 - 2 <q, x_c>
++// accumulated in fp32. A fused epilogue keeps only candidates below the row's current K-th
++// distance; candidates are merged into the sorted per-row state after each column chunk.
++typedef _Float16 sk_half16 __attribute__((ext_vector_type(16)));
++typedef _Float16 sk_half8 __attribute__((ext_vector_type(8)));
++typedef float sk_float8 __attribute__((ext_vector_type(8)));
++#define WB_M 128
++#define WB_N 128
++#define WB_K 64
++#define WB_LD (WB_K + 8)
++#define SK_CAP 1536
++#define SK_RB 8192
++
++__global__ void sk_absmax(const float* __restrict__ x, long cnt, unsigned* __restrict__ out) {
++  unsigned m = 0;
++  for (long i = (long)blockIdx.x * blockDim.x + threadIdx.x; i < cnt; i += (long)gridDim.x * blockDim.x) {
++    float v = fabsf(x[i]);
++    unsigned u = __float_as_uint(v);
++    if (v == v && u > m && v != INFINITY) m = u;
++  }
++  for (int o = warpSize / 2; o > 0; o >>= 1) { unsigned t = __shfl_down(m, o); m = t > m ? t : m; }
++  if ((threadIdx.x & (warpSize - 1)) == 0) atomicMax(out, m);
++}
++
++// one wave per output row c: xp[c] = half(scale * x[p(c)]), xn[c] = |xp[c]|^2
++__global__ void sk_to_half(const float* __restrict__ x, long n, int dim, int dimp,
++                           unsigned long long pa, unsigned long long pb, float scale,
++                           _Float16* __restrict__ xp, float* __restrict__ xn) {
++  long c = (long)blockIdx.x * blockDim.y + threadIdx.y;
++  if (c >= n) return;
++  long src = (long)(((unsigned long long)c * pa + pb) % (unsigned long long)n);
++  const float* r = x + src * dim;
++  _Float16* o = xp + c * dimp;
++  float s = 0.f;
++  for (int j = threadIdx.x; j < dimp; j += blockDim.x) {
++    _Float16 h = (_Float16)(j < dim ? r[j] * scale : 0.f);
++    o[j] = h;
++    float f = (float)h; s += f * f;
++  }
++  for (int off = warpSize / 2; off > 0; off >>= 1) s += __shfl_down(s, off);
++  if (threadIdx.x == 0) xn[c] = s;
++}
++
++__global__ void sk_state_init2(float* sd, uint32_t* si, float* thr, long cnt, int K) {
++  long i = (long)blockIdx.x * blockDim.x + threadIdx.x;
++  if (i < cnt) { sd[i] = INFINITY; si[i] = 0xffffffffu; if (i % K == 0) thr[i / K] = INFINITY; }
++}
++
++__global__ void __launch_bounds__(256)
++sk_wmma_filter(const _Float16* __restrict__ xp, int dimp, const float* __restrict__ xn,
++               long r0, int m, long c0, int w, const float* __restrict__ thr,
++               unsigned* __restrict__ cnt, float* __restrict__ cd, uint32_t* __restrict__ ci) {
++  __shared__ _Float16 As[WB_M * WB_LD];
++  __shared__ _Float16 Bs[WB_N * WB_LD];
++  const int tid = threadIdx.x, lane = tid & 31, wave = tid >> 5;
++  const int wr = wave >> 1, wc = wave & 1;
++  const int bm = blockIdx.y * WB_M, bn = blockIdx.x * WB_N;
++  sk_float8 acc[2][4];
++#pragma unroll
++  for (int i = 0; i < 2; i++)
++#pragma unroll
++    for (int j = 0; j < 4; j++)
++#pragma unroll
++      for (int v = 0; v < 8; v++) acc[i][j][v] = 0.f;
++  for (int k0 = 0; k0 < dimp; k0 += WB_K) {
++#pragma unroll
++    for (int s4 = 0; s4 < 4; s4++) {
++      const int idx = tid + 256 * s4;
++      const int row = idx >> 3, seg = (idx & 7) * 8;
++      const int kk = k0 + seg;
++      uint4 va = make_uint4(0, 0, 0, 0), vb = va;
++      if (bm + row < m && kk < dimp) va = *reinterpret_cast<const uint4*>(xp + (r0 + bm + row) * (long)dimp + kk);
++      if (bn + row < w && kk < dimp) vb = *reinterpret_cast<const uint4*>(xp + (c0 + bn + row) * (long)dimp + kk);
++      *reinterpret_cast<uint4*>(As + row * WB_LD + seg) = va;
++      *reinterpret_cast<uint4*>(Bs + row * WB_LD + seg) = vb;
++    }
++    __syncthreads();
++    const int kl = dimp - k0 < WB_K ? dimp - k0 : WB_K;
++    for (int ks = 0; ks < kl; ks += 16) {
++      sk_half16 a[2], b[4];
++#pragma unroll
++      for (int i = 0; i < 2; i++) {
++        const _Float16* p = As + (wr * 32 + i * 16 + (lane & 15)) * WB_LD + ks;
++        sk_half8 lo = *reinterpret_cast<const sk_half8*>(p), hi = *reinterpret_cast<const sk_half8*>(p + 8);
++#pragma unroll
++        for (int t = 0; t < 8; t++) { a[i][t] = lo[t]; a[i][t + 8] = hi[t]; }
++      }
++#pragma unroll
++      for (int j = 0; j < 4; j++) {
++        const _Float16* p = Bs + (wc * 64 + j * 16 + (lane & 15)) * WB_LD + ks;
++        sk_half8 lo = *reinterpret_cast<const sk_half8*>(p), hi = *reinterpret_cast<const sk_half8*>(p + 8);
++#pragma unroll
++        for (int t = 0; t < 8; t++) { b[j][t] = lo[t]; b[j][t + 8] = hi[t]; }
++      }
++#pragma unroll
++      for (int i = 0; i < 2; i++)
++#pragma unroll
++        for (int j = 0; j < 4; j++)
++          acc[i][j] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(a[i], b[j], acc[i][j]);
++    }
++    __syncthreads();
++  }
++  float cn[4]; long cid[4];
++#pragma unroll
++  for (int j = 0; j < 4; j++) {
++    int cl = bn + wc * 64 + j * 16 + (lane & 15);
++    cid[j] = cl < w ? c0 + cl : -1;
++    cn[j] = cl < w ? xn[c0 + cl] : 0.f;
++  }
++#pragma unroll
++  for (int i = 0; i < 2; i++) {
++#pragma unroll
++    for (int v = 0; v < 8; v++) {
++      const int rl = bm + wr * 32 + i * 16 + 2 * v + (lane >> 4);
++      if (rl >= m) continue;
++      const float t = thr[rl];
++      const long self = r0 + rl;
++#pragma unroll
++      for (int j = 0; j < 4; j++) {
++        float d = cn[j] - 2.f * acc[i][j][v];
++        if (cid[j] >= 0 && d < t && cid[j] != self) {
++          unsigned p = atomicAdd(&cnt[rl], 1u);
++          if (p < SK_CAP) { cd[(long)rl * SK_CAP + p] = d; ci[(long)rl * SK_CAP + p] = (uint32_t)cid[j]; }
++        }
++      }
++    }
++  }
++}
++
++__device__ __forceinline__ bool sk_lt(float a, uint32_t ia, float b, uint32_t ib) {
++  return a < b || (a == b && ia < ib);
++}
++
++// Merge the chunk candidates of each row into its sorted top-K state.
++__global__ void __launch_bounds__(256)
++sk_merge_sel(int K, unsigned* __restrict__ cnt, const float* __restrict__ cd, const uint32_t* __restrict__ ci,
++             float* __restrict__ sd, uint32_t* __restrict__ si, float* __restrict__ thr,
++             uint32_t* __restrict__ ovf_list, unsigned* __restrict__ ovf_cnt) {
++  __shared__ float kd[SK_SEL_CAP];
++  __shared__ uint32_t ki[SK_SEL_CAP];
++  __shared__ float od[512];
++  __shared__ uint32_t oi[512];
++  const int r = blockIdx.x;
++  const unsigned c = cnt[r];
++  if (c == 0) return;
++  __syncthreads();
++  if (threadIdx.x == 0) cnt[r] = 0;
++  if (c > SK_CAP) {
++    if (threadIdx.x == 0) { ovf_list[atomicAdd(ovf_cnt, 1u)] = r; atomicAdd(ovf_cnt + 1, 1u); }
++    return;
++  }
++  int P = 1; while (P < (int)c) P <<= 1;
++  const float* rcd = cd + (long)r * SK_CAP; const uint32_t* rci = ci + (long)r * SK_CAP;
++  for (int t = threadIdx.x; t < P; t += blockDim.x) {
++    if (t < (int)c) { kd[t] = rcd[t]; ki[t] = rci[t]; } else { kd[t] = INFINITY; ki[t] = 0xffffffffu; }
++  }
++  float* rsd = sd + (long)r * K; uint32_t* rsi = si + (long)r * K;
++  if (P > 1) sk_bitonic(kd, ki, P); else __syncthreads();
++  for (int i = threadIdx.x; i < K; i += blockDim.x) {
++    float a = rsd[i]; uint32_t ia = rsi[i];
++    int lo = 0, hi = (int)c;  // count cand < a
++    while (lo < hi) { int mid = (lo + hi) >> 1; if (sk_lt(kd[mid], ki[mid], a, ia)) lo = mid + 1; else hi = mid; }
++    int pos = i + lo;
++    if (pos < K) { od[pos] = a; oi[pos] = ia; }
++  }
++  for (int j = threadIdx.x; j < (int)c; j += blockDim.x) {
++    float b = kd[j]; uint32_t ib = ki[j];
++    int lo = 0, hi = K;  // count state < b
++    while (lo < hi) { int mid = (lo + hi) >> 1; if (sk_lt(rsd[mid], rsi[mid], b, ib)) lo = mid + 1; else hi = mid; }
++    int pos = j + lo;
++    if (pos < K) { od[pos] = b; oi[pos] = ib; }
++  }
++  __syncthreads();
++  for (int t = threadIdx.x; t < K; t += blockDim.x) { rsd[t] = od[t]; rsi[t] = oi[t]; }
++  if (threadIdx.x == 0) thr[r] = od[K - 1];
++}
++
++// Exact fallback for rows whose candidate buffer overflowed in this chunk.
++__global__ void __launch_bounds__(256)
++sk_ovf_row(const _Float16* __restrict__ xp, int dimp, const float* __restrict__ xn, long r0, long c0, int w, int K,
++           const uint32_t* __restrict__ ovf_list, unsigned* __restrict__ ovf_cnt,
++           float* __restrict__ sd, uint32_t* __restrict__ si, float* __restrict__ thrv) {
++  __shared__ float kd[SK_SEL_CAP];
++  __shared__ uint32_t ki[SK_SEL_CAP];
++  __shared__ float q[2048];
++  __shared__ int cnt;
++  __shared__ float thr;
++  if (blockIdx.x >= *ovf_cnt) return;
++  const int r = ovf_list[blockIdx.x];
++  const long self = r0 + r;
++  for (int t = threadIdx.x; t < dimp; t += blockDim.x) q[t] = (float)xp[self * dimp + t];
++  float* rsd = sd + (long)r * K; uint32_t* rsi = si + (long)r * K;
++  for (int t = threadIdx.x; t < SK_SEL_CAP; t += blockDim.x) {
++    if (t < K) { kd[t] = rsd[t]; ki[t] = rsi[t]; } else { kd[t] = INFINITY; ki[t] = 0xffffffffu; }
++  }
++  if (threadIdx.x == 0) { cnt = K; thr = rsd[K - 1]; }
++  __syncthreads();
++  const int limit = SK_SEL_CAP - SK_SEL_THREADS;
++  for (int base = 0; base < w; base += SK_SEL_THREADS) {
++    int cc = base + threadIdx.x;
++    if (cc < w && c0 + cc != self) {
++      const _Float16* xr = xp + (c0 + cc) * (long)dimp;
++      float dot = 0.f;
++      for (int t = 0; t < dimp; t++) dot += q[t] * (float)xr[t];
++      float d = xn[c0 + cc] - 2.f * dot;
++      if (d < thr) { int p = atomicAdd(&cnt, 1); kd[p] = d; ki[p] = (uint32_t)(c0 + cc); }
++    }
++    __syncthreads();
++    const int cur = cnt;
++    __syncthreads();
++    if (cur > limit) {
++      sk_bitonic(kd, ki, SK_SEL_CAP);
++      for (int t = K + threadIdx.x; t < SK_SEL_CAP; t += blockDim.x) { kd[t] = INFINITY; ki[t] = 0xffffffffu; }
++      if (threadIdx.x == 0) { cnt = K; thr = kd[K - 1]; }
++      __syncthreads();
++    }
++  }
++  if (cnt > K) sk_bitonic(kd, ki, SK_SEL_CAP);
++  for (int t = threadIdx.x; t < K; t += blockDim.x) { rsd[t] = kd[t]; rsi[t] = ki[t]; }
++  if (threadIdx.x == 0) thrv[r] = kd[K - 1];
++}
++
++static unsigned long long sk_gcd(unsigned long long a, unsigned long long b) { while (b) { unsigned long long t = a % b; a = b; b = t; } return a; }
++
++// Exact-ish kNN (fp16 inputs, fp32 accumulation) of all n points in permuted index space.
++// Writes neighbor ids (permuted space, sorted by distance) of permuted row r to h_knn[r * K].
++static int sk_knn_wmma(const float* d_x, long n, int dim, int K, uint32_t* h_knn, hipStream_t st,
++                       unsigned long long* ppa, unsigned long long* ppb, long* novf) {
++  int rc = 0;
++  const int dimp = (dim + 15) / 16 * 16;
++  if (dimp > 2048 || K > 512 || n > 0x7fffffffL) return 1;
++  unsigned long long pa = (unsigned long long)(n * 0.6180339887498949) | 1ull, pb = (unsigned long long)n / 3;
++  while (sk_gcd(pa, (unsigned long long)n) != 1) pa += 2;
++  if (getenv("SK_NOPERM")) { pa = 1; pb = 0; }
++  *ppa = pa; *ppb = pb;
++  _Float16* xp = nullptr; float* xn = nullptr; unsigned* amax = nullptr;
++  float* sd = nullptr; uint32_t* si = nullptr; float* thr = nullptr; unsigned* cnt = nullptr;
++  float* cd = nullptr; uint32_t* ci = nullptr; uint32_t* ovl = nullptr; unsigned* ovc = nullptr;
++  unsigned h_amax = 0; float scale = 1.f;
++  const long R = SK_RB < n ? SK_RB : n;
++  long tot_ovf = 0;
++  unsigned* h_ovc = nullptr;
++  if (hipMalloc(&amax, sizeof(unsigned) * 4) != hipSuccess) return 2;
++  hipMemsetAsync(amax, 0, sizeof(unsigned) * 4, st);
++  sk_absmax<<<1024, 256, 0, st>>>(d_x, n * dim, amax);
++  if (hipMemcpyAsync(&h_amax, amax, sizeof(unsigned), hipMemcpyDeviceToHost, st) != hipSuccess ||
++      hipStreamSynchronize(st) != hipSuccess) { rc = 2; goto done; }
++  {
++    float mx; memcpy(&mx, &h_amax, 4);
++    if (mx > 0.f && mx == mx) { int e; frexpf(256.f / mx, &e); scale = ldexpf(1.f, e - 1); }
++    if (!(scale > 0.f) || scale > 1e30f) scale = 1.f;
++  }
++  if (hipMalloc(&xp, sizeof(_Float16) * n * dimp) != hipSuccess || hipMalloc(&xn, sizeof(float) * n) != hipSuccess ||
++      hipMalloc(&sd, sizeof(float) * R * K) != hipSuccess || hipMalloc(&si, sizeof(uint32_t) * R * K) != hipSuccess ||
++      hipMalloc(&thr, sizeof(float) * R) != hipSuccess || hipMalloc(&cnt, sizeof(unsigned) * R) != hipSuccess ||
++      hipMalloc(&cd, sizeof(float) * R * SK_CAP) != hipSuccess || hipMalloc(&ci, sizeof(uint32_t) * R * SK_CAP) != hipSuccess ||
++      hipMalloc(&ovl, sizeof(uint32_t) * R) != hipSuccess || hipHostMalloc((void**)&h_ovc, sizeof(unsigned) * 64, hipHostMallocDefault) != hipSuccess) { rc = 3; goto done; }
++  ovc = amax + 1;
++  sk_to_half<<<dim3((n + 7) / 8), dim3(32, 8), 0, st>>>(d_x, n, dim, dimp, pa, pb, scale, xp, xn);
++  hipMemsetAsync(cnt, 0, sizeof(unsigned) * R, st);
++  for (long r0 = 0; r0 < n; r0 += R) {
++    const int m = (int)(n - r0 < R ? n - r0 : R);
++    sk_state_init2<<<(m * (long)K + 255) / 256, 256, 0, st>>>(sd, si, thr, (long)m * K, K);
++    long c0 = 0, csz = 1024;
++    while (c0 < n) {
++      const int w = (int)(n - c0 < csz ? n - c0 : csz);
++      dim3 g((w + WB_N - 1) / WB_N, (m + WB_M - 1) / WB_M);
++      hipMemsetAsync(ovc, 0, sizeof(unsigned), st);
++      sk_wmma_filter<<<g, 256, 0, st>>>(xp, dimp, xn, r0, m, c0, w, thr, cnt, cd, ci);
++      sk_merge_sel<<<m, 256, 0, st>>>(K, cnt, cd, ci, sd, si, thr, ovl, ovc);
++      sk_ovf_row<<<m, 256, 0, st>>>(xp, dimp, xn, r0, c0, w, K, ovl, ovc, sd, si, thr);
++      c0 += w;
++      csz = c0 < 2048 ? 1024 : c0;
++    }
++    if (hipMemcpyAsync(h_knn + r0 * K, si, sizeof(uint32_t) * m * K, hipMemcpyDeviceToHost, st) != hipSuccess) { rc = 4; goto done; }
++  }
++  if (hipMemcpyAsync(h_ovc, amax, sizeof(unsigned) * 4, hipMemcpyDeviceToHost, st) != hipSuccess ||
++      hipStreamSynchronize(st) != hipSuccess || hipGetLastError() != hipSuccess) { rc = 8; goto done; }
++  tot_ovf = h_ovc[2];
++  *novf = tot_ovf;
++done:
++  hipStreamSynchronize(st);
++  if (xp) hipFree(xp); if (xn) hipFree(xn); if (amax) hipFree(amax);
++  if (sd) hipFree(sd); if (si) hipFree(si); if (thr) hipFree(thr); if (cnt) hipFree(cnt);
++  if (cd) hipFree(cd); if (ci) hipFree(ci); if (ovl) hipFree(ovl); if (h_ovc) hipHostFree(h_ovc);
++  return rc;
++}
++
+ extern "C" int sk_build_cagra_graph(float** pd_x, const float* h_x, long n, int dim, int K, int D,
+                                     uint32_t** pd_graph, hipStream_t st, double* t_knn, double* t_prune) {
+   // d_x: device copy of the dataset (n x dim). To keep peak VRAM at the level of the final index
+@@ -255,17 +551,26 @@ extern "C" int sk_build_cagra_graph(float** pd_x, const float* h_x, long n, int
+   const long BQ = 512, CC = 32768;
+   long bq = BQ < n ? BQ : n;
+   long cc = CC < n ? CC : n;
++  unsigned long long pa = 1, pb = 0;
++  bool done_knn = false;
+   hipEvent_t e0, e1, e2;
+   hipEventCreate(&e0); hipEventCreate(&e1); hipEventCreate(&e2);
+   if (hipHostMalloc((void**)&h_knn, sizeof(uint32_t) * n * K, hipHostMallocDefault) != hipSuccess ||
+       hipHostMalloc((void**)&h_graph, sizeof(uint32_t) * n * D, hipHostMallocMapped) != hipSuccess ||
+       hipHostGetDevicePointer((void**)&h_graph_dev, h_graph, 0) != hipSuccess) { rc = 2; goto done; }
++  hipEventRecord(e0, st);
++  if (!getenv("SK_KNN_FP32")) {
++    long novf = 0;
++    int r2 = sk_knn_wmma(d_x, n, dim, K, h_knn, st, &pa, &pb, &novf);
++    if (r2 == 0) done_knn = true; else { pa = 1; pb = 0; }
++    if (getenv("SK_MEMDBG")) fprintf(stderr, "[sk] wmma knn rc=%d ovf=%ld\n", r2, novf);
++  }
++  if (!done_knn) {
+   if (hipMalloc(&xn, sizeof(float) * n) != hipSuccess ||
+       hipMalloc(&tile, sizeof(float) * bq * cc) != hipSuccess ||
+       hipMalloc(&sd, sizeof(float) * bq * K) != hipSuccess ||
+       hipMalloc(&si, sizeof(uint32_t) * bq * K) != hipSuccess) { rc = 3; goto done; }
+   sk_memdbg("after knn allocs");
+-  hipEventRecord(e0, st);
+   sk_norms<<<dim3((n + 7) / 8), dim3(32, 8), 0, st>>>(d_x, n, dim, xn);
+   for (long r0 = 0; r0 < n; r0 += bq) {
+     int m = (int)(n - r0 < bq ? n - r0 : bq);
+@@ -279,6 +584,7 @@ extern "C" int sk_build_cagra_graph(float** pd_x, const float* h_x, long n, int
+     }
+     if (hipMemcpyAsync(h_knn + r0 * K, si, sizeof(uint32_t) * m * K, hipMemcpyDeviceToHost, st) != hipSuccess) { rc = 4; goto done; }
+   }
++  }
+   hipEventRecord(e1, st);
+   if (hipStreamSynchronize(st) != hipSuccess || hipGetLastError() != hipSuccess) { rc = 8; goto done; }
+   sk_memdbg("after knn");
+@@ -286,7 +592,7 @@ extern "C" int sk_build_cagra_graph(float** pd_x, const float* h_x, long n, int
+   hipFree(d_x); d_x = nullptr; *pd_x = nullptr;
+   if (hipMalloc(&knn, sizeof(uint32_t) * n * K) != hipSuccess ||
+       hipMemcpyAsync(knn, h_knn, sizeof(uint32_t) * n * K, hipMemcpyHostToDevice, st) != hipSuccess) { rc = 9; goto done; }
+-  sk_prune<<<n, 256, 0, st>>>(knn, n, K, D, h_graph_dev);
++  sk_prune<<<n, 256, 0, st>>>(knn, n, K, D, h_graph_dev, pa, pb);
+   if (hipStreamSynchronize(st) != hipSuccess) { rc = 9; goto done; }
+   sk_memdbg("after prune");
+   hipFree(knn); knn = nullptr;
