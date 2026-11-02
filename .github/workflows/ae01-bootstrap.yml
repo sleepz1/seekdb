@@ -1,0 +1,24 @@
+name: ae01-bootstrap
+on:
+  push:
+    branches: [ 'ci/ae01-bootstrap' ]
+permissions:
+  contents: write
+jobs:
+  mkbranch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: create contest/ae01-hipvs at V5 frozen commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -x
+          SHA=634888d9b037153fa143d2c913ba4b25503e1d62
+          curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs \
+            -d "{\"ref\":\"refs/heads/contest/ae01-hipvs\",\"sha\":\"$SHA\"}" | tee out.json
+          if grep -q '"ref": "refs/heads/contest/ae01-hipvs"' out.json; then exit 0; fi
+          git init -q r && cd r
+          git remote add origin https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
+          git fetch -q --depth=1 https://github.com/zihaomu/seekdb $SHA
+          git push origin $SHA:refs/heads/contest/ae01-hipvs
