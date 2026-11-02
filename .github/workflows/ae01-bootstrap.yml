@@ -8,18 +8,24 @@ jobs:
   mkbranch:
     runs-on: ubuntu-latest
     steps:
-      - name: try refs
+      - name: build commit via git data api
         shell: bash {0}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mk() {
-            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
-              https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs \
-              -d "{\"ref\":\"refs/heads/$1\",\"sha\":\"$2\"}" > o.json
-            echo "::warning::$1 $(tr '\n' ' ' < o.json | head -c 300)"
-          }
-          mk tmp/ae01-master-test ${GITHUB_SHA}
-          mk ae01/mergebase 977053bf16296429bab7b72522b2618e795ba6ae
-          mk contest/ae01-hipvs 634888d9b037153fa143d2c913ba4b25503e1d62
+          API=https://api.github.com/repos/${GITHUB_REPOSITORY}
+          H=(-H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json')
+          BASE=634888d9b037153fa143d2c913ba4b25503e1d62
+          MASTER=$(curl -sS "${H[@]}" $API/git/ref/heads/master | jq -r .object.sha)
+          MTREE=$(curl -sS "${H[@]}" $API/git/commits/$MASTER | jq -r .tree.sha)
+          GH_DIR=$(curl -sS "${H[@]}" $API/git/trees/$MTREE | jq -r '.tree[]|select(.path==".github").sha')
+          BTREE=$(curl -sS "${H[@]}" $API/git/commits/$BASE | jq -r .tree.sha)
+          echo "::warning::master=$MASTER mtree=$MTREE gh=$GH_DIR btree=$BTREE"
+          NT=$(curl -sS "${H[@]}" -X POST $API/git/trees -d "{\"base_tree\":\"$BTREE\",\"tree\":[{\"path\":\".github\",\"mode\":\"040000\",\"type\":\"tree\",\"sha\":\"$GH_DIR\"}]}" | tee t.json | jq -r .sha)
+          echo "::warning::newtree=$NT $(head -c 200 t.json | tr '\n' ' ')"
+          NC=$(curl -sS "${H[@]}" -X POST $API/git/commits -d "{\"message\":\"ae01: start from AMD contest V5 frozen commit (keep fork CI config)\",\"tree\":\"$NT\",\"parents\":[\"$BASE\"]}" | tee c.json | jq -r .sha)
+          echo "::warning::newcommit=$NC $(head -c 200 c.json | tr '\n' ' ')"
+          curl -sS "${H[@]}" -X POST $API/git/refs -d "{\"ref\":\"refs/heads/contest/ae01-hipvs\",\"sha\":\"$NC\"}" > r.json
+          echo "::warning::ref $(head -c 300 r.json | tr '\n' ' ')"
+          curl -sS "${H[@]}" -X DELETE $API/git/refs/heads/tmp/ae01-master-test
           true
