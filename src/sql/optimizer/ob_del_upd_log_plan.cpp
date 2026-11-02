@@ -1025,6 +1025,7 @@ int ObDelUpdLogPlan::create_online_ddl_plan(ObLogicalOperator *&top,
 {
   int ret = OB_SUCCESS;
   ObExchangeInfo final_exch_info;
+  bool skip_sort = false;
   if (OB_ISNULL(top) || OB_ISNULL(table_partition_info)) {
     ret = OB_ERR_UNEXPECTED;
     LOG_WARN("get unexpected null", K(top), K(table_partition_info), K(ret));
@@ -1044,7 +1045,8 @@ int ObDelUpdLogPlan::create_online_ddl_plan(ObLogicalOperator *&top,
         ObStatCollectorType::SAMPLE_SORT, sample_sort_keys,
         table_partition_info->get_part_level()))) {
     } else if (OB_FAIL(allocate_exchange_as_top(top, exch_info))) {
-    } else if (OB_FAIL(allocate_sort_as_top(top, sort_keys))) {
+    } else if (OB_FAIL(is_vec_snapshot_ddl_target(skip_sort))) {
+    } else if (!skip_sort && OB_FAIL(allocate_sort_as_top(top, sort_keys))) {
     } else if (OB_FAIL(allocate_pdml_insert_as_top(top,
                                                    is_index_maintenance,
                                                    is_last_dml_op,
@@ -1059,6 +1061,30 @@ int ObDelUpdLogPlan::create_online_ddl_plan(ObLogicalOperator *&top,
     } else if (OB_FAIL(static_cast<ObLogExchange*>(top)->get_sort_keys().assign(
                 px_coord_sort_keys))) {
     } else { /*do nothing*/ }
+  }
+  return ret;
+}
+
+// Rows of a vector index snapshot complement are consumed by the HNSW append
+// pipeline, which does not depend on input order, so the sort can be skipped.
+int ObDelUpdLogPlan::is_vec_snapshot_ddl_target(bool &is_vec_snapshot)
+{
+  int ret = OB_SUCCESS;
+  is_vec_snapshot = false;
+  const ObInsertStmt *ins_stmt = static_cast<const ObInsertStmt *>(get_stmt());
+  ObSchemaGetterGuard *schema_guard = optimizer_context_.get_schema_guard();
+  if (OB_ISNULL(ins_stmt) || OB_ISNULL(schema_guard) || !ins_stmt->is_insert_stmt()) {
+    // keep default
+  } else {
+    TableItem *table_item = ins_stmt->get_table_item_by_id(ins_stmt->get_insert_table_info().table_id_);
+    const ObTableSchema *table_schema = nullptr;
+    if (OB_ISNULL(table_item)) {
+    } else if (OB_SUCCESS != schema_guard->get_table_schema(table_item->ddl_table_id_, table_schema)) {
+    } else if (OB_NOT_NULL(table_schema) &&
+               share::schema::is_vec_index_snapshot_data_type(table_schema->get_index_type())) {
+      is_vec_snapshot = true;
+      LOG_INFO("skip sort for vector index snapshot ddl", K(table_item->ddl_table_id_));
+    }
   }
   return ret;
 }

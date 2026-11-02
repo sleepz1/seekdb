@@ -367,6 +367,74 @@ fail:
   return NULL;
 }
 
+/* Compact snapshot support: the caller persists ids + vectors itself, so the
+ * snapshot only needs the CAGRA adjacency list (n x degree uint32). */
+long seekdb_cuvs_graph_degree(void* handle)
+{
+  sk_cuvs_index* h = (sk_cuvs_index*)handle;
+  int64_t deg = 0;
+  if (!h || !h->idx || cuvsCagraIndexGetGraphDegree(h->idx, &deg) != CUVS_SUCCESS) return -1;
+  return (long)deg;
+}
+
+int seekdb_cuvs_export_graph(void* handle, unsigned int* out, long n, long degree)
+{
+  sk_cuvs_index* h = (sk_cuvs_index*)handle;
+  if (!h || !out || n != h->n || degree != seekdb_cuvs_graph_degree(handle)) return 1;
+  DLManagedTensor g;
+  memset(&g, 0, sizeof(g));
+  if (cuvsCagraIndexGetGraph(h->idx, &g) != CUVS_SUCCESS || g.dl_tensor.data == NULL) return 2;
+  const size_t bytes = sizeof(uint32_t) * (size_t)n * (size_t)degree;
+  const char* src = (const char*)g.dl_tensor.data + g.dl_tensor.byte_offset;
+  int rc = 0;
+  if (g.dl_tensor.ndim != 2 || g.dl_tensor.shape[0] != n || g.dl_tensor.shape[1] != degree ||
+      g.dl_tensor.dtype.bits != 32) {
+    rc = 3;
+  } else if (g.dl_tensor.device.device_type == kDLCPU) {
+    memcpy(out, src, bytes);
+  } else if (hipMemcpy(out, src, bytes, hipMemcpyDeviceToHost) != hipSuccess) {
+    rc = 4;
+  }
+  if (g.deleter) g.deleter(&g);
+  return rc;
+}
+
+void* seekdb_cuvs_from_graph(const float* base, const unsigned int* graph, long n, long dim, long degree)
+{
+  if (!base || !graph || n <= 0 || dim <= 0 || degree <= 0 || degree >= n) return NULL;
+  sk_cuvs_index* h = (sk_cuvs_index*)calloc(1, sizeof(*h));
+  if (!h) return NULL;
+  pthread_mutex_init(&h->mu, NULL);
+  void* dx = NULL; void* dg = NULL;
+  const size_t xb = sizeof(float) * (size_t)n * dim, gb = sizeof(uint32_t) * (size_t)n * degree;
+  if (cuvsResourcesCreate(&h->res) != CUVS_SUCCESS) { pthread_mutex_destroy(&h->mu); free(h); return NULL; }
+  if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) goto fail;
+  if (hipMalloc(&dx, xb) != hipSuccess || hipMalloc(&dg, gb) != hipSuccess) goto fail;
+  if (hipMemcpy(dx, base, xb, hipMemcpyHostToDevice) != hipSuccess ||
+      hipMemcpy(dg, graph, gb, hipMemcpyHostToDevice) != hipSuccess) goto fail;
+  if (cuvsCagraIndexCreate(&h->idx) != CUVS_SUCCESS) { h->idx = 0; goto fail; }
+  {
+    long gs[2] = {n, degree}, ds[2] = {n, dim};
+    DLManagedTensor gt, dt;
+    sk_tensor(&gt, dg, 1, gs, kDLUInt, 32);
+    sk_tensor(&dt, dx, 1, ds, kDLFloat, 32);
+    if (cuvsCagraIndexFromArgs(h->res, L2Expanded, &gt, &dt, h->idx) != CUVS_SUCCESS ||
+        cuvsStreamSync(h->res) != CUVS_SUCCESS) goto fail;
+  }
+  h->d_dataset = dx; h->d_graph = dg; h->n = n; h->dim = dim;
+  return h;
+fail:
+  fprintf(stderr, "[seekdb_cuvs] from_graph failed: %s\n", cuvsGetLastErrorText());
+  if (h->idx) cuvsCagraIndexDestroy(h->idx);
+  if (h->ip) cuvsCagraIndexParamsDestroy(h->ip);
+  if (dx) hipFree(dx);
+  if (dg) hipFree(dg);
+  cuvsResourcesDestroy(h->res);
+  pthread_mutex_destroy(&h->mu);
+  free(h);
+  return NULL;
+}
+
 int seekdb_cuvs_cagra_knn(const float* base, long n, long dim,
                           const float* query, long nq, long topk,
                           unsigned int* out_ids)

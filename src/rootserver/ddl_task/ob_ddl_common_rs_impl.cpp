@@ -491,6 +491,12 @@ int ObDDLTaskUtil::generate_build_replica_sql(const int64_t data_table_id,
           !dest_table_schema->is_multivalue_index_aux() &&
           !dest_table_schema->is_vec_spiv_index_aux()) {
           // generated columns cannot be row key.
+        } else if (dest_table_schema->is_vec_index_snapshot_data_type() &&
+                   (nullptr == source_table_schema->get_column_schema(col_id) ||
+                    !source_table_schema->get_column_schema(col_id)->is_rowkey_column())) {
+          // HNSW snapshot rows are produced by the vector index pipeline, not copied from the
+          // scan, so the scan only has to be ordered by the data table rowkey. Ordering by the
+          // snapshot key column as well forces an external sort of the full vector payload.
         } else if (OB_FAIL(rowkey_column_names.push_back(ObColumnNameInfo(column_schema->get_column_name_str(), is_shadow_column)))) {
         } else if (OB_FAIL(order_column_ids.push_back(col_id))) {
         }

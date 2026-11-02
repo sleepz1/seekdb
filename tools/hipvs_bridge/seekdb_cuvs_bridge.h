@@ -25,6 +25,11 @@ int   seekdb_cuvs_search(void* handle, const float* query, long nq, long topk,
 void  seekdb_cuvs_free(void* handle);
 int seekdb_cuvs_serialize(void* handle, const char* filename);
 void* seekdb_cuvs_deserialize(const char* filename, long n, long dim);
+/* Compact snapshots: export the n x degree uint32 CAGRA graph to host memory and
+ * rebuild a searchable index from host vectors + graph. */
+long  seekdb_cuvs_graph_degree(void* handle);
+int   seekdb_cuvs_export_graph(void* handle, unsigned int* out, long n, long degree);
+void* seekdb_cuvs_from_graph(const float* base, const unsigned int* graph, long n, long dim, long degree);
 #ifdef __cplusplus
 }
 #endif
