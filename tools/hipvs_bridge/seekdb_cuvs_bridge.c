@@ -25,8 +25,8 @@ typedef struct {
 } sk_cuvs_index;
 
 /* Custom GPU graph builder (seekdb_cuvs_graph.hip): exact GPU kNN + CAGRA pruning. */
-int sk_build_cagra_graph(const float* d_x, long n, int dim, int K, int D,
-                         uint32_t* d_graph, hipStream_t st, double* t_knn, double* t_prune);
+int sk_build_cagra_graph(float** pd_x, const float* h_x, long n, int dim, int K, int D,
+                         uint32_t** pd_graph, hipStream_t st, double* t_knn, double* t_prune);
 
 #define SK_GRAPH_DEGREE 128
 #define SK_INTERMEDIATE_DEGREE 256
@@ -62,11 +62,10 @@ static int sk_build_custom(sk_cuvs_index* h, const float* base, long n, long dim
   double t_knn = 0, t_prune = 0;
   int rc = 0;
   if (hipStreamCreateWithFlags(&st, hipStreamNonBlocking) != hipSuccess) return 2;
-  if (hipMalloc(&dx, sizeof(float) * (size_t)n * dim) != hipSuccess ||
-      hipMalloc(&dg, sizeof(uint32_t) * (size_t)n * SK_GRAPH_DEGREE) != hipSuccess) { rc = 3; goto fail; }
+  if (hipMalloc(&dx, sizeof(float) * (size_t)n * dim) != hipSuccess) { rc = 3; goto fail; }
   if (hipMemcpyAsync(dx, base, sizeof(float) * (size_t)n * dim, hipMemcpyHostToDevice, st) != hipSuccess) { rc = 4; goto fail; }
-  rc = sk_build_cagra_graph((const float*)dx, n, (int)dim, SK_INTERMEDIATE_DEGREE, SK_GRAPH_DEGREE,
-                            (uint32_t*)dg, st, &t_knn, &t_prune);
+  rc = sk_build_cagra_graph((float**)&dx, base, n, (int)dim, SK_INTERMEDIATE_DEGREE, SK_GRAPH_DEGREE,
+                            (uint32_t**)&dg, st, &t_knn, &t_prune);
   if (rc != 0) { rc = 10 + rc; goto fail; }
   if (cuvsCagraIndexCreate(&h->idx) != CUVS_SUCCESS) { rc = 5; goto fail; }
   {

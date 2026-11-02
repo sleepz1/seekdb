@@ -37,7 +37,6 @@ OFFLOAD_ARCH=${HIPVS_OFFLOAD_ARCH:-gfx1100}
   -Wl,-soname,libseekdb_cuvs_bridge.so \
   -Wl,-rpath,"$HIPVS_ROOT/lib:$ROCM_ROOT/lib" \
   -lcuvs_c \
-  -lhipblas \
   -o "$OUTPUT"
 
 echo "built $OUTPUT"
