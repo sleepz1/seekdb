@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
 
 typedef struct {
   cuvsResources_t        res;
@@ -22,6 +23,12 @@ typedef struct {
   long n, dim;
   void* d_dataset;  /* device buffers backing an index built from a custom graph */
   void* d_graph;
+  /* Persistent small-batch search state (guarded by mu): avoids per-query
+   * allocator round trips and parameter construction on the hot path. */
+  pthread_mutex_t mu;
+  void* q_buf; void* n_buf; void* d_buf;
+  size_t q_cap, r_cap;   /* capacities in elements */
+  cuvsCagraSearchParams_t sp_small;
 } sk_cuvs_index;
 
 /* Custom GPU graph builder (seekdb_cuvs_graph.hip): exact GPU kNN + CAGRA pruning. */
@@ -95,6 +102,7 @@ fail:
 void* seekdb_cuvs_build(const float* base, long n, long dim)
 {
   sk_cuvs_index* h = (sk_cuvs_index*)calloc(1, sizeof(*h));
+  if (h) pthread_mutex_init(&h->mu, NULL);
   if (!h) return NULL;
   if (cuvsResourcesCreate(&h->res) != CUVS_SUCCESS) { free(h); return NULL; }
   if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) { cuvsResourcesDestroy(h->res); free(h); return NULL; }
@@ -125,11 +133,10 @@ fail_res: cuvsResourcesDestroy(h->res); free(h);
   return NULL;
 }
 
-int seekdb_cuvs_search(void* handle, const float* query, long nq, long topk,
-                       unsigned int* out_ids, float* out_dist)
+/* Original search path: per-call buffers, SINGLE_CTA, itopk>=max(512,4k), width 4. */
+static int sk_search_generic(sk_cuvs_index* h, const float* query, long nq, long topk,
+                             unsigned int* out_ids, float* out_dist)
 {
-  sk_cuvs_index* h = (sk_cuvs_index*)handle;
-  if (!h) return 1;
   int rc = 0;
   float* qd = 0; unsigned* nd = 0; float* dd = 0; cuvsCagraSearchParams_t sp = 0;
   if (cuvsRMMAlloc(h->res, (void**)&qd, sizeof(float)*nq*h->dim)  != CUVS_SUCCESS) { rc=10; goto done; }
@@ -164,10 +171,147 @@ done:
   return rc;
 }
 
+/* Low-latency path for small batches (single-row SQL queries): MULTI_CTA spreads one
+ * query over many CTAs instead of one, with a larger internal top-k (>= the generic
+ * path's) so accuracy does not regress; device buffers/params persist in the handle. */
+#define SK_SMALL_BATCH 16
+#define SK_SMALL_MAX_TOPK 256
+static int sk_search_small(sk_cuvs_index* h, const float* query, long nq, long topk,
+                           unsigned int* out_ids, float* out_dist)
+{
+  const size_t qn = (size_t)nq * h->dim, rn = (size_t)nq * topk;
+  if (qn > h->q_cap) {
+    if (h->q_buf) { hipFree(h->q_buf); h->q_buf = 0; h->q_cap = 0; }
+    size_t cap = (size_t)SK_SMALL_BATCH * h->dim;
+    if (hipMalloc(&h->q_buf, sizeof(float) * cap) != hipSuccess) { h->q_buf = 0; return 1; }
+    h->q_cap = cap;
+  }
+  if (rn > h->r_cap) {
+    if (h->n_buf) { hipFree(h->n_buf); h->n_buf = 0; }
+    if (h->d_buf) { hipFree(h->d_buf); h->d_buf = 0; }
+    h->r_cap = 0;
+    size_t cap = (size_t)SK_SMALL_BATCH * SK_SMALL_MAX_TOPK;
+    if (hipMalloc(&h->n_buf, sizeof(unsigned) * cap) != hipSuccess) { h->n_buf = 0; return 1; }
+    if (hipMalloc(&h->d_buf, sizeof(float) * cap) != hipSuccess) { h->d_buf = 0; return 1; }
+    h->r_cap = cap;
+  }
+  if (!h->sp_small) {
+    if (cuvsCagraSearchParamsCreate(&h->sp_small) != CUVS_SUCCESS) { h->sp_small = 0; return 1; }
+    h->sp_small->algo = MULTI_CTA;
+    h->sp_small->search_width = 4;
+  }
+  size_t itopk = (size_t)topk * 8;
+  if (itopk < 1024) itopk = 1024;
+  h->sp_small->itopk_size = itopk;
+  cudaStream_t st = 0;
+  if (cuvsStreamGet(h->res, &st) != CUVS_SUCCESS) return 1;
+  if (hipMemcpyAsync(h->q_buf, query, sizeof(float) * qn, hipMemcpyHostToDevice, (hipStream_t)st) != hipSuccess) return 1;
+  DLManagedTensor qt, nt, dt; long qs[2] = {nq, h->dim}, rs[2] = {nq, topk};
+  sk_tensor(&qt, h->q_buf, 1, qs, kDLFloat, 32);
+  sk_tensor(&nt, h->n_buf, 1, rs, kDLUInt, 32);
+  sk_tensor(&dt, h->d_buf, 1, rs, kDLFloat, 32);
+  cuvsFilter f; f.type = NO_FILTER; f.addr = (uintptr_t)0;
+  if (cuvsCagraSearch(h->res, h->sp_small, h->idx, &qt, &nt, &dt, f) != CUVS_SUCCESS) return 1;
+  if (hipMemcpyAsync(out_ids, h->n_buf, sizeof(unsigned) * rn, hipMemcpyDeviceToHost, (hipStream_t)st) != hipSuccess) return 1;
+  if (out_dist && hipMemcpyAsync(out_dist, h->d_buf, sizeof(float) * rn, hipMemcpyDeviceToHost, (hipStream_t)st) != hipSuccess) return 1;
+  if (hipStreamSynchronize((hipStream_t)st) != hipSuccess) return 1;
+  return 0;
+}
+
+static int sk_search_impl(sk_cuvs_index* h, const float* query, long nq, long topk,
+                          unsigned int* out_ids, float* out_dist);
+
+/* seekdb calls into the bridge from a freshly created pthread for every query, and
+ * per-thread HIP/hipVS state set-up dominates the latency of a single-row search.
+ * Searches are therefore handed to one long-lived worker thread that keeps that
+ * state warm; if the worker cannot be started the search runs inline. */
+typedef struct {
+  pthread_mutex_t mu; pthread_cond_t cv_job, cv_done; pthread_mutex_t submit;
+  int has_job, done, ok;
+  sk_cuvs_index* h; const float* query; long nq, topk; unsigned int* out_ids; float* out_dist; int rc;
+} sk_search_worker;
+static sk_search_worker g_sw = { PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER,
+                                 PTHREAD_COND_INITIALIZER, PTHREAD_MUTEX_INITIALIZER,
+                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+static pthread_once_t g_sw_once = PTHREAD_ONCE_INIT;
+
+static void* sk_worker_main(void* arg)
+{
+  (void)arg;
+  pthread_mutex_lock(&g_sw.mu);
+  for (;;) {
+    while (!g_sw.has_job) pthread_cond_wait(&g_sw.cv_job, &g_sw.mu);
+    g_sw.has_job = 0;
+    pthread_mutex_unlock(&g_sw.mu);
+    int rc = sk_search_impl(g_sw.h, g_sw.query, g_sw.nq, g_sw.topk, g_sw.out_ids, g_sw.out_dist);
+    pthread_mutex_lock(&g_sw.mu);
+    g_sw.rc = rc; g_sw.done = 1;
+    pthread_cond_signal(&g_sw.cv_done);
+  }
+  return NULL;
+}
+
+static void sk_worker_start(void)
+{
+  if (getenv("SEEKDB_CUVS_INLINE_SEARCH") != NULL) return;
+  pthread_attr_t attr; pthread_t tid;
+  if (pthread_attr_init(&attr) != 0) return;
+  pthread_attr_setstacksize(&attr, 64UL * 1024 * 1024);
+  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+  if (pthread_create(&tid, &attr, sk_worker_main, NULL) == 0) g_sw.ok = 1;
+  pthread_attr_destroy(&attr);
+}
+
+int seekdb_cuvs_search(void* handle, const float* query, long nq, long topk,
+                       unsigned int* out_ids, float* out_dist)
+{
+  sk_cuvs_index* h = (sk_cuvs_index*)handle;
+  if (!h) return 1;
+  pthread_once(&g_sw_once, sk_worker_start);
+  if (!g_sw.ok) return sk_search_impl(h, query, nq, topk, out_ids, out_dist);
+  pthread_mutex_lock(&g_sw.submit);
+  pthread_mutex_lock(&g_sw.mu);
+  g_sw.h = h; g_sw.query = query; g_sw.nq = nq; g_sw.topk = topk;
+  g_sw.out_ids = out_ids; g_sw.out_dist = out_dist; g_sw.done = 0; g_sw.has_job = 1;
+  pthread_cond_signal(&g_sw.cv_job);
+  while (!g_sw.done) pthread_cond_wait(&g_sw.cv_done, &g_sw.mu);
+  int rc = g_sw.rc;
+  pthread_mutex_unlock(&g_sw.mu);
+  pthread_mutex_unlock(&g_sw.submit);
+  return rc;
+}
+
+static int sk_search_impl(sk_cuvs_index* h, const float* query, long nq, long topk,
+                          unsigned int* out_ids, float* out_dist)
+{
+  if (nq > 0 && nq <= SK_SMALL_BATCH && topk > 0 && topk <= SK_SMALL_MAX_TOPK &&
+      h->n > (long)topk * 8 && getenv("SEEKDB_CUVS_GENERIC_SEARCH") == NULL &&
+      pthread_mutex_lock(&h->mu) == 0) {
+    int rc = sk_search_small(h, query, nq, topk, out_ids, out_dist);
+    pthread_mutex_unlock(&h->mu);
+    if (rc == 0) return 0;
+    (void)hipGetLastError();
+    fprintf(stderr, "[seekdb_cuvs] small-batch search failed, using generic path: %s\n",
+            cuvsGetLastErrorText());
+  }
+  return sk_search_generic(h, query, nq, topk, out_ids, out_dist);
+}
+
+static void sk_release_search_state(sk_cuvs_index* h)
+{
+  if (h->sp_small) cuvsCagraSearchParamsDestroy(h->sp_small);
+  if (h->q_buf) hipFree(h->q_buf);
+  if (h->n_buf) hipFree(h->n_buf);
+  if (h->d_buf) hipFree(h->d_buf);
+  h->sp_small = 0; h->q_buf = h->n_buf = h->d_buf = 0; h->q_cap = h->r_cap = 0;
+  pthread_mutex_destroy(&h->mu);
+}
+
 void seekdb_cuvs_free(void* handle)
 {
   sk_cuvs_index* h = (sk_cuvs_index*)handle;
   if (!h) return;
+  sk_release_search_state(h);
   cuvsCagraIndexDestroy(h->idx);
   cuvsCagraIndexParamsDestroy(h->ip);
   if (h->d_graph) hipFree(h->d_graph);
@@ -192,6 +336,7 @@ void* seekdb_cuvs_deserialize(const char* filename, long n, long dim)
   if (!filename || n <= 0 || dim <= 0) return NULL;
   sk_cuvs_index* index = (sk_cuvs_index*)calloc(1, sizeof(*index));
   if (!index) return NULL;
+  pthread_mutex_init(&index->mu, NULL);
   if (cuvsResourcesCreate(&index->res) != CUVS_SUCCESS) goto fail;
   if (cuvsCagraIndexParamsCreate(&index->ip) != CUVS_SUCCESS) goto fail_res;
   if (cuvsCagraIndexCreate(&index->idx) != CUVS_SUCCESS) goto fail_ip;
