@@ -5,27 +5,22 @@ on:
 permissions:
   contents: write
 jobs:
-  mkbranch:
+  chmod:
     runs-on: ubuntu-latest
     steps:
-      - name: build commit via git data api
+      - name: restore executable bit on tools/hipvs_bridge/build.sh
         shell: bash {0}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           API=https://api.github.com/repos/${GITHUB_REPOSITORY}
           H=(-H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json')
-          BASE=634888d9b037153fa143d2c913ba4b25503e1d62
-          MASTER=$(curl -sS "${H[@]}" $API/git/ref/heads/master | jq -r .object.sha)
-          MTREE=$(curl -sS "${H[@]}" $API/git/commits/$MASTER | jq -r .tree.sha)
-          GH_DIR=$(curl -sS "${H[@]}" $API/git/trees/$MTREE | jq -r '.tree[]|select(.path==".github").sha')
-          BTREE=$(curl -sS "${H[@]}" $API/git/commits/$BASE | jq -r .tree.sha)
-          echo "::warning::master=$MASTER mtree=$MTREE gh=$GH_DIR btree=$BTREE"
-          NT=$(curl -sS "${H[@]}" -X POST $API/git/trees -d "{\"base_tree\":\"$BTREE\",\"tree\":[{\"path\":\".github\",\"mode\":\"040000\",\"type\":\"tree\",\"sha\":\"$GH_DIR\"}]}" | tee t.json | jq -r .sha)
-          echo "::warning::newtree=$NT $(head -c 200 t.json | tr '\n' ' ')"
-          NC=$(curl -sS "${H[@]}" -X POST $API/git/commits -d "{\"message\":\"ae01: start from AMD contest V5 frozen commit (keep fork CI config)\",\"tree\":\"$NT\",\"parents\":[\"$BASE\"]}" | tee c.json | jq -r .sha)
-          echo "::warning::newcommit=$NC $(head -c 200 c.json | tr '\n' ' ')"
-          curl -sS "${H[@]}" -X POST $API/git/refs -d "{\"ref\":\"refs/heads/contest/ae01-hipvs\",\"sha\":\"$NC\"}" > r.json
+          HEAD=$(curl -sS "${H[@]}" $API/git/ref/heads/contest/ae01-hipvs | jq -r .object.sha)
+          [ "$HEAD" = "ec599ca82938e4385e017dc0681b804c66aca717" ] || { echo "::error::unexpected head $HEAD"; exit 1; }
+          BTREE=$(curl -sS "${H[@]}" $API/git/commits/$HEAD | jq -r .tree.sha)
+          BLOB=072abe4f1e61c726431c9afc1ce9a6b6cfafd953
+          NT=$(curl -sS "${H[@]}" -X POST $API/git/trees -d "{\"base_tree\":\"$BTREE\",\"tree\":[{\"path\":\"tools/hipvs_bridge/build.sh\",\"mode\":\"100755\",\"type\":\"blob\",\"sha\":\"$BLOB\"}]}" | jq -r .sha)
+          NC=$(curl -sS "${H[@]}" -X POST $API/git/commits -d "{\"message\":\"AE-01: restore executable bit on tools/hipvs_bridge/build.sh\",\"tree\":\"$NT\",\"parents\":[\"$HEAD\"]}" | jq -r .sha)
+          echo "::warning::newtree=$NT newcommit=$NC"
+          curl -sS "${H[@]}" -X PATCH $API/git/refs/heads/contest/ae01-hipvs -d "{\"sha\":\"$NC\",\"force\":false}" > r.json
           echo "::warning::ref $(head -c 300 r.json | tr '\n' ' ')"
-          curl -sS "${H[@]}" -X DELETE $API/git/refs/heads/tmp/ae01-master-test
-          true
