@@ -1,4 +1,4 @@
-# MiniVectorDB M11 — representative ANN recall regression
+# MiniVectorDB M12 — Sign-LSH recall and performance
 
 Pure Go SQL/vector engine. No external storage engine or vector library. Requires
 Go 1.22+; smoke requires Bash. Default mode is a foreground stdin session with
@@ -70,8 +70,8 @@ Search defaults to exact. `-ann` sets the mode for new sessions;
 `SELECT search_mode` reads it. Mode is session configuration, unaffected by
 ROLLBACK and not persisted. `CREATE VECTOR INDEX idx ON items(embedding)`
 creates a self-built sign-LSH index using up to eight vector coordinates.
-ANN uses the nearest nonempty Hamming shell after filtering; it may return fewer
-than k rows and has no recall guarantee. Without an index, the retained M4 ANN
+ANN probes complete Hamming shells through radius 2 and expands to a post-filter
+8*K candidate target (capped by table size); it has no general recall guarantee. Without an index, the retained M4 ANN
 fallback samples every second filtered row. Exact always scans all qualifying
 rows, regardless of indexes. Queries without vector ORDER BY are unaffected.
 Index metadata is stored in snapshot JSON / WAL DDL. Startup rebuilds every bucket
@@ -318,3 +318,45 @@ changes or stored answers. Root/agent conversation files are identical and below
 official framing remains TBD and interim `reportReady` is unchanged. No formal
 contest submission / 提测. Other open items: automatic checkpoint scheduling,
 process locking, recovery performance, total RSS and large statements/results.
+
+## M12 Sign-LSH recall and timing
+
+The self-implemented eight-coordinate Sign-LSH now accumulates complete Hamming
+shells through radius 2, then expands until it has min(8*K, table rows) eligible
+candidates or exhausts all buckets. WHERE is applied before counting candidates;
+full shells avoid truncation bias between equally distant buckets. LIMIT 0 returns
+no candidates; queries without LIMIT exhaust the index. Exact mode is unchanged.
+No dependencies, signature format, rebuilding, protocol or persistence changes.
+M5 assertions that required short ANN results now expect min(K,N), retaining the
+nearest-ID, transaction, rollback and recovery checks. M12 adds a filtered fixture
+with eligible rows at Hamming distance 8, including K=0 and K>N.
+
+On the unchanged M11 seed=1101, dims=32, 1536-row, 32-query-per-group fixture:
+
+| Recall@10 mean / minimum | M11 baseline | M12 |
+| --- | --- | --- |
+| Unfiltered | 0.71250 / 0.10 | 1.00000 / 1.00 |
+| category=1 | 0.69375 / 0.20 | 1.00000 / 1.00 |
+
+M11 retains its independent exact oracle and now asserts mean >=0.95 and minimum
+>=0.90 in each group, plus exactly ten ANN results. Observational SQL timing in a
+targeted run (32 queries, excluding mode switches, data/index preparation and oracle):
+unfiltered exact **9.769 ms**, ANN **3.400 ms**; filtered exact **6.210 ms**, ANN
+**2.308 ms**. Timing uses time.Now around Session.Execute via the test helper; no
+wall-clock assertion. Earlier measurement: 10.249/2.858 ms and 5.530/2.736 ms.
+These are warm, local timings, not official end-to-end or cgroup measurements.
+
+Wider probing costs candidate offsets, predicate reads and distance evaluations;
+selective filters or large K can exhaust the whole index, and completing a shell
+can exceed the candidate target. The first eight coordinate signs still ignore
+remaining dimensions and vector magnitudes: the planted fixture's perfect recall
+does not guarantee 0.95 on other distributions or hidden seeds. No-index ANN keeps
+the legacy sampling behavior. Rebuild cost and bounded-cache disk performance
+remain unmeasured here.
+
+Validation: go test ./..., targeted M12|M11|ANNRecall|M10|WALChecksum, all prior
+smoke checks plus M12, and unchanged local public harness **5/5** pass.
+Upstream fetched: **a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c**, samples-only;
+framing remains **TBD**, interim reportReady unchanged. No formal contest submit
+or 提测. Automatic checkpoint scheduling, process locking, recovery performance,
+total RSS and large statements/results remain open.

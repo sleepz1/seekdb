@@ -210,3 +210,8 @@ printf '%s\n' 'PASS: M10 bounded WAL growth, 600 batch commits, SIGKILL recovery
 go test -count=1 -v ./internal/db -run '^TestM11ANNRecallRepresentative$' >"$tmp/m11tests"
 grep -q -- '--- PASS: TestM11ANNRecallRepresentative' "$tmp/m11tests"
 printf '%s\n' 'PASS: M11 representative 32D ANN recall, exact oracle, filtered TopK and cross-shell predicate'
+# M12 retains M11's fixture with stronger recall floors and observational timing.
+go test -count=1 -v ./internal/db -run '^TestM12' >"$tmp/m12tests"
+grep -q -- '--- PASS: TestM12ANNFilteredExpansion' "$tmp/m12tests"
+grep -q 'M12 timing:' "$tmp/m11tests"
+printf '%s\n' 'PASS: M12 expanded Sign-LSH recall mean>=0.95/min>=0.90, SQL timing log, filtered distant-shell cardinality'

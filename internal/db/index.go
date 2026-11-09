@@ -74,12 +74,21 @@ func vectorIndex(t *Table, col int) *VectorIndex {
 	return nil
 }
 
-// Probe the closest nonempty Hamming shell after predicates. This approximate
-// path can return fewer than LIMIT rows; exact mode never uses these candidates.
-func indexCandidateOffsets(t *Table, idx *VectorIndex, q []float32, preds []predicate) []int {
+// Probe complete Hamming shells through radius two, then expand until the
+// post-filter budget is met or all buckets are exhausted. Completing shells
+// avoids bucket-order bias. Exact mode never uses these candidates.
+func indexCandidateOffsets(t *Table, idx *VectorIndex, q []float32, preds []predicate, limit int) []int {
 	key := bucket(q)
+	// Cap before multiplying to avoid overflow for arbitrarily large SQL LIMITs.
+	budget := t.rowCount()
+	if limit >= 0 && limit <= budget/8 {
+		budget = limit * 8
+	}
+	if limit == 0 {
+		return []int{}
+	}
+	out := []int{}
 	for radius := 0; radius <= 8; radius++ {
-		out := []int{}
 		for b := 0; b < 256; b++ {
 			if bits.OnesCount8(uint8(b)^key) != radius {
 				continue
@@ -91,9 +100,9 @@ func indexCandidateOffsets(t *Table, idx *VectorIndex, q []float32, preds []pred
 				}
 			}
 		}
-		if len(out) > 0 {
+		if radius >= 2 && len(out) >= budget {
 			return out
 		}
 	}
-	return nil
+	return out
 }

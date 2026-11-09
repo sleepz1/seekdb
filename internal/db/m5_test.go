@@ -113,7 +113,7 @@ func TestM5Index(t *testing.T) {
 	check := func(s *Session) {
 		execTest(t, s, "SET search_mode=ann")
 		r := execTest(t, s, query)
-		if len(r.Rows) != 1 || r.Rows[0][0] != int64(2) {
+		if len(r.Rows) != 3 || r.Rows[0][0] != int64(2) {
 			t.Fatalf("index path: %+v", r)
 		}
 		execTest(t, s, "SET search_mode=exact")
@@ -129,7 +129,7 @@ func TestM5Index(t *testing.T) {
 	execTest(t, s, "UPDATE t SET v='[-3]' WHERE id=2")
 	execTest(t, s, "INSERT INTO t VALUES (4,'b',[1])")
 	r := execTest(t, s, query)
-	if len(r.Rows) != 1 || r.Rows[0][0] != int64(4) {
+	if len(r.Rows) != 3 || r.Rows[0][0] != int64(4) {
 		t.Fatal(r)
 	}
 	execTest(t, s, "DELETE FROM t WHERE id=4")

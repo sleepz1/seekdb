@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Planted near-duplicates plus distractors: nearby vectors can cross sign
@@ -72,6 +73,7 @@ func TestM11ANNRecallRepresentative(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			total, minimum, crossing := 0.0, 1.0, 0
+			var exactTime, annTime time.Duration
 			for qi, q := range queries {
 				// Independent float64 L2 accumulation over stored float32 inputs,
 				// rounded to float32 with ascending primary-key ties. This fixture
@@ -111,7 +113,9 @@ func TestM11ANNRecallRepresentative(t *testing.T) {
 				}
 				sql := "SELECT id FROM t" + where + " ORDER BY L2_DISTANCE(v," + vectorSQL(q) + ") LIMIT 10"
 				execTest(t, s, "SET search_mode=exact")
+				start := time.Now()
 				exact := execTest(t, s, sql)
+				exactTime += time.Since(start)
 				if len(exact.Rows) != k {
 					t.Fatal("exact cardinality", exact)
 				}
@@ -121,8 +125,10 @@ func TestM11ANNRecallRepresentative(t *testing.T) {
 					}
 				}
 				execTest(t, s, "SET search_mode=ann")
+				start = time.Now()
 				ann := execTest(t, s, sql)
-				if len(ann.Rows) == 0 || len(ann.Rows) > k {
+				annTime += time.Since(start)
+				if len(ann.Rows) != k {
 					t.Fatal("ANN cardinality", ann)
 				}
 				seen := map[int64]bool{}
@@ -145,12 +151,13 @@ func TestM11ANNRecallRepresentative(t *testing.T) {
 			}
 			mean := total / float64(len(queries))
 			t.Logf("dims=%d seed=%d rows=%d queries=%d mean recall@10=%.5f min=%.2f cross-sign exact neighbors=%d/320", dims, seed, len(vectors), len(queries), mean, minimum, crossing)
+			t.Logf("M12 timing: 32 SQL Top10 queries exact=%.3f ms ann=%.3f ms (mode switches and oracle excluded)", float64(exactTime)/float64(time.Millisecond), float64(annTime)/float64(time.Millisecond))
 			if crossing == 0 {
 				t.Fatal("fixture lost sign-boundary difficulty")
 			}
-			// Mean floor leaves ~0.09 headroom below the weaker measured group;
-			// per-query floor rejects total misses, including difficult boundaries.
-			if mean < .60 || minimum < .10 {
+			// M12 measured 1.00/1.00 in both groups on this unchanged fixture.
+			// Keep some headroom; this is not a hidden-distribution guarantee.
+			if mean < .95 || minimum < .90 {
 				t.Fatal("ANN recall degeneration")
 			}
 		})

@@ -226,7 +226,7 @@ func selectRows(state State, sql string, ann bool) (Result, error) {
 	var candidates []int
 	if ann && order != "" && ordering.metric != "" {
 		if idx := vectorIndex(t, ordering.index); idx != nil {
-			candidates = indexCandidateOffsets(t, idx, ordering.query, preds)
+			candidates = indexCandidateOffsets(t, idx, ordering.query, preds, limit)
 		} else {
 			matched := 0
 			for n := 0; n < t.rowCount(); n++ {
