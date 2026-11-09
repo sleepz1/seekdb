@@ -42,7 +42,7 @@ func TestWALTransactions(t *testing.T) {
 	execTest(t, s, "INSERT INTO t VALUES (3, [0,1])")
 	recovered := openTest(t, dir)
 	rows := execTest(t, recovered.Session(), "SELECT * FROM t ORDER BY DISTANCE(v, [1,0])").Rows
-	if len(rows) != 1 || rows[0][0] != float64(1) {
+	if len(rows) != 1 || rows[0][0] != int64(1) {
 		t.Fatalf("recovered: %v", rows)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "snapshot.json")); !os.IsNotExist(err) {
@@ -65,7 +65,7 @@ func TestWALTornTailAndRepeatRecovery(t *testing.T) {
 	execTest(t, s, "INSERT INTO t VALUES (1)")
 	for i := 0; i < 2; i++ {
 		rows := execTest(t, openTest(t, dir).Session(), "SELECT * FROM t").Rows
-		if len(rows) != 1 || rows[0][0] != float64(1) {
+		if len(rows) != 1 || rows[0][0] != int64(1) {
 			t.Fatal(rows)
 		}
 	}

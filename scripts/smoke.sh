@@ -61,3 +61,55 @@ printf 'SELECT * FROM items;\nDELETE FROM items;\nSELECT * FROM items;\nDROP TAB
 ! grep -q eof_uncommitted "$tmp/deleted"
 grep -q '^OK 0$' "$tmp/deleted"
 printf '%s\n' 'PASS: stdin/stdout, types, vector ranking, error continuation, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/EOF isolation, DELETE/DROP'
+cat <<'SQL' | "$bin" -data "$tmp/m4" >"$tmp/m4out"
+CREATE TABLE typed (id BIGINT, label VARCHAR(2), v VECTOR(1));
+INSERT INTO typed VALUES (9223372036854775807, '你好', [1]);
+INSERT INTO typed VALUES (-9223372036854775808, '你好', [-1]);
+INSERT INTO typed VALUES (0, '跳过', [0]);
+INSERT INTO typed VALUES (1, '你好啊', [0]);
+INSERT INTO typed VALUES (9223372036854775808, '好', [0]);
+INSERT INTO typed VALUES (1, '好', [NaN]);
+INSERT INTO typed VALUES (1, '好', [Inf]);
+INSERT INTO typed VALUES (1, '好', [-Inf]);
+INSERT INTO typed VALUES (1, '好', [1e40]);
+INSERT INTO typed VALUES (1, '好', [0,0]);
+SELECT * FROM typed ORDER BY L2_DISTANCE(v, [NaN]) LIMIT 1;
+SELECT * FROM typed ORDER BY L2_DISTANCE(v, [Inf]) LIMIT 1;
+SELECT * FROM typed ORDER BY L2_DISTANCE(v, [0,0]) LIMIT 1;
+UNSUPPORTED SQL;
+SELECT 1;
+SQL
+[[ $(grep -c '^ERROR ' "$tmp/m4out") == 11 ]]
+[[ $(tail -3 "$tmp/m4out") == $'1\n1\nOK 1' ]]
+cat <<'SQL' | "$bin" -data "$tmp/m4" >"$tmp/m4rank"
+SELECT search_mode;
+SELECT * FROM typed WHERE label = '你好' AND label = '你好' ORDER BY L2_DISTANCE(v, [0]) LIMIT 1;
+SET search_mode=ann;
+SELECT search_mode;
+SELECT * FROM typed WHERE label = '你好' ORDER BY L2_DISTANCE(v, [0]) LIMIT 1;
+SET search_mode=exact;
+SELECT * FROM typed WHERE id = 9223372036854775807;
+SQL
+cat >"$tmp/expected" <<'EXPECTED'
+search_mode
+exact
+OK 1
+id	label	v
+-9223372036854775808	你好	[-1]
+OK 1
+OK 0
+search_mode
+ann
+OK 1
+id	label	v
+9223372036854775807	你好	[1]
+OK 1
+OK 0
+id	label	v
+9223372036854775807	你好	[1]
+OK 1
+EXPECTED
+cmp "$tmp/expected" "$tmp/m4rank"
+printf 'SELECT search_mode;\n' | "$bin" -ann -data "$tmp/m4" >"$tmp/mode"
+[[ $(cat "$tmp/mode") == $'search_mode\nann\nOK 1' ]]
+printf '%s\n' 'PASS: M4 int64 WAL round-trip, Unicode VARCHAR, finite float32/dimensions, filter-before-TopK, PK ties, exact/ann session and CLI, ERROR continuation'

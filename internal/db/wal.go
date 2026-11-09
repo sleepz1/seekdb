@@ -26,7 +26,7 @@ func Open(dir string) (*Engine, error) {
 	e := &Engine{dir: dir, state: State{}}
 	b, err := os.ReadFile(filepath.Join(dir, "snapshot.json"))
 	if err == nil {
-		if err = json.Unmarshal(b, &e.state); err != nil {
+		if e.state, err = decodeState(b); err != nil {
 			return nil, fmt.Errorf("recover snapshot: %w", err)
 		}
 		if e.state == nil {

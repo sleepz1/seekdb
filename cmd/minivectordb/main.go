@@ -14,12 +14,13 @@ func main() {
 	flag.StringVar(&addr, "addr", "", "optional MySQL helper listen address (replaces stdin mode)")
 	flag.StringVar(&addr, "mysql-addr", "", "optional MySQL helper listen address (replaces stdin mode)")
 	data := flag.String("data", "/data", "WAL and optional snapshot directory")
-	flag.Bool("ann", false, "reserved no-op; searches remain exact")
+	ann := flag.Bool("ann", false, "approximate search using every second filtered candidate")
 	flag.Parse()
 	e, err := db.Open(*data)
 	if err != nil {
 		log.Fatal(err)
 	}
+	e.SetDefaultANN(*ann)
 	if addr == "" {
 		if err := repl(os.Stdin, os.Stdout, e.Session()); err != nil {
 			log.Fatal(err)

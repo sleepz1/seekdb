@@ -1,4 +1,4 @@
-# MiniVectorDB M3b — stdin/stdout and WAL
+# MiniVectorDB M4 — local type/search hardening
 
 Pure Go SQL/vector engine. No external storage engine or vector library. Requires
 Go 1.22+; smoke requires Bash. Default mode is a foreground stdin session with
@@ -38,15 +38,48 @@ SELECT * FROM items ORDER BY L2_DISTANCE(embedding, [1,0]) LIMIT 1;
 
 Supported SQL: CREATE TABLE with INT/INTEGER/BIGINT, TEXT/VARCHAR/VARCHAR(n),
 FLOAT/DOUBLE, VECTOR(n); single-row INSERT INTO ... VALUES; SELECT * with optional
-vector ORDER BY and LIMIT; SELECT 1; whole-table DELETE FROM; DROP TABLE;
-BEGIN/START TRANSACTION, COMMIT, ROLLBACK. VARCHAR uses SQL quotes like TEXT;
-its optional length is accepted as metadata syntax, not enforced. BIGINT uses the
-existing INT integer check and float64 storage, so integers above 2^53 are not
-necessarily exact. VECTOR requires its declared positive dimension.
-L2_DISTANCE, EUCLIDEAN and DISTANCE compute Euclidean distance; COSINE computes
-cosine distance, DOT negative inner product. ORDER BY is ASC by default, with
-optional DESC; ties retain insertion order. Functions work in ORDER BY, not
-projections. Searches are exact; `-ann` is a reserved no-op flag.
+ordinary-column WHERE equality with AND chains, vector ORDER BY and LIMIT;
+SELECT 1; whole-table DELETE FROM; DROP TABLE; BEGIN/START TRANSACTION, COMMIT,
+ROLLBACK. Unsupported SQL returns ERROR and the next statement still runs.
+INT/INTEGER/BIGINT use int64 and ParseInt: fractions, exponent notation and values
+outside [-9223372036854775808, 9223372036854775807] are rejected. Typed transaction
+copies and snapshot decoding preserve integer precision; WAL retains SQL literals.
+VARCHAR(n) enforces a positive maximum Unicode rune count, not bytes; bare VARCHAR
+and TEXT remain unlimited. Strings require SQL quotes and valid UTF-8.
+VECTOR(n) requires a positive fixed dimension, stores []float32, and rounds inputs
+to float32. NaN, infinities, null elements, conversion overflow and dimension
+mismatch are errors on insertion and query. Distance arithmetic accumulates in
+float32 (square root uses Go math then rounds to float32); nonfinite distance
+results are errors, including overflow from large finite input values.
+L2_DISTANCE is primary; EUCLIDEAN and DISTANCE are aliases. COSINE computes cosine
+distance and DOT negative inner product. Filtering precedes candidate selection,
+distance sorting and LIMIT. Equal scores use the first BIGINT column ascending as
+a temporary PK convention, including with DESC. This does not enforce uniqueness;
+duplicate keys or tables without BIGINT retain insertion order on ties.
+Functions work in ORDER BY, not projections.
+
+Search defaults to exact. `-ann` sets the mode for new sessions;
+`SET search_mode=ann` / `SET search_mode=exact` changes the current session and
+`SELECT search_mode` reads it. Mode is session configuration, unaffected by
+ROLLBACK and not persisted. ANN is a separate deterministic subsampled scan: take
+filtered rows at positions 0, 2, 4, ... in insertion order, then score/sort/limit.
+It is not an index, may return fewer than k rows, and has no recall guarantee.
+Queries without vector ORDER BY are unaffected. It reduces distance evaluations,
+but filtering and state cloning still scan/copy the database.
+
+```sql
+SELECT * FROM items WHERE label = 'first' AND id = 1 ORDER BY L2_DISTANCE(embedding, [1,0]) LIMIT 1;
+SET search_mode=ann;
+SELECT search_mode;
+SET search_mode=exact;
+```
+
+Ready flag/handshake, numeric error codes, exact framing and official ANN/recall
+requirements are **pending official pack / 待确认**. There is currently no ready
+flag or unsolicited ready line: a successful `SELECT 1` response can be used as a
+local readiness probe. `ERROR <message>` has no numeric SQL error code; process
+startup/I/O failure exits nonzero, while SQL errors allow continued input. These
+are temporary local conventions, not a claim of official pack compatibility.
 
 BEGIN/START TRANSACTION creates a private state copy with read-your-writes;
 other sessions see only committed state. COMMIT checks the engine version,

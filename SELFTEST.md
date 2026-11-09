@@ -1,53 +1,63 @@
-# M3b self-test
+# M4 local hardening self-test
 
-Built on M3 HEAD `6baa3fd` without changing `internal/db/wal.go`.
-Observed commands from the repository root, all exit 0:
+Baseline: `18525b313dfda305fbd4541db3bd3ba16a0dc174` (M3b), branch
+`2026-competition-round2`. No reset/rebase, formal contest submission or PR merge.
+
+Commands run from repository root, all exit 0:
 
 ```sh
 go test ./...
 go test -race ./...
 ./scripts/smoke.sh
-go build -o minivectordb ./cmd/minivectordb
-printf 'SELECT 1;\n' | ./minivectordb -data /tmp/x
-sg docker -c 'docker build -t minivectordb:m3 .'
 cmp conversation.json agent/conversation.json
+git diff --check
 ```
 
-Manual demo stdout:
-
-```text
-1
-1
-OK 1
-```
-
-Exact smoke output:
+Go and race suites: PASS for `cmd/minivectordb`, `internal/db`, and
+`internal/mysqlwire`; `scripts/mysqlsmoke` has no test files.
+Smoke output:
 
 ```text
 PASS: stdin/stdout, types, vector ranking, error continuation, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/EOF isolation, DELETE/DROP
+PASS: M4 int64 WAL round-trip, Unicode VARCHAR, finite float32/dimensions, filter-before-TopK, PK ties, exact/ann session and CLI, ERROR continuation
 ```
 
-Primary smoke builds in a temporary directory and uses stdin exclusively, with no
-listener or MySQL client. A FIFO keeps the foreground process alive after COMMIT
-acknowledgment, before SIGKILL. Restart uses the same data directory and proves
-committed rows survive, rollback and active uncommitted rows do not, the legacy
-snapshot remains byte-identical, and vector ranking survives WAL replay. A
-separate EOF session proves uncommitted writes are discarded. Bad SQL is followed
-by successful SELECT output. All five distance names, BIGINT and VARCHAR(n),
-DELETE and DROP are exercised.
+Smoke builds in a temporary directory, uses stdin pipes/FIFO, and retains M3's
+SIGKILL-after-acknowledgment test, immutable snapshot check, COMMIT/ROLLBACK and
+EOF isolation. M4 restarts and compares full stdout against expected output for
+both int64 extremes, equality filtering, PK ties and distinct ANN/exact results.
+It checks Unicode length errors, NaN/±Inf/overflow/dimension errors, unsupported
+SQL followed by SELECT 1, and `-ann` mode readback.
 
-New REPL tests cover multiline parentheses, semicolon splitting, doubled SQL
-quotes, semicolons and tabs in strings, TSV escaping, integer rejection with
-continuation, EOF without a terminator, and transaction recovery. Existing WAL
-tests still cover atomic committed records, torn tails, repeat recovery,
-corruption/LSN rejection, snapshot bases, isolation and conflicts. Existing MySQL
-wire tests also pass. Race tests pass.
+Focused Go tests additionally verify typed int64/[]float32 values after transaction
+copies, WAL replay and JSON snapshot recovery; float32 rounding of 16777217 to
+16777216; out-of-range/fractional integer rejection; supplementary Unicode runes;
+invalid vector elements; query-vector validation; filter-before-TopK using an
+excluded nearest row; ASC/DESC ties at int64 extremes; quoted AND in string
+literals; session isolation and mode switching. Existing WAL corruption, torn
+record, repeat recovery, conflicts and transaction atomicity tests remain green.
 
-Docker image minivectordb:m3 built successfully; no image was pushed. Container
-runtime was not tested. The manual binary is not committed.
+Temporary conventions — **pending official pack / 待确认**:
 
-Open: exact round2 pack framing and broader SQL grammar; precise full-range BIGINT
-storage (current INT-compatible float64); VARCHAR length enforcement; ANN is a
-no-op and searches remain exact; atomic checkpoints/compaction, checksums,
-process locking, WAL growth and cloning costs, disk-failure fault injection.
-Only one process may own a data directory. No formal submission or PR merge.
+- Primary path: stdin SQL → stdout TSV/results/status; stderr logs. No listener
+  unless the optional wire address is explicitly supplied.
+- Framing: semicolon outside SQL quotes or newline outside quotes/balanced
+  parentheses/brackets; EOF executes pending SQL. Results end in `OK <rowcount>`;
+  writes/commands use `OK <affected>`. Text escapes and JSON vectors follow README.
+- Ready flag/handshake: none currently; local `SELECT 1` probe. Official ready
+  flag name, timing and handshake are 待确认. No stdout banner.
+- Errors: `ERROR <message>` then continue; no numeric SQL error codes yet.
+  Startup/I/O errors log to stderr and exit nonzero. Official codes are 待确认.
+- Exact is default. `-ann` or `SET search_mode=ann` enables a separate every-second
+  filtered-candidate scan; `SELECT search_mode` exposes mode. No index or recall
+  guarantee; fewer than k results are possible. SET is session-only, not rolled
+  back or logged. Official search/recall requirements are 待确认.
+- First BIGINT column is the temporary PK for ascending equal-distance ties;
+  uniqueness is not enforced. Duplicate/no PK ties preserve insertion order.
+
+Open: official pack reconciliation and broader SQL; ANN quality/performance;
+float32 arithmetic overflow returns ERROR; checkpoint/compaction, WAL checksums,
+process locking, bounded WAL/replay/cloning cost and disk-failure injection.
+Only one process/Engine may own a data directory. M4 did not run Docker build or
+container runtime checks. Optional wire remains unchanged except shared engine
+semantics. No forbidden engines/libraries, new dependencies, secrets or binaries.
