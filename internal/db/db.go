@@ -5,19 +5,20 @@ import (
 	"errors"
 	"math"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 )
 
 type Column struct {
+	Primary bool
 	Name    string
 	Type    string
 	Dim     int
 	CharLen int
 }
 type Table struct {
+	Indexes []VectorIndex
 	Columns []Column
 	Rows    [][]any
 }
@@ -55,6 +56,9 @@ func clone(s State) State {
 	t := State{}
 	for name, table := range s {
 		n := &Table{Columns: append([]Column(nil), table.Columns...)}
+		for _, idx := range table.Indexes {
+			n.Indexes = append(n.Indexes, VectorIndex{Name: idx.Name, Column: idx.Column})
+		}
 		for _, row := range table.Rows {
 			r := append([]any(nil), row...)
 			for i, v := range r {
@@ -64,6 +68,7 @@ func clone(s State) State {
 			}
 			n.Rows = append(n.Rows, r)
 		}
+		rebuildIndexes(n)
 		t[name] = n
 	}
 	return t
@@ -79,6 +84,7 @@ func (s *Session) Execute(sql string) Result {
 	return r
 }
 func (s *Session) execute(sql string) (Result, error) {
+	sql = normalizeSQL(sql)
 	if m := modeRE.FindStringSubmatch(sql); m != nil {
 		s.ann = strings.EqualFold(m[1], "ann")
 		return Result{}, nil
@@ -148,10 +154,9 @@ func (s *Session) execute(sql string) (Result, error) {
 
 var modeRE = regexp.MustCompile(`(?i)^SET search_mode\s*=\s*(ann|exact)$`)
 var create = regexp.MustCompile(`(?is)^CREATE TABLE (\w+)\s*\((.*)\)$`)
-var insert = regexp.MustCompile(`(?is)^INSERT INTO (\w+) VALUES\s*\((.*)\)$`)
-var selectRE = regexp.MustCompile(`(?is)^SELECT \* FROM (\w+)(?: WHERE (.*?))?(?: ORDER BY (L2_DISTANCE|DISTANCE|COSINE|DOT|EUCLIDEAN)\((\w+),\s*(\[.*\])\)(?: (ASC|DESC))?)?(?: LIMIT (\d+))?$`)
+var insert = regexp.MustCompile(`(?is)^INSERT INTO (\w+) VALUES\s*(.*)$`)
 var remove = regexp.MustCompile(`(?is)^(DROP TABLE|DELETE FROM) (\w+)$`)
-var columnRE = regexp.MustCompile(`(?i)^(\w+)\s+(BIGINT|INT|INTEGER|VARCHAR|TEXT|FLOAT|DOUBLE|VECTOR)(?:\((\d+)\))?$`)
+var columnRE = regexp.MustCompile(`(?i)^(\w+)\s+(BIGINT|INT|INTEGER|VARCHAR|TEXT|FLOAT|DOUBLE|VECTOR)(?:\((\d+)\))?(\s+PRIMARY KEY)?$`)
 
 // split respects quoted SQL strings, nested parentheses, and vector brackets.
 func split(v string) ([]string, error) {
@@ -191,7 +196,19 @@ func split(v string) ([]string, error) {
 	return append(out, strings.TrimSpace(v[start:])), nil
 }
 func run(state State, sql string) (Result, bool, error) { return runMode(state, sql, false) }
-func runMode(state State, sql string, ann bool) (Result, bool, error) {
+func runMode(state State, sql string, ann bool) (result Result, write bool, err error) {
+	sql = normalizeSQL(sql)
+	defer func() {
+		if write && err == nil {
+			for _, t := range state {
+				rebuildIndexes(t)
+			}
+		}
+	}()
+	if m := indexRE.FindStringSubmatch(sql); m != nil {
+		err := createIndex(state, m[1], m[2], m[3])
+		return Result{}, err == nil, err
+	}
 	if strings.EqualFold(sql, "SELECT 1") {
 		return Result{Columns: []string{"1"}, Rows: [][]any{{int64(1)}}}, false, nil
 	}
@@ -207,17 +224,26 @@ func runMode(state State, sql string, ann bool) (Result, bool, error) {
 		}
 		t := &Table{}
 		seen := map[string]bool{}
+		pkCount, vectors := 0, 0
 		for _, p := range parts {
 			c := columnRE.FindStringSubmatch(p)
 			if c == nil {
 				return fail("unsupported column definition")
 			}
 			col := Column{Name: strings.ToLower(c[1]), Type: strings.ToUpper(c[2])}
+			col.Primary = c[4] != ""
+			if col.Primary {
+				if col.Type != "BIGINT" {
+					return fail("PRIMARY KEY requires BIGINT")
+				}
+				pkCount++
+			}
 			if seen[col.Name] {
 				return fail("duplicate column")
 			}
 			seen[col.Name] = true
 			if col.Type == "VECTOR" {
+				vectors++
 				var err error
 				col.Dim, err = strconv.Atoi(c[3])
 				if err != nil || col.Dim < 1 {
@@ -235,6 +261,9 @@ func runMode(state State, sql string, ann bool) (Result, bool, error) {
 			}
 			t.Columns = append(t.Columns, col)
 		}
+		if pkCount != 1 || vectors > 1 {
+			return fail("requires one BIGINT PRIMARY KEY and at most one VECTOR")
+		}
 		state[name] = t
 		return Result{}, true, nil
 	}
@@ -243,24 +272,125 @@ func runMode(state State, sql string, ann bool) (Result, bool, error) {
 		if t == nil {
 			return fail("unknown table")
 		}
-		parts, err := split(m[2])
+
+		groups, err := split(m[2])
 		if err != nil {
 			return fail(err.Error())
 		}
-		if len(parts) != len(t.Columns) {
-			return fail("column count mismatch")
+		pending := [][]any{}
+		keys := map[any]bool{}
+		pk := primaryIndex(t)
+		for _, row := range t.Rows {
+			if pk >= 0 {
+				keys[row[pk]] = true
+			}
 		}
-		row := make([]any, len(parts))
-		for i, p := range parts {
-			v, err := parseValue(t.Columns[i], p)
+		for _, group := range groups {
+			if len(group) < 2 || group[0] != '(' || group[len(group)-1] != ')' {
+				return fail("expected row parentheses")
+			}
+			parts, err := split(group[1 : len(group)-1])
 			if err != nil {
 				return fail(err.Error())
 			}
-			row[i] = v
+			if len(parts) != len(t.Columns) {
+				return fail("column count mismatch")
+			}
+			row := make([]any, len(parts))
+			for i, p := range parts {
+				v, err := parseValue(t.Columns[i], p)
+				if err != nil {
+					return fail(err.Error())
+				}
+				row[i] = v
+			}
+			if pk >= 0 {
+				if keys[row[pk]] {
+					return fail("duplicate primary key")
+				}
+				keys[row[pk]] = true
+			}
+			pending = append(pending, row)
 		}
-		t.Rows = append(t.Rows, row)
-		return Result{Affected: 1}, true, nil
+		t.Rows = append(t.Rows, pending...)
+		return Result{Affected: len(pending)}, true, nil
 	}
+	if m := updateRE.FindStringSubmatch(sql); m != nil {
+		t := state[strings.ToLower(m[1])]
+		if t == nil {
+			return fail("unknown table")
+		}
+		where := keyword(m[2], " WHERE ")
+		if where < 0 {
+			return fail("UPDATE requires WHERE")
+		}
+		assignments, clause := strings.TrimSpace(m[2][:where]), strings.TrimSpace(m[2][where+7:])
+		if clause == "" {
+			return fail("UPDATE requires predicates")
+		}
+		preds, err := parseWhere(t, clause)
+		if err != nil {
+			return fail(err.Error())
+		}
+		parts, err := split(assignments)
+		if err != nil {
+			return fail(err.Error())
+		}
+		values := map[int]any{}
+		for _, part := range parts {
+			pair := strings.SplitN(part, "=", 2)
+			if len(pair) != 2 {
+				return fail("expected assignment")
+			}
+			idx := columnIndex(t, strings.TrimSpace(pair[0]))
+			if idx < 0 {
+				return fail("unknown column")
+			}
+			if t.Columns[idx].Primary {
+				return fail("primary key updates unsupported")
+			}
+			if _, ok := values[idx]; ok {
+				return fail("duplicate assignment")
+			}
+			v, err := parseValue(t.Columns[idx], strings.TrimSpace(pair[1]))
+			if err != nil {
+				return fail(err.Error())
+			}
+			values[idx] = v
+		}
+		count := 0
+		for _, row := range t.Rows {
+			if matches(row, preds) {
+				for idx, v := range values {
+					row[idx] = v
+				}
+				count++
+			}
+		}
+		return Result{Affected: count}, true, nil
+	}
+	if m := deleteRE.FindStringSubmatch(sql); m != nil {
+		t := state[strings.ToLower(m[1])]
+		if t == nil {
+			return fail("unknown table")
+		}
+		preds, err := parseWhere(t, m[2])
+		if err != nil {
+			return fail(err.Error())
+		}
+		kept := [][]any{}
+		count := 0
+		for _, row := range t.Rows {
+			if matches(row, preds) {
+				count++
+			} else {
+				kept = append(kept, row)
+			}
+		}
+		t.Rows = kept
+		return Result{Affected: count}, true, nil
+	}
+
 	if m := remove.FindStringSubmatch(sql); m != nil {
 		n := strings.ToLower(m[2])
 		t := state[n]
@@ -275,91 +405,11 @@ func runMode(state State, sql string, ann bool) (Result, bool, error) {
 		}
 		return Result{Affected: count}, true, nil
 	}
-	if m := selectRE.FindStringSubmatch(sql); m != nil {
-		t := state[strings.ToLower(m[1])]
-		if t == nil {
-			return fail("unknown table")
-		}
-		r := Result{}
-		for _, c := range t.Columns {
-			r.Columns = append(r.Columns, c.Name)
-		}
-		predicates, err := parseWhere(t, m[2])
-		if err != nil {
-			return fail(err.Error())
-		}
-		for _, row := range t.Rows {
-			match := true
-			for _, p := range predicates {
-				if row[p.index] != p.value {
-					match = false
-					break
-				}
-			}
-			if match {
-				r.Rows = append(r.Rows, row)
-			}
-		}
-		if m[3] != "" {
-			idx, pk := -1, -1
-			for i, c := range t.Columns {
-				if c.Name == strings.ToLower(m[4]) && c.Type == "VECTOR" {
-					idx = i
-				}
-				if pk < 0 && c.Type == "BIGINT" {
-					pk = i
-				}
-			}
-			if idx < 0 {
-				return fail("unknown vector column")
-			}
-			q, err := parseVector(m[5], t.Columns[idx].Dim)
-			if err != nil {
-				return fail("query " + err.Error())
-			}
-			if ann {
-				r.Rows = annCandidates(r.Rows)
-			}
-			type scored struct {
-				row   []any
-				score float32
-			}
-			items := make([]scored, len(r.Rows))
-			for i, row := range r.Rows {
-				score := distance(strings.ToUpper(m[3]), row[idx].([]float32), q)
-				if math.IsNaN(float64(score)) || math.IsInf(float64(score), 0) {
-					return fail("float32 distance computation overflow")
-				}
-				items[i] = scored{row, score}
-			}
-			sort.SliceStable(items, func(i, j int) bool {
-				if items[i].score == items[j].score {
-					if pk >= 0 {
-						return items[i].row[pk].(int64) < items[j].row[pk].(int64)
-					}
-					return false
-				}
-				if strings.EqualFold(m[6], "DESC") {
-					return items[i].score > items[j].score
-				}
-				return items[i].score < items[j].score
-			})
-			r.Rows = make([][]any, len(items))
-			for i, item := range items {
-				r.Rows[i] = item.row
-			}
-		}
-		if m[7] != "" {
-			n, err := strconv.Atoi(m[7])
-			if err != nil {
-				return fail("invalid LIMIT")
-			}
-			if n < len(r.Rows) {
-				r.Rows = r.Rows[:n]
-			}
-		}
-		return r, false, nil
+	if strings.HasPrefix(strings.ToUpper(sql), "SELECT ") {
+		r, err := selectRows(state, sql, ann)
+		return r, false, err
 	}
+
 	return fail("unsupported SQL; see README.md for supported grammar")
 }
 
@@ -387,4 +437,110 @@ func distance(op string, a, b []float32) float32 {
 	default:
 		return float32(math.Sqrt(float64(sq)))
 	}
+}
+
+var updateRE = regexp.MustCompile(`(?is)^UPDATE\s+(\w+)\s+SET\s+(.+)$`)
+var deleteRE = regexp.MustCompile(`(?is)^DELETE FROM (\w+)(?: WHERE (.+))?$`)
+
+func columnIndex(t *Table, name string) int {
+	for i, c := range t.Columns {
+		if c.Name == strings.ToLower(name) {
+			return i
+		}
+	}
+	return -1
+}
+func primaryIndex(t *Table) int {
+	for i, c := range t.Columns {
+		if c.Primary {
+			return i
+		}
+	}
+	return -1
+}
+func matches(row []any, preds []predicate) bool {
+	for _, p := range preds {
+		c := compare(row[p.index], p.value)
+		switch p.op {
+		case "=":
+			if c != 0 {
+				return false
+			}
+		case "<":
+			if c >= 0 {
+				return false
+			}
+		case "<=":
+			if c > 0 {
+				return false
+			}
+		case ">":
+			if c <= 0 {
+				return false
+			}
+		case ">=":
+			if c < 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+func compare(a, b any) int {
+	switch x := a.(type) {
+	case int64:
+		y := b.(int64)
+		if x < y {
+			return -1
+		}
+		if x > y {
+			return 1
+		}
+	case string:
+		return strings.Compare(x, b.(string))
+	case float64:
+		y := b.(float64)
+		if x < y {
+			return -1
+		}
+		if x > y {
+			return 1
+		}
+	case float32:
+		y := b.(float32)
+		if x < y {
+			return -1
+		}
+		if x > y {
+			return 1
+		}
+	}
+	return 0
+}
+
+// Collapse SQL whitespace outside strings, preserving literal bytes.
+func normalizeSQL(s string) string {
+	var b strings.Builder
+	quoted, space := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !quoted && (c == ' ' || c == '\n' || c == '\r' || c == '\t') {
+			space = true
+			continue
+		}
+		if space && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		space = false
+		b.WriteByte(c)
+		if c == '\'' {
+			if quoted && i+1 < len(s) && s[i+1] == '\'' {
+				i++
+				b.WriteByte(s[i])
+			} else {
+				quoted = !quoted
+			}
+		}
+	}
+	return b.String()
 }

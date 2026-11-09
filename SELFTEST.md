@@ -1,9 +1,14 @@
-# M4 local hardening self-test
+# M5 SQL subset self-test
 
-Baseline: `18525b313dfda305fbd4541db3bd3ba16a0dc174` (M3b), branch
-`2026-competition-round2`. No reset/rebase, formal contest submission or PR merge.
+Baseline: `0c33e8fe7c5b7c9b10ec6ae4487f2db21f10df36` (M4), branch
+`2026-competition-round2`. No reset/rebase, formal submission or PR merge.
 
-Commands run from repository root, all exit 0:
+Implementation followed the required sequence, with `go test ./...` passing
+after each stage: (1) explicit PK / CREATE constraints, (2) atomic multi-row
+INSERT / quoted vectors / UPDATE and DELETE, (3) comparisons / projections /
+sorting, (4) self-built vector index.
+
+Final checks, all exit 0:
 
 ```sh
 go test ./...
@@ -13,51 +18,44 @@ cmp conversation.json agent/conversation.json
 git diff --check
 ```
 
-Go and race suites: PASS for `cmd/minivectordb`, `internal/db`, and
-`internal/mysqlwire`; `scripts/mysqlsmoke` has no test files.
-Smoke output:
+Smoke retains the M3 SIGKILL-after-acknowledgment recovery, immutable snapshot,
+COMMIT/ROLLBACK/EOF isolation, flush, errors and continuation checks. M4 int64,
+Unicode VARCHAR, finite float32/dimensions, filtering, tie ordering and search
+mode checks pass; fixtures now declare explicit BIGINT PRIMARY KEY.
 
-```text
-PASS: stdin/stdout, types, vector ranking, error continuation, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/EOF isolation, DELETE/DROP
-PASS: M4 int64 WAL round-trip, Unicode VARCHAR, finite float32/dimensions, filter-before-TopK, PK ties, exact/ann session and CLI, ERROR continuation
-```
+The new M5 stdin section runs the Yuque 2.2 example with INSERT and SELECT each
+on one line under existing newline framing. It verifies projected content and
+L2 scores, UPDATE/DELETE rollback, duplicate-PK multi-row statement atomicity,
+all comparison operators, vector-index ANN/exact and restart from WAL.
 
-Smoke builds in a temporary directory, uses stdin pipes/FIFO, and retains M3's
-SIGKILL-after-acknowledgment test, immutable snapshot check, COMMIT/ROLLBACK and
-EOF isolation. M4 restarts and compares full stdout against expected output for
-both int64 extremes, equality filtering, PK ties and distinct ANN/exact results.
-It checks Unicode length errors, NaN/±Inf/overflow/dimension errors, unsupported
-SQL followed by SELECT 1, and `-ann` mode readback.
+Go tests additionally cover missing/multiple/nonconforming PK constraints,
+multiple vectors, quoted vectors, multi-row validation failures, forbidden PK
+updates, update assignment validation, affected counts, predicates shared across
+SELECT/UPDATE/DELETE, explicit PK tie ordering when another BIGINT comes first,
+aliases with/without AS, ordinary ordering, invalid queries and literal WHERE
+inside UPDATE text. Index tests distinguish bucket candidates from the old
+subsample scan, verify exact bypass, filter-before-candidates, transaction
+insert/update/delete visibility and rollback, empty-shell fallback, duplicate
+index names, wrong columns/tables, committed mutations after WAL replay, and
+PK/index metadata plus buckets after snapshot recovery.
 
-Focused Go tests additionally verify typed int64/[]float32 values after transaction
-copies, WAL replay and JSON snapshot recovery; float32 rounding of 16777217 to
-16777216; out-of-range/fractional integer rejection; supplementary Unicode runes;
-invalid vector elements; query-vector validation; filter-before-TopK using an
-excluded nearest row; ASC/DESC ties at int64 extremes; quoted AND in string
-literals; session isolation and mode switching. Existing WAL corruption, torn
-record, repeat recovery, conflicts and transaction atomicity tests remain green.
+All packages pass normal and race tests. No new dependencies, forbidden engines,
+secrets or binaries. Optional MySQL wire implementation was not expanded; its
+test fixture now declares a PK.
 
-Temporary conventions — **pending official pack / 待确认**:
+Temporary protocol / open items:
 
-- Primary path: stdin SQL → stdout TSV/results/status; stderr logs. No listener
-  unless the optional wire address is explicitly supplied.
-- Framing: semicolon outside SQL quotes or newline outside quotes/balanced
-  parentheses/brackets; EOF executes pending SQL. Results end in `OK <rowcount>`;
-  writes/commands use `OK <affected>`. Text escapes and JSON vectors follow README.
-- Ready flag/handshake: none currently; local `SELECT 1` probe. Official ready
-  flag name, timing and handshake are 待确认. No stdout banner.
-- Errors: `ERROR <message>` then continue; no numeric SQL error codes yet.
-  Startup/I/O errors log to stderr and exit nonzero. Official codes are 待确认.
-- Exact is default. `-ann` or `SET search_mode=ann` enables a separate every-second
-  filtered-candidate scan; `SELECT search_mode` exposes mode. No index or recall
-  guarantee; fewer than k results are possible. SET is session-only, not rolled
-  back or logged. Official search/recall requirements are 待确认.
-- First BIGINT column is the temporary PK for ascending equal-distance ties;
-  uniqueness is not enforced. Duplicate/no PK ties preserve insertion order.
-
-Open: official pack reconciliation and broader SQL; ANN quality/performance;
-float32 arithmetic overflow returns ERROR; checkpoint/compaction, WAL checksums,
-process locking, bounded WAL/replay/cloning cost and disk-failure injection.
-Only one process/Engine may own a data directory. M4 did not run Docker build or
-container runtime checks. Optional wire remains unchanged except shared engine
-semantics. No forbidden engines/libraries, new dependencies, secrets or binaries.
+- Official framing, ready flag/handshake, numeric error codes and ANN recall
+  requirements: **待确认**, official pack unpublished.
+- Current stdin framing: semicolon outside quotes or newline outside quotes and
+  balanced parentheses/brackets; arbitrary multiline clauses must be flattened.
+  SQL responses flush immediately; stdout TSV + OK/ERROR, stderr logs.
+- Sign-LSH probes the closest nonempty filtered Hamming shell. ANN may return
+  fewer than k rows; exact remains brute-force exact. No recall guarantee.
+- Whole-state clones and index rebuilds are deliberately simple; performance,
+  checkpoint/compaction, bounded WAL growth, WAL checksums and process locking
+  remain open. Only one Engine/process may own a data directory.
+- CREATE now requires an explicit BIGINT PRIMARY KEY. Legacy snapshot tables
+  without that metadata remain readable; pre-M5 WAL CREATE statements lacking
+  PRIMARY KEY are not migrated by this milestone.
+- Docker runtime checks were not rerun. No contest submission or PR merge.

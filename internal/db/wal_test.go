@@ -26,7 +26,7 @@ func TestWALTransactions(t *testing.T) {
 	dir := t.TempDir()
 	e := openTest(t, dir)
 	s := e.Session()
-	execTest(t, s, "CREATE TABLE t (id INT, v VECTOR(2))")
+	execTest(t, s, "CREATE TABLE t (id BIGINT PRIMARY KEY, v VECTOR(2))")
 	execTest(t, s, "BEGIN")
 	execTest(t, s, "COMMIT") // no LSN gap
 	execTest(t, s, "START TRANSACTION")
@@ -52,7 +52,7 @@ func TestWALTransactions(t *testing.T) {
 func TestWALTornTailAndRepeatRecovery(t *testing.T) {
 	dir := t.TempDir()
 	s := openTest(t, dir).Session()
-	execTest(t, s, "CREATE TABLE t (id INT)")
+	execTest(t, s, "CREATE TABLE t (id BIGINT PRIMARY KEY)")
 	f, err := os.OpenFile(filepath.Join(dir, "wal.log"), os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func TestWALTornTailAndRepeatRecovery(t *testing.T) {
 	}
 }
 func TestWALRejectsCorruption(t *testing.T) {
-	for _, data := range []string{"bad\n", "{\"lsn\":2,\"statements\":[\"CREATE TABLE t (id INT)\"]}\n"} {
+	for _, data := range []string{"bad\n", "{\"lsn\":2,\"statements\":[\"CREATE TABLE t (id BIGINT PRIMARY KEY)\"]}\n"} {
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, "wal.log"), []byte(data), 0600); err != nil {
 			t.Fatal(err)
@@ -109,7 +109,7 @@ func TestTransactionRecordAtomicRecovery(t *testing.T) {
 	dir := t.TempDir()
 	s := openTest(t, dir).Session()
 	execTest(t, s, "BEGIN")
-	execTest(t, s, "CREATE TABLE t (id INT)")
+	execTest(t, s, "CREATE TABLE t (id BIGINT PRIMARY KEY)")
 	execTest(t, s, "INSERT INTO t VALUES (1)")
 	if s.Execute("INSERT INTO t VALUES ('bad')").Error == "" {
 		t.Fatal("invalid statement accepted")

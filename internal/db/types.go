@@ -13,6 +13,14 @@ import (
 )
 
 func parseVector(p string, dim int) ([]float32, error) {
+	p = strings.TrimSpace(p)
+	if strings.HasPrefix(p, "'") {
+		v, err := parseValue(Column{Type: "TEXT"}, p)
+		if err != nil {
+			return nil, err
+		}
+		p = v.(string)
+	}
 	var values []json.RawMessage
 	if err := json.Unmarshal([]byte(p), &values); err != nil || len(values) != dim {
 		return nil, fmt.Errorf("vector dimension or syntax mismatch (expected %d finite float32 values)", dim)
@@ -72,18 +80,19 @@ func parseValue(c Column, p string) (any, error) {
 
 type predicate struct {
 	index int
+	op    string
 	value any
 }
 
-var equalityRE = regexp.MustCompile(`(?is)^\s*(\w+)\s*=\s*('(?:[^']|'')*'|[^\s']+)\s*(.*)$`)
+var comparisonRE = regexp.MustCompile(`(?is)^\s*(\w+)\s*(<=|>=|=|<|>)\s*('(?:[^']|'')*'|[^\s']+)\s*(.*)$`)
 var andRE = regexp.MustCompile(`(?is)^AND\s+(.+)$`)
 
 func parseWhere(t *Table, clause string) ([]predicate, error) {
 	var out []predicate
 	for clause != "" {
-		m := equalityRE.FindStringSubmatch(clause)
+		m := comparisonRE.FindStringSubmatch(clause)
 		if m == nil {
-			return nil, fmt.Errorf("unsupported WHERE; expected column = literal AND ...")
+			return nil, fmt.Errorf("unsupported WHERE; expected column OP literal AND ...")
 		}
 		idx := -1
 		for i, c := range t.Columns {
@@ -98,12 +107,12 @@ func parseWhere(t *Table, clause string) ([]predicate, error) {
 		if t.Columns[idx].Type == "VECTOR" {
 			return nil, fmt.Errorf("WHERE requires ordinary column")
 		}
-		v, err := parseValue(t.Columns[idx], m[2])
+		v, err := parseValue(t.Columns[idx], m[3])
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, predicate{idx, v})
-		clause = strings.TrimSpace(m[3])
+		out = append(out, predicate{idx, m[2], v})
+		clause = strings.TrimSpace(m[4])
 		if clause != "" {
 			a := andRE.FindStringSubmatch(clause)
 			if a == nil {
@@ -169,6 +178,9 @@ func decodeState(b []byte) (State, error) {
 				row[i] = v
 			}
 		}
+	}
+	for _, t := range state {
+		rebuildIndexes(t)
 	}
 	return state, nil
 }

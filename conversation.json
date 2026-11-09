@@ -1,78 +1,36 @@
 {
-  "milestone": "M4 local type/search hardening",
-  "branch": "2026-competition-round2",
+  "milestone": "M5 SQL subset",
   "record_type": "Continuation summary, not a verbatim conversation transcript",
-  "language": "Go",
-  "language_rationale": "Keep the working Go engine; the standard library supplies TCP, JSON and filesystem support, and a CGO-disabled build produces a standalone binary for a small scratch Docker image.",
+  "branch": "2026-competition-round2",
+  "baseline": "0c33e8fe7c5b7c9b10ec6ae4487f2db21f10df36",
+  "language": "Go; existing standard-library engine retained; no new dependencies",
+  "authorization": "Implement locally, test, commit and push only to sleepz1/seekdb branch 2026-competition-round2; no formal submission, upstream PR or merge.",
+  "ordered_work": [
+    "1. Explicit inline BIGINT PRIMARY KEY, uniqueness, at most one VECTOR, persisted Primary metadata; full Go tests passed.",
+    "2. Atomic multi-row INSERT, bare/quoted vectors, UPDATE rejecting PK changes, DELETE predicates and affected counts, rollback; full Go tests passed.",
+    "3. Numeric/text comparisons = < <= > >= AND, column/distance projections and aliases, ordinary/distance ORDER BY ASC/DESC, PK ties, LIMIT; Go and old smoke passed.",
+    "4. Self-built sign-LSH vector index, persisted metadata, buckets rebuilt on writes/clones/recovery, ANN bucket probes and exact bypass; tests passed."
+  ],
   "protocol": {
-    "now": "Confirmed judging path: foreground stdin SQL, stdout TSV/results/status, stderr logs. Default /data; no listener.",
-    "framing": "Temporary until round2 pack: semicolons outside SQL single quotes; newline outside quotes and parentheses/brackets; doubled quotes supported; EOF executes pending SQL and exits. Pending official pack / 待确认.",
-    "results": "SELECT: TSV column header, rows, OK <rowcount>. Text escapes backslash/tab/newline/carriage return; vectors JSON arrays. Other success: OK <affected>. SQL failure: ERROR <message>, then continue. Responses flushed immediately.",
-    "wire_optional": "Explicit -mysql-addr or -addr replaces stdin with retained MySQL helper; empty default. Permissive auth remains. Primary smoke never uses TCP.",
-    "correction": "Supersedes M3 assumption that MySQL wire was the primary judging path.",
-    "ready": "No ready flag/unsolicited line. Local SELECT 1 readiness probe. Official flag/handshake pending official pack / 待确认.",
-    "error_codes": "ERROR <message>, continue; no numeric SQL codes. Official codes pending official pack / 待确认."
+    "primary": "stdin SQL -> stdout TSV results + OK/ERROR; stderr logs; immediate flush; default /data or -data",
+    "framing": "Semicolons outside quotes or newline outside quotes/parentheses/brackets; arbitrary multiline clauses flattened in Yuque stdin smoke. Official framing 待确认.",
+    "ready": "No unsolicited ready line; SELECT 1 local probe. Official ready/handshake 待确认.",
+    "error_codes": "ERROR message and continue; numeric official codes 待确认.",
+    "wire": "Optional existing MySQL helper, not expanded."
   },
-  "persistence": {
-    "files": [
-      "snapshot.json (optional immutable M2 base)",
-      "wal.log"
-    ],
-    "method": "One newline-delimited JSON committed transaction record containing sequential LSN and successful deterministic write statements; append and fsync before publish/acknowledge. Autocommit uses one statement. WAL creation and recovery truncation are synced; directory is synced on Open.",
-    "recovery": "Load optional legacy snapshot, replay contiguous complete WAL records. Truncate incomplete tail before accepting writes. Reject malformed complete records and sequence gaps. No new full snapshots; no checkpoint/compaction yet. Snapshot JSON uses UseNumber and schema normalization to int64/string/[]float32; transaction copies preserve types.",
-    "failure": "Write/sync error blocks further durable writes until restart. Interrupted/unacknowledged commit can have uncertain outcome. One Engine/server per directory; no process lock."
-  },
+  "durability": "Existing fsynced transaction WAL, COMMIT/ROLLBACK/EOF and crash recovery retained. PK/index metadata survives snapshot decoding and WAL replay; index buckets rebuilt before ready.",
   "validation": {
-    "go_test": {
-      "command": "go test ./...",
-      "exit_code": 0,
-      "result": "PASS"
-    },
-    "race": {
-      "command": "go test -race ./...",
-      "exit_code": 0,
-      "result": "PASS: M4 and existing stdin/WAL/wire suites"
-    },
-    "smoke": {
-      "command": "./scripts/smoke.sh",
-      "exit_code": 0,
-      "client": "stdin pipes and FIFO; no network",
-      "observed_output": "PASS: stdin/stdout, types, vector ranking, error continuation, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/EOF isolation, DELETE/DROP\nPASS: M4 int64 WAL round-trip, Unicode VARCHAR, finite float32/dimensions, filter-before-TopK, PK ties, exact/ann session and CLI, ERROR continuation"
-    },
-    "docker": {
-      "result": "Not rerun for M4; prior M3b build succeeded, runtime untested; no image pushed."
-    },
-    "engine_tests": "M4 int64 extrema through transactions/WAL/JSON snapshots and equality; Unicode rune limits; float32 rounding/storage; NaN/Inf/overflow/dimension rejection; WHERE AND before TopK; ascending PK ties including DESC; separate ANN candidate subset and session mode isolation. Existing WAL/recovery/REPL/wire tests pass.",
-    "conversation_cmp": {
-      "command": "cmp conversation.json agent/conversation.json",
-      "exit_code": 0
-    }
+    "go_test": "PASS (exit 0)",
+    "race": "PASS (exit 0)",
+    "smoke": "PASS M3 + M4 + new M5 Yuque 2.2 stdin example",
+    "coverage": "PK/constraints; atomic batch failures; quoted vectors; updates/deletes/rollback; all comparisons; projections/aliases/order; index ANN versus exact; transaction index maintenance; WAL and snapshot recovery.",
+    "dual_path": "conversation.json and agent/conversation.json byte-identical, each <=128KiB"
   },
   "open_items": [
-    "Official round2 pack framing, ready flag/handshake, error codes, SQL dialect and recall requirements pending official pack / 待确认.",
-    "ANN is deterministic every-second filtered-candidate sampling, not an index; no recall guarantee, may return fewer than k rows; performance/quality work remains.",
-    "First BIGINT is temporary PK tie key; uniqueness not enforced. Float32 distance arithmetic can overflow and return ERROR.",
-    "Atomic checkpoints/compaction, checksums, process locking, WAL growth/replay and full-state cloning costs; disk-failure fault injection.",
-    "Optional wire prepared statements/TLS/full status semantics deferred. M4 Docker/runtime not tested."
-  ],
-  "contest_formally_submitted": false,
-  "engine_changes_in_continuation": "int64 ParseInt semantics, rune-count VARCHAR limits, finite float32 vectors, schema-normalized snapshot loading, typed cloning, WHERE equality/AND before TopK, PK tie-break, real separate sampled ANN path with CLI and session mode readback. Retained M3 fsynced SQL WAL.",
-  "baseline_head": "18525b313dfda305fbd4541db3bd3ba16a0dc174",
-  "questions_and_decisions": [
-    "Confirmed official foreground stdin/stdout judging correction; wire optional only.",
-    "Keep M3 fsynced committed transaction records and immutable snapshot base.",
-    "Use documented temporary TSV framing pending official pack.",
-    "Local validation, commit and branch push authorized; no official submission, PR merge, secrets or build artifacts in git.",
-    "M4 uses int64 for INT/INTEGER/BIGINT; VARCHAR(n) counts Unicode runes; vectors store and accumulate float32.",
-    "Temporary PK: first BIGINT, ascending on equal score even with DESC; no uniqueness enforcement.",
-    "Exact default; ANN samples filtered insertion-order offsets 0,2,4,... before distance sorting; distinct code path and output tested.",
-    "SET search_mode is session configuration, not transactional or durable; SELECT search_mode is diagnostic.",
-    "No token counter available; tokens=null."
-  ],
-  "transactions": {
-    "semantics": "BEGIN or START TRANSACTION clones committed state; read-your-writes; no dirty reads. COMMIT checks database-wide version and logs successful statements atomically. ROLLBACK/disconnect discard private state. No in-flight transaction enters WAL. Failed statements leave preceding successful statements intact. Conflicts require ROLLBACK.",
-    "client": "One stdin process uses one Session; EOF discards private transaction. Optional wire still supports pinned connection via repeated -query flags."
-  },
-  "pr_merged": false,
-  "tokens": null
+    "Official pack framing, ready flags, numeric error codes, ANN requirements 待确认.",
+    "Sign-LSH ANN has no recall guarantee and can return fewer than LIMIT rows.",
+    "Whole-state cloning/index rebuilding; checkpoint/compaction, WAL growth/checksums and process locking remain open.",
+    "CREATE requires explicit PK; old snapshot tables readable, old WAL CREATE without PK not migrated.",
+    "Docker runtime not rerun."
+  ]
 }

@@ -1,4 +1,4 @@
-# MiniVectorDB M4 — local type/search hardening
+# MiniVectorDB M5 — SQL subset and vector index
 
 Pure Go SQL/vector engine. No external storage engine or vector library. Requires
 Go 1.22+; smoke requires Bash. Default mode is a foreground stdin session with
@@ -29,18 +29,26 @@ loop continues. Every response is flushed immediately. Startup and I/O failures
 log to stderr and exit nonzero. There is no stdout banner.
 
 ```sql
-CREATE TABLE items (id BIGINT, label VARCHAR(32), embedding VECTOR(2));
+CREATE TABLE items (id BIGINT PRIMARY KEY, label VARCHAR(32), embedding VECTOR(2));
 BEGIN;
 INSERT INTO items VALUES (1, 'first', [1,0]);
 COMMIT;
 SELECT * FROM items ORDER BY L2_DISTANCE(embedding, [1,0]) LIMIT 1;
 ```
 
-Supported SQL: CREATE TABLE with INT/INTEGER/BIGINT, TEXT/VARCHAR/VARCHAR(n),
-FLOAT/DOUBLE, VECTOR(n); single-row INSERT INTO ... VALUES; SELECT * with optional
-ordinary-column WHERE equality with AND chains, vector ORDER BY and LIMIT;
-SELECT 1; whole-table DELETE FROM; DROP TABLE; BEGIN/START TRANSACTION, COMMIT,
-ROLLBACK. Unsupported SQL returns ERROR and the next statement still runs.
+Supported SQL: CREATE TABLE with exactly one inline BIGINT PRIMARY KEY and at most
+one VECTOR(n); INT/INTEGER, TEXT/VARCHAR/VARCHAR(n), FLOAT/DOUBLE remain available
+for other columns. INSERT INTO ... VALUES supports multiple rows atomically.
+UPDATE ... SET col=literal [, ...] WHERE predicates rejects PK assignments.
+DELETE FROM supports predicates or deletes all rows without WHERE. SELECT supports
+* or projected columns/distance expressions, optional AS aliases, ordinary-column
+or distance ORDER BY with ASC/DESC, and LIMIT. WHERE supports =, <, <=, >, >= and
+AND; vectors are rejected. BIGINT compares numerically; UTF-8 text compares in
+Unicode code point order. Also: SELECT 1, DROP TABLE, BEGIN/START TRANSACTION,
+COMMIT, ROLLBACK. Unsupported SQL returns ERROR and the next statement still runs.
+Duplicate primary keys are rejected without partial writes, including duplicate
+keys within one multi-row INSERT. Bare and SQL-quoted vector arrays are accepted
+in INSERT, UPDATE and distance expressions.
 INT/INTEGER/BIGINT use int64 and ParseInt: fractions, exponent notation and values
 outside [-9223372036854775808, 9223372036854775807] are rejected. Typed transaction
 copies and snapshot decoding preserve integer precision; WAL retains SQL literals.
@@ -53,19 +61,23 @@ float32 (square root uses Go math then rounds to float32); nonfinite distance
 results are errors, including overflow from large finite input values.
 L2_DISTANCE is primary; EUCLIDEAN and DISTANCE are aliases. COSINE computes cosine
 distance and DOT negative inner product. Filtering precedes candidate selection,
-distance sorting and LIMIT. Equal scores use the first BIGINT column ascending as
-a temporary PK convention, including with DESC. This does not enforce uniqueness;
-duplicate keys or tables without BIGINT retain insertion order on ties.
-Functions work in ORDER BY, not projections.
+distance sorting and LIMIT. All ORDER BY ties use the explicit primary key
+ascending, including DESC. Example projection:
+`SELECT id, L2_DISTANCE(embedding, '[1,0]') AS distance FROM items ORDER BY distance LIMIT 2;`
 
 Search defaults to exact. `-ann` sets the mode for new sessions;
 `SET search_mode=ann` / `SET search_mode=exact` changes the current session and
 `SELECT search_mode` reads it. Mode is session configuration, unaffected by
-ROLLBACK and not persisted. ANN is a separate deterministic subsampled scan: take
-filtered rows at positions 0, 2, 4, ... in insertion order, then score/sort/limit.
-It is not an index, may return fewer than k rows, and has no recall guarantee.
-Queries without vector ORDER BY are unaffected. It reduces distance evaluations,
-but filtering and state cloning still scan/copy the database.
+ROLLBACK and not persisted. `CREATE VECTOR INDEX idx ON items(embedding)`
+creates a self-built sign-LSH index using up to eight vector coordinates.
+ANN uses the nearest nonempty Hamming shell after filtering; it may return fewer
+than k rows and has no recall guarantee. Without an index, the retained M4 ANN
+fallback samples every second filtered row. Exact always scans all qualifying
+rows, regardless of indexes. Queries without vector ORDER BY are unaffected.
+Index metadata is stored in snapshot JSON / WAL DDL, with buckets rebuilt before
+Open returns, on transaction copies and after successful writes. Rollback discards
+private index changes. Rebuilding and whole-state cloning prioritize correctness;
+this is not yet a performance-tuned index.
 
 ```sql
 SELECT * FROM items WHERE label = 'first' AND id = 1 ORDER BY L2_DISTANCE(embedding, [1,0]) LIMIT 1;

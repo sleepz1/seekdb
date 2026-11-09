@@ -14,7 +14,7 @@ func TestM4TypesRecovery(t *testing.T) {
 	dir := t.TempDir()
 	e := openTest(t, dir)
 	s := e.Session()
-	execTest(t, s, "CREATE TABLE t (id BIGINT, name VARCHAR(2), v VECTOR(2))")
+	execTest(t, s, "CREATE TABLE t (id BIGINT PRIMARY KEY, name VARCHAR(2), v VECTOR(2))")
 	execTest(t, s, "BEGIN")
 	execTest(t, s, "INSERT INTO t VALUES (9223372036854775807, '你好', [0.1,16777217])")
 	execTest(t, s, "INSERT INTO t VALUES (-9223372036854775808, '😀好', [1,0])")
@@ -59,7 +59,7 @@ func TestM4TypesRecovery(t *testing.T) {
 			}
 		}
 	}
-	for _, sql := range []string{"CREATE TABLE bad (v VECTOR(0))", "CREATE TABLE bad (v VECTOR)", "CREATE TABLE bad (s VARCHAR(0))", "SELECT * FROM t WHERE id > 1", "SELECT * FROM t WHERE v = [1,0]", "UPDATE t SET id=2"} {
+	for _, sql := range []string{"CREATE TABLE bad (v VECTOR(0))", "CREATE TABLE bad (v VECTOR)", "CREATE TABLE bad (s VARCHAR(0))", "SELECT * FROM t WHERE v = [1,0]", "UPDATE t SET id=2"} {
 		if s.Execute(sql).Error == "" {
 			t.Fatalf("accepted %s", sql)
 		}
@@ -71,7 +71,7 @@ func TestM4TypesRecovery(t *testing.T) {
 func TestM4FilterTiesAndANN(t *testing.T) {
 	e := openTest(t, t.TempDir())
 	s := e.Session()
-	execTest(t, s, "CREATE TABLE t (id BIGINT, label TEXT, v VECTOR(1))")
+	execTest(t, s, "CREATE TABLE t (id BIGINT PRIMARY KEY, label TEXT, v VECTOR(1))")
 	for _, sql := range []string{"INSERT INTO t VALUES (0, 'skip', [0])", "INSERT INTO t VALUES (9223372036854775807, 'a AND b', [1])", "INSERT INTO t VALUES (-9223372036854775808, 'a AND b', [-1])", "INSERT INTO t VALUES (2, 'a AND b', [2])"} {
 		execTest(t, s, sql)
 	}

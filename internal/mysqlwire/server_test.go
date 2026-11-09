@@ -62,7 +62,7 @@ func TestDriverSession(t *testing.T) {
 					t.Fatalf("affected %d, %v; want %d", got, err, n)
 				}
 			}
-			exec("CREATE TABLE items (id INT, label TEXT, v VECTOR(2))", 0)
+			exec("CREATE TABLE items (id BIGINT PRIMARY KEY, label TEXT, v VECTOR(2))", 0)
 			label := strings.Repeat("界", 100)
 			exec("INSERT INTO items VALUES (1, '"+label+"', [1,0])", 1)
 			if _, err := d.Exec("invalid SQL"); err == nil {

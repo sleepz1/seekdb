@@ -14,7 +14,7 @@ func TestREPLFramingAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	input := "CREATE TABLE t (\nid BIGINT, label VARCHAR, v VECTOR(2)\n);\nBEGIN; INSERT INTO t VALUES (1, 'a;''b\tc', [1,0]); COMMIT;\nINSERT INTO t VALUES (1.5, 'bad', [0,1]);\nSELECT * FROM t ORDER BY L2_DISTANCE(v, [1,0]);\nBEGIN; INSERT INTO t VALUES (2, 'lost', [0,1]);"
+	input := "CREATE TABLE t (\nid BIGINT PRIMARY KEY, label VARCHAR, v VECTOR(2)\n);\nBEGIN; INSERT INTO t VALUES (1, 'a;''b\tc', [1,0]); COMMIT;\nINSERT INTO t VALUES (1.5, 'bad', [0,1]);\nSELECT * FROM t ORDER BY L2_DISTANCE(v, [1,0]);\nBEGIN; INSERT INTO t VALUES (2, 'lost', [0,1]);"
 	if err := repl(strings.NewReader(input), &out, e.Session()); err != nil {
 		t.Fatal(err)
 	}
