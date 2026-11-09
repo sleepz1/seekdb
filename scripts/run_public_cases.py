@@ -2,9 +2,9 @@
 """Run the public mysqltest-style cases against a MiniVectorDB binary.
 
 Each case gets a fresh, empty data directory and its own process, matching
-mysqltest/README.md. Statements are sent one per line on stdin; one JSON
-response line is read per statement (the --format json output of this
-implementation). Assertions follow the README: integers, column names and
+mysqltest/README.md. Statements are sent one per line on stdin and the
+default TSV framing is parsed: "OK <n>" for writes, "ERROR <msg>" for
+errors, and for queries a TAB-separated header, rows, then "OK <rowcount>". Assertions follow the README: integers, column names and
 strings exactly; floats with abs and rel tolerance 1e-5; "unordered" rows as
 multisets; {} means "must succeed".
 
@@ -14,6 +14,7 @@ import argparse
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -74,6 +75,56 @@ def check(exp, got):
     return None
 
 
+OK_RE = re.compile(r"^OK (\d+)$")
+INT_RE = re.compile(r"^-?\d+$")
+FLOAT_RE = re.compile(r"^-?(\d+\.\d*|\d*\.\d+|\d+)([eE][-+]?\d+)?$")
+
+
+def unescape(s):
+    out, i = [], 0
+    while i < len(s):
+        if s[i] == "\\" and i + 1 < len(s):
+            out.append({"t": "\t", "n": "\n", "r": "\r", "\\": "\\"}.get(s[i + 1], s[i + 1]))
+            i += 2
+        else:
+            out.append(s[i])
+            i += 1
+    return "".join(out)
+
+
+def cell(s):
+    if INT_RE.match(s):
+        return int(s)
+    if FLOAT_RE.match(s):
+        return float(s)
+    return unescape(s)
+
+
+def read_response(stdout):
+    """Read one statement response in the TSV framing."""
+    line = stdout.readline()
+    if not line:
+        return None
+    line = line.rstrip("\n")
+    if line.startswith("ERROR "):
+        return {"error": line[6:]}
+    m = OK_RE.match(line)
+    if m:
+        return {"affected_rows": int(m.group(1))}
+    cols = line.split("\t")
+    rows = []
+    while True:
+        l = stdout.readline()
+        if not l:
+            return None
+        l = l.rstrip("\n")
+        m = OK_RE.match(l)
+        if m:
+            assert int(m.group(1)) == len(rows), "OK row count mismatch"
+            return {"columns": cols, "rows": rows}
+        rows.append([cell(c) for c in l.split("\t")])
+
+
 def run_case(binary, case_dir, name):
     with open(os.path.join(case_dir, name + ".test"), encoding="utf-8") as f:
         stmts = [l.rstrip("\n") for l in f if l.strip()]
@@ -89,11 +140,10 @@ def run_case(binary, case_dir, name):
         for i, (sql, exp) in enumerate(zip(stmts, expected)):
             p.stdin.write(sql + "\n")
             p.stdin.flush()
-            line = p.stdout.readline()
-            if not line:
+            got = read_response(p.stdout)
+            if got is None:
                 failures.append(f"stmt {i+1}: no response (process exited)")
                 break
-            got = json.loads(line)
             why = check(exp, got)
             if why:
                 failures.append(f"stmt {i+1} `{sql}`: {why}")

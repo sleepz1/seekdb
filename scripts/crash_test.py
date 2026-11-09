@@ -25,7 +25,7 @@ import time
 
 
 def start(binary, data):
-    return subprocess.Popen([binary, "--data-dir", data], stdin=subprocess.PIPE,
+    return subprocess.Popen([binary, "--data-dir", data, "--format", "json"], stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                             text=True, bufsize=1)
 

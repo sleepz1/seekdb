@@ -31,7 +31,7 @@ def main():
     rng = random.Random(1)
     vec = lambda: "[" + ",".join(f"{rng.uniform(-1, 1):.6f}" for _ in range(a.dim)) + "]"
     data = tempfile.mkdtemp(prefix="mvdb-bench-")
-    p = subprocess.Popen([a.bin, "--data-dir", data, "--mode", a.mode], stdin=subprocess.PIPE,
+    p = subprocess.Popen([a.bin, "--data-dir", data, "--mode", a.mode, "--format", "json"], stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
 
     def ask(sql):
