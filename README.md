@@ -463,3 +463,42 @@ oracle. Mean regression floor is 0.20, with no minimum or general recall guarant
 Upstream remains `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c`; framing is TBD and
 interim `reportReady` is unchanged. OPEN_ITEMS: official driver, larger recovery/
 peak RSS profiling, large inputs/results and high-dimensional ANN quality.
+
+## M17 Gaussian64 ANN recall
+
+Local Sign-LSH tuning expands the mandatory complete Hamming shells from radius
+2 to 4 (163 of 256 eight-sign buckets). The existing post-filter target of 8*K,
+overflow cap and further expansion through radius 8 remain. No external ANN
+library, new hash format, exact-mode change or protocol change was introduced.
+
+The unchanged M16 fixture uses seed 1601, 2048 independent Gaussian 64D rows,
+32 queries per group and K=10. M16 still runs; M17 shares its data generator and
+independent float32 full-sort exact oracle, adding stronger recall and candidate
+subset assertions:
+
+| Query group | M16 before mean/min | M17 after mean/min | Candidates per query |
+| --- | --- | --- | --- |
+| Unfiltered | 0.29688 / 0.00 | 0.84062 / 0.60 | 1255–1348 of 2048 |
+| category=1 | 0.28438 / 0.00 | 0.81250 / 0.50 | 409–457 of 683 |
+
+M17 asserts mean >=0.75 and minimum >=0.40 for both groups, with headroom below
+these measurements. Every query asserts unique, predicate-matching candidates
+between K and 75% of eligible rows: distance ranking still uses an ANN subset.
+M12's unchanged representative data remains mean/min **1.00/1.00** in both groups;
+its regression now requires those exact values. Exact mode still matches the oracle.
+
+This trades more distance evaluations for recall: roughly 61–67% of eligible rows
+are scored here. It is not a speedup claim. Eight coordinate signs still omit most
+64D information; no universal recall floor or official contest score is claimed.
+Radius 4 meets the local target, so wider shells were not adopted merely to approach
+an exhaustive scan. Sparse predicates, small datasets, large K or no LIMIT can
+exhaust all buckets under the existing expansion rules; there is no new exact
+fallback. Index storage and rebuild work are unchanged.
+
+Upstream remains `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c`, samples-only.
+FRAMING=TBD; interim `reportReady`, stdin/stdout, `-data` and Dockerfile remain.
+Validation: go test ./..., requested M17/M16/M12/M11/ANNRecall selection,
+M1–M17 smoke, unchanged public mysqltest samples 5/5, identical conversation files
+within 128 KiB, and git diff --check. No official submit or formal 提测.
+OPEN_ITEMS: official driver/framing; broader ANN distributions and recall/cost tuning;
+larger recovery and peak RSS profiling; large statements/results.

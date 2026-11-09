@@ -74,9 +74,12 @@ func vectorIndex(t *Table, col int) *VectorIndex {
 	return nil
 }
 
-// Probe complete Hamming shells through radius two, then expand until the
+// Probe complete Hamming shells through radius four, then expand until the
 // post-filter budget is met or all buckets are exhausted. Completing shells
-// avoids bucket-order bias. Exact mode never uses these candidates.
+// avoids bucket-order bias. Radius four visits 163/256 signatures, trading more
+// distance evaluations for recall on independent high-dimensional data. Eight
+// signs still omit remaining coordinates; this is not a general recall guarantee.
+// Exact mode never uses these candidates.
 func indexCandidateOffsets(t *Table, idx *VectorIndex, q []float32, preds []predicate, limit int) []int {
 	key := bucket(q)
 	// Cap before multiplying to avoid overflow for arbitrarily large SQL LIMITs.
@@ -100,7 +103,7 @@ func indexCandidateOffsets(t *Table, idx *VectorIndex, q []float32, preds []pred
 				}
 			}
 		}
-		if radius >= 2 && len(out) >= budget {
+		if radius >= 4 && len(out) >= budget {
 			return out
 		}
 	}

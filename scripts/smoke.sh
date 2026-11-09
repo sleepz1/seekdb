@@ -223,7 +223,7 @@ printf '%s\n' 'PASS: M11 representative 32D ANN recall, exact oracle, filtered T
 go test -count=1 -v ./internal/db -run '^TestM12' >"$tmp/m12tests"
 grep -q -- '--- PASS: TestM12ANNFilteredExpansion' "$tmp/m12tests"
 grep -q 'M12 timing:' "$tmp/m11tests"
-printf '%s\n' 'PASS: M12 expanded Sign-LSH recall mean>=0.95/min>=0.90, SQL timing log, filtered distant-shell cardinality'
+printf '%s\n' 'PASS: M12 expanded Sign-LSH recall mean=1.00/min=1.00, SQL timing log, filtered distant-shell cardinality'
 # M13 recovery includes real SIGKILL, many commits, final index rebuild and timing.
 go test -count=1 -v ./internal/db -run '^TestM13Recovery$' >"$tmp/m13tests"
 grep -q -- '--- PASS: TestM13Recovery' "$tmp/m13tests"
@@ -248,3 +248,7 @@ for name in RSSRecoveryScale ANNGeneralization; do
  grep -q -- "--- PASS: TestM16$name " "$tmp/m16tests"
 done
 printf '%s\n' 'PASS: M16 16384-row 32D RSS/recovery, auto-checkpoint+redo, 64D Gaussian ANN recall and exact oracle'
+# M17 repeats the original M16 Gaussian fixture with recall and ANN subset bounds.
+go test -count=1 -v ./internal/db -run '^TestM17' >"$tmp/m17tests"
+grep -q -- '--- PASS: TestM17ANNGaussian64' "$tmp/m17tests"
+printf '%s\n' 'PASS: M17 Gaussian64 recall mean>=0.75/min>=0.40, filtered/unfiltered, candidates<=75% of eligible rows'

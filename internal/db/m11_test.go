@@ -156,8 +156,8 @@ func TestM11ANNRecallRepresentative(t *testing.T) {
 				t.Fatal("fixture lost sign-boundary difficulty")
 			}
 			// M12 measured 1.00/1.00 in both groups on this unchanged fixture.
-			// Keep some headroom; this is not a hidden-distribution guarantee.
-			if mean < .95 || minimum < .90 {
+			// M17 locks this fixture at 1.00; not a hidden-distribution guarantee.
+			if mean != 1 || minimum != 1 {
 				t.Fatal("ANN recall degeneration")
 			}
 		})

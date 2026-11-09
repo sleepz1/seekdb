@@ -125,6 +125,11 @@ func TestM16RSSRecoveryScale(t *testing.T) {
 
 // Independent isotropic Gaussian rows/queries, no planted near-duplicates.
 func TestM16ANNGeneralization(t *testing.T) {
+	testGaussian64(t, false)
+}
+
+// Shared unchanged M16 data generation and independent exact oracle.
+func testGaussian64(t *testing.T, m17 bool) {
 	const rows, dims, queries, k, seed = 2048, 64, 32, 10, 1601
 	rng := rand.New(rand.NewSource(seed))
 	vector := func() []float32 {
@@ -159,6 +164,7 @@ func TestM16ANNGeneralization(t *testing.T) {
 	for _, filtered := range []bool{false, true} {
 		t.Run(fmt.Sprint(filtered), func(t *testing.T) {
 			total, minimum := 0.0, 1.0
+			candidateMin, candidateMax := rows, 0
 			for _, q := range qs {
 				type neighbor struct {
 					id    int
@@ -200,6 +206,32 @@ func TestM16ANNGeneralization(t *testing.T) {
 					}
 					want[r[0].(int64)] = true
 				}
+				if m17 {
+					table := e.state["t"]
+					preds, err := parseWhere(table, strings.TrimPrefix(where, " WHERE "))
+					if err != nil {
+						t.Fatal(err)
+					}
+					candidates := indexCandidateOffsets(table, &table.Indexes[0], q, preds, k)
+					// Bound distance-scored candidates relative to eligible rows.
+					// This catches exact fallback, including after filtering.
+					if len(candidates) < k || len(candidates)*4 > len(truth)*3 {
+						t.Fatalf("ANN candidates=%d eligible=%d: expected K through 75%%", len(candidates), len(truth))
+					}
+					seenOffsets := map[int]bool{}
+					for _, n := range candidates {
+						if n < 0 || n >= rows || seenOffsets[n] || !matches(table.rowAt(n), preds) {
+							t.Fatal("invalid, duplicate or ineligible candidate", n)
+						}
+						seenOffsets[n] = true
+					}
+					if len(candidates) < candidateMin {
+						candidateMin = len(candidates)
+					}
+					if len(candidates) > candidateMax {
+						candidateMax = len(candidates)
+					}
+				}
 				execTest(t, s, "SET search_mode=ann")
 				ann := execTest(t, s, sql)
 				if len(ann.Rows) != k {
@@ -225,7 +257,14 @@ func TestM16ANNGeneralization(t *testing.T) {
 			}
 			mean := total / queries
 			t.Logf("M16 ANN Gaussian seed=%d dims=%d rows=%d queries=%d filtered=%t recall@10 mean=%.5f min=%.2f", seed, dims, rows, queries, filtered, mean, minimum)
-			// Conservative regression floor for weak eight-sign information in 64D.
+			if m17 {
+				t.Logf("M17 Gaussian64 filtered=%t mean=%.5f min=%.2f candidates min/max=%d/%d", filtered, mean, minimum, candidateMin, candidateMax)
+				// Measured .84062/.60 and .81250/.50; allow modest headroom.
+				if mean < .75 || minimum < .40 {
+					t.Fatal("M17 Gaussian recall regression")
+				}
+			}
+			// Original M16 floor retained alongside the stronger M17 regression.
 			// Per-query minimum is diagnostic: no universal recall guarantee.
 			if mean < .20 {
 				t.Fatal("Gaussian mean recall regression")
