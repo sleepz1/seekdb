@@ -863,6 +863,18 @@
         "quote": "Commit and byte thresholds clear WAL"
       },
       "score": null
+    },
+    {
+      "id": "U14-M15-process-lock",
+      "baseline": "20bf03eadff51ceb9569a60cda91d4ceeaf33159",
+      "upstream_tip": "a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c",
+      "contest_formally_submitted": false,
+      "user_prompt_excerpt": "Second process must fail fast with a clear ERROR (not hang, not silently share).",
+      "attribution": "User excerpt; Agent/tool work. U11/U12 prose compacted; results/citations retained.",
+      "design": "Nonblocking stdlib flock on persistent LOCK before recovery. Mutex-held Close disables sessions without checkpointing. Startup failures, Close and process death release ownership; never unlink an owned LOCK.",
+      "results": "PASS TestM15Lock, TestM15LockFailedOpen, TestM15LockProcess: contention, Close/reopen, closed-session rejection, error/panic cleanup and SIGKILL restart. Recovery fixtures release ownership and use reopened sessions.",
+      "checks": "go test ./... PASS; requested targeted tests PASS; smoke M1-M15 PASS, CLI fast ERROR and empty stdout; public harness 5/5; diff check PASS.",
+      "limitations": "FRAMING=TBD; reportReady unchanged. Advisory lock needs cooperating writers and flock support. Driver, RSS, recovery scale and ANN generalization remain open."
     }
   ]
 }
