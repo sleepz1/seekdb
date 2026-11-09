@@ -32,16 +32,18 @@ type Result struct {
 	Error    string   `json:"error,omitempty"`
 }
 type Engine struct {
-	activeTx    int
-	ready       bool
-	pages       *pageStore
-	mu          sync.Mutex
-	dir         string
-	state       State
-	snapshotLSN uint64
-	version     uint64
-	walErr      error
-	defaultANN  bool
+	checkpointVersion uint64
+	walBytes          int64
+	activeTx          int
+	ready             bool
+	pages             *pageStore
+	mu                sync.Mutex
+	dir               string
+	state             State
+	snapshotLSN       uint64
+	version           uint64
+	walErr            error
+	defaultANN        bool
 }
 type Session struct {
 	spool      string
@@ -87,6 +89,7 @@ func (s *Session) Execute(sql string) Result {
 	if !s.e.ready {
 		return Result{Error: "database not ready"}
 	}
+	defer s.e.maybeCheckpoint()
 	r, err := s.execute(strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(sql), ";")))
 	if err != nil {
 		return Result{Error: err.Error()}

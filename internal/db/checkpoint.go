@@ -11,10 +11,14 @@ import (
 )
 
 // Checkpoint durably publishes committed state before clearing WAL history.
-// Explicit only: callers choose the maintenance interval and disk-space bound.
+// Automatic scheduling uses the same locked implementation as explicit callers.
 func (e *Engine) Checkpoint() (err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.checkpointLocked()
+}
+
+func (e *Engine) checkpointLocked() (err error) {
 	defer func() {
 		if v := recover(); v != nil {
 			if se, ok := v.(storageError); ok {
@@ -78,7 +82,27 @@ func (e *Engine) Checkpoint() (err error) {
 	if err != nil {
 		e.walErr = err
 	}
+	if err == nil {
+		e.checkpointVersion = e.version
+		e.walBytes = 0
+	}
 	return err
+}
+
+// Defaults bound redo between statements, except while transactions pin state.
+const AutoCheckpointWALBytes int64 = 8 << 20
+const AutoCheckpointEveryN uint64 = 1024
+
+func (e *Engine) maybeCheckpoint() {
+	if !e.ready || e.activeTx != 0 || e.walErr != nil {
+		return
+	}
+	if e.walBytes < AutoCheckpointWALBytes && e.version-e.checkpointVersion < AutoCheckpointEveryN {
+		return
+	}
+	if err := e.checkpointLocked(); err != nil {
+		fmt.Fprintf(os.Stderr, "minivectordb: automatic checkpoint failed: %v\n", err)
+	}
 }
 
 func (e *Engine) writeSnapshot(w io.Writer) error {

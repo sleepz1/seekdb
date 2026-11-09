@@ -69,7 +69,8 @@
     "m8_baseline": "499c315e71d509af112fd553de9d8e137f5af76f",
     "m9_baseline": "69be4caa1cd6d872037abb59eca96e000e966ef0",
     "upstream_tip_m9": "c842a368c3394748d0499386c18f6b465242e141",
-    "m9_scope": "M9 WAL CRC32 checksum + hard-crash tests, Sign-LSH ANN coarse recall@10, optional VmRSS observe; evidence append-only. No official contest submit/formal 提测."
+    "m9_scope": "M9 WAL CRC32 checksum + hard-crash tests, Sign-LSH ANN coarse recall@10, optional VmRSS observe; evidence append-only. No official contest submit/formal 提测.",
+    "m14_compaction": "Older U9/U10 agent design, interpretation and limitations condensed from their existing bodies; original prompt excerpts, output, pointers and quotes retained."
   },
   "user_prompts": [
     {
@@ -775,13 +776,13 @@
       "contest_formally_submitted": false,
       "user_prompt_excerpt": "WAL file can still grow unboundedly across many commits.\nEngine.Checkpoint() error (explicit; reject with active transactions like Compact)\nNo inventing official framing. reportReady stays the single stderr adapter.",
       "attribution": "Task excerpts from the M10 user request; implementation and observations below are Agent/tool work, not inferred student understanding. Prior evidence retained unchanged.",
-      "agent_design": "Explicit Checkpoint serializes under engine mutex; rejects active transactions/not-ready/poisoned WAL. Streams committed rows and index metadata into [LSN, legacy table-map] snapshot; fsync file, atomic rename, fsync directory, then truncate and fsync WAL. Open accepts old bare snapshots. Covered WAL records remain checksum-verified but are not applied, so publication-before-truncation is recoverable. New redo retains CRC32 and increasing LSNs. No auto threshold or new protocol.",
+      "agent_design": "Explicit mutex-held Checkpoint rejects active transactions, not-ready engines and poisoned WAL. Streams [LSN, table-map], fsyncs and renames snapshot, syncs directory, then truncates/syncs WAL. Recovery verifies covered records without reapplying. M10 had no automatic trigger.",
       "unit_command": "go test -count=1 ./internal/db/ -run 'M10|Checkpoint|BoundedGrowth|WALChecksum|HardCrash' -v",
       "unit_output": "--- PASS: TestM10WALCheckpoint\n--- PASS: TestM10WALCheckpoint/0\n--- PASS: TestM10WALCheckpoint/128\nWAL cycle=0 15418->0 bytes\nWAL cycle=1 15543->0 bytes\nWAL cycle=2 15548->0 bytes\n--- PASS: TestM10WALBoundedGrowth\n--- PASS: TestM10CheckpointFailure\n--- PASS: TestM9WALChecksum\n--- PASS: TestM9WALHardCrash\nPASS",
       "checks": "go test ./...: PASS. ./scripts/smoke.sh: exit 0, all previous PASS lines retained. go run ./tools/run_public_cases.go: SUMMARY pass=5 fail=0; existing untracked harness untouched and excluded from commit.",
       "smoke_output": "PASS: M10 WAL checkpoint, active-txn reject, publication recovery, post-checkpoint checksum\nPASS: M10 bounded WAL growth, 600 batch commits, SIGKILL recovery of 601 committed rows",
-      "result_interpretation": "Three 200-batch rounds reclaim WAL to exactly zero. The child then commits row 600, leaves row 999 active, and receives SIGKILL. Two bounded-cache reopens verify exact IDs 0..600. Other tests retain old WAL after snapshot publication, recover deleted rows/index metadata, reject post-checkpoint payload corruption, and verify failed rename leaves redo intact. This is local test evidence, not formal contest admission.",
-      "limitations": "Explicit library checkpoint only; default CLI WAL still grows until maintenance is invoked by a caller. Snapshot size scales with live data; temporary replacement needs old+new snapshot plus WAL. Killed checkpoints can leave ignored temp files. Process locking, automatic scheduling, total RSS and representative ANN performance remain open. Upstream samples-only tip verified by fetch; companion framing/driver remains TBD. reportReady, stdout flush and Dockerfile unchanged. No official submit/formal 提测.",
+      "result_interpretation": "Three 200-batch rounds clear WAL. After row 600 commits and row 999 remains active, SIGKILL plus two reopens verifies IDs 0..600. Tests also cover retained redo, deleted rows/indexes, corruption and rename failure. Local evidence only.",
+      "limitations": "Historical M10: explicit-only checkpoint; snapshot replacement requires temporary space. Process locking, auto scheduling, RSS and ANN performance remained open. Framing TBD; no formal submission.",
       "result_evidence": {
         "pointer": "/evidence_units/8/unit_output",
         "quote": "WAL cycle=2 15548->0 bytes"
@@ -795,13 +796,13 @@
       "contest_formally_submitted": false,
       "user_prompt_excerpt": "Higher dimension (e.g. 16–64D; pick one and document).\nFixed seed; compare ANN TopK vs exact L2 TopK; compute recall@k (document k, e.g. 10).\nKeep filter-before-TopK semantics: at least one case with a predicate so ANN cannot skip filters.",
       "attribution": "Excerpts from the M11 user request. Design, implementation and observed results below are Agent/tool work, not inferred student understanding. Prior evidence retained unchanged.",
-      "design": "No runtime changes. Add deterministic 32D planted near-duplicates plus distractors, seed 1101 using Go math/rand. 32 standard-normal centers, 40 rows each with Gaussian sigma 0.15 noise; 256 standard-normal distractors, 1536 rows total. 32 queries use center plus sigma 0.08 noise. All inputs float32. Repeat queries unfiltered and category=1 (odd IDs). Independent float64 brute-force L2 over stored float32 values, rounded to float32 with ascending PK ties, verifies every exact-mode ordered ID. Recall intersection/10 penalizes short ANN output. Validate ANN IDs, uniqueness, predicates. Singleton predicate requires searching beyond occupied query bucket; empty predicate returns no rows.",
+      "design": "Seed 1101: 32D, 32 centers x 40 near-duplicates (noise sigma .15), 256 distractors; 1536 float32 rows. 32 queries (noise .08), unfiltered and category=1. Independent float64 L2 oracle rounded to float32 with PK ties verifies exact Top10. Recall intersection/10; validate IDs, predicates, singleton cross-shell and empty results.",
       "unit_command": "go test -count=1 ./internal/db/ -run 'M11|ANNRecall|M10|WALChecksum' -v",
       "unit_output": "TestM11ANNRecallRepresentative/unfiltered: dims=32 seed=1101 rows=1536 queries=32 mean recall@10=0.71250 min=0.10 cross-sign exact neighbors=92/320\nTestM11ANNRecallRepresentative/filtered: dims=32 seed=1101 rows=1536 queries=32 mean recall@10=0.69375 min=0.20 cross-sign exact neighbors=98/320\nPASS TestM11ANNRecallRepresentative and both subtests\nPASS TestM10WALCheckpoint, TestM10WALBoundedGrowth, TestM10CheckpointFailure, TestM9WALChecksum, TestM9ANNRecallCoarse (mean recall@10=1.00)",
-      "interpretation": "Measured baseline first with mean floor 0.40/min 0.10, then tightened final mean floor to 0.60, leaving about 0.09 headroom below weaker filtered mean. Per-query floor 0.10 rejects total misses. Final targeted run and smoke reproduced identical means/minima. 24 coordinates invisible to the eight-sign signature still influence full L2; boundary-crossing exact neighbors demonstrate why M9 quadrant recall does not generalize. All 64 exact queries agree with independent oracle. No ANN tuning necessary for this local regression floor.",
+      "interpretation": "Baseline mean floors tightened .40 to .60, minimum .10; all 64 exact queries agree with oracle. Coordinates 9–32 affect distance but not eight-sign buckets. Identical local means/minima reproduced in smoke; no runtime tuning in M11.",
       "checks": "go test ./...: PASS. Targeted command: PASS. ./scripts/smoke.sh: exit 0 with all prior PASS lines and M11. go run ./tools/run_public_cases.go: SUMMARY pass=5 fail=0. Existing untracked harness unchanged and excluded from commit. git diff --check: PASS.",
       "smoke_output": "PASS: M11 representative 32D ANN recall, exact oracle, filtered TopK and cross-shell predicate",
-      "limitations": "Local synthetic regression, not official metrics or a 0.95 contest recall claim. Existing nearest nonempty Hamming shell may return fewer than K and has weak minimum recall. Fixed planted distribution is not comprehensive. Wider probing costs more distance evaluations; production ANN quality/performance remains open. Upstream samples-only tip unchanged after fetch; official framing TBD, reportReady unchanged. No protocol/Dockerfile/runtime changes, external ANN libraries, stored sample answers or formal submission. Automatic checkpoint scheduling, process locking, recovery performance and total RSS remain open.",
+      "limitations": "Historical M11 synthetic regression, not official .95 recall evidence. Nearest-shell probing could return fewer than K. Auto scheduling, RSS, process locking and recovery performance remained open. Framing TBD; no formal submission.",
       "result_evidence": {
         "pointer": "/evidence_units/9/unit_output",
         "quote": "mean recall@10=0.69375 min=0.20"
@@ -841,6 +842,25 @@
       "result_evidence": {
         "pointer": "/evidence_units/11/results",
         "quote": "WAL-only 362619 bytes"
+      },
+      "score": null
+    },
+    {
+      "id": "U13-M14-auto-checkpoint-rss",
+      "baseline": "3e3ec65a7b94ab58cddf6172737e9c63e13aa80e",
+      "upstream_tip": "a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c",
+      "contest_formally_submitted": false,
+      "user_prompt_excerpt": "Never checkpoint while an explicit txn is active; defer until COMMIT/ROLLBACK/idle.\nFailures must be logged (stderr) without crashing the REPL loop; keep data correct.",
+      "attribution": "User task excerpt; implementation and local observations are Agent/tool work. U9/U10 verbose agent bodies compacted with original outputs and citation targets retained.",
+      "design": "Automatic synchronous maintenance after statements under engine mutex: WAL >=8 MiB OR >=1024 durable commits since successful checkpoint. All active transactions defer. Recovery initializes counters; idle statements retry. Reuse M10 checkpoint; reset only on success. Errors go to stderr; truncation/sync poison behavior retained. Constants configure thresholds. No framing, Dockerfile, Sign-LSH or public sample changes.",
+      "unit_command": "go test -count=1 ./internal/db/ -run 'M14|M13|M12|M11|ANNRecall|M10|WALChecksum|Recover|Checkpoint' -v",
+      "results": "PASS: M14AutoCheckpointCommits, M14AutoCheckpointBytesDeferral (COMMIT/ROLLBACK), M14AutoCheckpointFailure, M14RSSObserve. Commit and byte thresholds clear WAL; conflict pins defer; failed snapshot logs and retains redo; recovery plus idle SELECT retries. Explicit API and M1–M13 regressions pass.",
+      "rss": "Isolated M14 run, /proc/self/status VmRSS: unlimited 15680->15596 kB; 256-byte cache 15596->16164 kB, peak decoded rows 96 bytes. 1024 deterministic 2D rows, 32 batches, indexed exact/ANN Top10. Shared-process observation only, no RSS cap assertion.",
+      "checks": "go test ./... PASS; targeted command PASS; ./scripts/smoke.sh PASS with all prior lines plus M14; unchanged untracked public harness SUMMARY pass=5 fail=0; git diff --check PASS.",
+      "limitations": "FRAMING=TBD; samples-only upstream unchanged; reportReady retained. Threshold can overshoot by a statement/transaction; pins or failures defer indefinitely. Synchronous latency, temporary snapshot space, process locking, total RSS/large inputs/results, large-scale recovery and representative ANN remain open. No official submit/formal 提测.",
+      "result_evidence": {
+        "pointer": "/evidence_units/12/results",
+        "quote": "Commit and byte thresholds clear WAL"
       },
       "score": null
     }

@@ -126,6 +126,8 @@ func OpenWithOptions(dir string, opts OpenOptions) (engine *Engine, openErr erro
 	for _, t := range e.state {
 		rebuildIndexes(t)
 	}
+	e.walBytes = offset
+	e.checkpointVersion = e.snapshotLSN
 	e.mu.Lock()
 	e.ready = true
 	e.mu.Unlock()
@@ -201,6 +203,9 @@ func (e *Engine) persistBatch(each func(func(string) error) error) error {
 	}
 	if err == nil {
 		err = f.Sync()
+	}
+	if err == nil {
+		e.walBytes, err = f.Seek(0, io.SeekEnd)
 	}
 	if err != nil {
 		e.walErr = err

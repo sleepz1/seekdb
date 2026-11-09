@@ -220,3 +220,10 @@ go test -count=1 -v ./internal/db -run '^TestM13Recovery$' >"$tmp/m13tests"
 grep -q -- '--- PASS: TestM13Recovery' "$tmp/m13tests"
 grep -q 'M13 recovery:' "$tmp/m13tests"
 printf '%s\n' 'PASS: M13 4096-row recovery, 128 batch commits, SIGKILL, snapshot+redo, deferred index rebuild, timing log'
+# M14 automatic checkpoint and observational process memory coverage.
+go test -count=1 -v ./internal/db -run '^TestM14' >"$tmp/m14tests"
+grep -q -- '--- PASS: TestM14AutoCheckpointCommits' "$tmp/m14tests"
+grep -q -- '--- PASS: TestM14AutoCheckpointBytesDeferral' "$tmp/m14tests"
+grep -q -- '--- PASS: TestM14AutoCheckpointFailure' "$tmp/m14tests"
+grep -q -- '--- PASS: TestM14RSSObserve' "$tmp/m14tests"
+printf '%s\n' 'PASS: M14 automatic checkpoint thresholds, active-txn deferral, failure retry, RSS observation'

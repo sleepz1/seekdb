@@ -377,3 +377,43 @@ Open through readiness; it has no strict assertion and is not an official score.
 See SELFTEST for fixture details and limits. PK validation still scans existing
 rows; larger-scale recovery and total RSS remain open. Automatic checkpoints are
 not enabled: callers use `Engine.Checkpoint()` with no active transactions.
+
+## M14 automatic checkpoint and RSS observation
+
+Upstream re-fetched: `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c` remains samples-only.
+FRAMING=TBD; interim `reportReady`, stdin/stdout protocol and Dockerfile are unchanged.
+No official contest submission or formal 提测.
+
+Automatic checkpoints are now enabled for both library and CLI. Constants
+`AutoCheckpointWALBytes = 8 << 20` (8 MiB) and `AutoCheckpointEveryN = 1024`
+trigger at either threshold, checked synchronously after each ready-engine statement.
+DDL/autocommit writes each count once; a nonempty explicit transaction counts once
+at COMMIT. Empty commits and reads do not count. All active transactions defer
+maintenance, including a conflicted transaction until ROLLBACK. The last transaction's
+COMMIT/ROLLBACK permits maintenance; an idle SELECT can retry pending maintenance.
+Recovered WAL bytes and commits are included. There is no timer or background worker.
+Constants are the configuration points; no new CLI flags or protocol commands.
+
+The existing M10 checkpoint implementation runs under the engine mutex; explicit
+`Engine.Checkpoint()` remains available. Only a successful checkpoint resets both
+threshold counters. Snapshot failures log to stderr, retain redo and retry after later
+statements without changing the statement result. WAL truncate/sync failures retain
+the existing poisoned-writer behavior: reads continue, writes require restart.
+WAL is zero immediately after success, but may exceed the byte threshold by one
+statement/transaction; active transactions or persistent errors can defer it indefinitely.
+Checkpoint latency and temporary snapshot disk space grow with live data.
+This supersedes earlier explicit-only / AUTO_CHECKPOINT=no descriptions.
+
+`TestM14RSSObserve` inserts 1024 deterministic 2D vectors in 32 batches, creates an
+index and checks exact/ANN Top10, with unlimited and 256-byte row-cache modes.
+Linux `/proc/self/status` VmRSS is logged via t.Logf before/after, without cap assertions.
+One isolated M14 run observed 15680 -> 15596 kB (unlimited), and 15596 -> 16164 kB
+(256-byte cache, peak decoded row bytes 96). These shared-process observations include
+prior tests and allocator history, are not leak measurements or official resource scores.
+The decoded row-cache budget excludes indexes, references, results and parser buffers;
+it is not a process RSS bound. Non-Linux systems log an observation skip.
+
+M14 tests cover commit and byte triggers, explicit transaction completion, multi-session
+pins/conflicts, failure diagnostics, idle retry after recovery, and M10 API coexistence.
+OPEN_ITEMS: official framing/driver; process locking; large-scale recovery and total RSS;
+large statements/results; representative ANN performance and hidden-distribution recall.
