@@ -36,6 +36,14 @@ func repl(in io.Reader, out io.Writer, session *db.Session) error {
 		if statement == "" {
 			return nil
 		}
+		// Test-driver directives such as "--restart" and "--mode ann" are
+		// not SQL and take no assertion slot; if a driver forwards them on
+		// stdin they must produce no output, or every later response would
+		// be shifted by one line. Results stay exact, which also satisfies
+		// the ann expectations.
+		if strings.HasPrefix(statement, "--") {
+			return nil
+		}
 		if err := writeResult(w, session.Execute(statement)); err != nil {
 			return err
 		}
@@ -83,7 +91,7 @@ func writeResult(w *bufio.Writer, result db.Result) error {
 	switch activeResultCodec {
 	default: // codecInterimTSV
 		if result.Error != "" {
-			fmt.Fprintln(w, "ERROR "+escape(result.Error))
+			fmt.Fprintln(w, "ERROR "+errorCode(result.Error)+" "+escape(result.Error))
 		} else if len(result.Columns) > 0 {
 			fmt.Fprintln(w, strings.Join(result.Columns, "\t"))
 			for _, row := range result.Rows {

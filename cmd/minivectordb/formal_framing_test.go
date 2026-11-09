@@ -136,7 +136,7 @@ func TestFormalFramingCodecHookDefaultsUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = w.Flush()
-	if !strings.HasSuffix(buf.String(), "ERROR boom\n") {
+	if !strings.HasSuffix(buf.String(), "ERROR sql_error boom\n") {
 		t.Fatal(buf.String())
 	}
 }

@@ -18,7 +18,7 @@ func TestREPLFramingAndRecovery(t *testing.T) {
 	if err := repl(strings.NewReader(input), &out, e.Session()); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "ERROR BIGINT requires an integer in int64 range\nid\tlabel\tv\n1\ta;'b\\tc\t[1,0]\nOK 1\n") {
+	if !strings.Contains(out.String(), "ERROR type_mismatch BIGINT requires an integer in int64 range\nid\tlabel\tv\n1\ta;'b\\tc\t[1,0]\nOK 1\n") {
 		t.Fatal(out.String())
 	}
 	e.Close()
