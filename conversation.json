@@ -2,7 +2,7 @@
  "format": "minivectordb-agent-learning-record",
  "synthetic": false,
  "branch": "2026-competition-round2",
- "scope": "Real record of the Claude (Anthropic) session of 2026-11-08/09 that produced this commit, plus the earlier session summary that was already in this file. Entries are labelled by source: student = the contestant's own messages, agent = the AI assistant, tool = actual command output.",
+ "scope": "Real record of the Claude (Anthropic) session of 2026-11-08/09 (continued through the first formal submission) that produced this commit, plus the earlier session summary that was already in this file. Entries are labelled by source: student = the contestant's own messages, agent = the AI assistant, tool = actual command output.",
  "redaction": "The contestant's competition password and username (a phone number), which appeared in the first message, are replaced by [REDACTED]. Long attachments (the official task statement) are summarised, not copied. No hidden reasoning is included.",
  "user_prompts": [
   {
@@ -44,6 +44,36 @@
    "id": "U8",
    "source": "student",
    "content": "[attachment: Yuque page text, same statement plus the line pointing to the public mysqltest cases at github.com/oceanbase/seekdb/tree/2026-competition-round2/mysqltest] 这是所有内容"
+  },
+  {
+   "id": "U9",
+   "source": "student",
+   "content": "你可以新建一个分支推送，我已经在这个浏览器上登录了github，我notion上和陈柳鹏共同的工作区也更新了赛题，你可以查看，我后面直接提交"
+  },
+  {
+   "id": "U10",
+   "source": "student",
+   "content": "不能在round2-claude-minivectordb上建立分支吗"
+  },
+  {
+   "id": "U11",
+   "source": "student",
+   "content": "用我的提交 [then chose: Claude 写的这版]"
+  },
+  {
+   "id": "U12",
+   "source": "student",
+   "content": "[screenshot of the submission form] 这是提测页面，怎么填"
+  },
+  {
+   "id": "U13",
+   "source": "student",
+   "content": "[screenshot: submission 2026-11-09 19:01, branch 2026-competition-round2, commit 5b2453d81ecc27..., 任务状态 执行失败, 成功 0 失败 1] 我提交都没过，为什么，另外你不是可以直接连我的GitHub和notion的账号吗，不用操作浏览器，还有我oceanbase大赛的账号是[REDACTED]，密码是[REDACTED].你可以登录查看"
+  },
+  {
+   "id": "U14",
+   "source": "student",
+   "content": "平台仍然没有日志，只有「执行失败 / 未完成」。本机对 5b2453d8：能编译、能起来、ready 有、自带 5 例 PASS——不是编不过或秒崩。\n\n和 tip#1 的硬差别：他默认输出改成了 JSON 一行一响，我们 tip 线是 TSV + OK n。结合「执行失败/未完成」vs tip#1「执行成功/未通过」，最强嫌疑是协议分叉，驱动更早阶段就中止——仍是推测，不是平台证实。你可以对比陈柳鹏的提交，他是因为数据库问题没有分数，但是执行成功了"
   }
  ],
  "conversations": [
@@ -96,6 +126,21 @@
    "n": 10,
    "source": "agent",
    "content": "Framing issue found while testing: a statement split over lines without ';' was cut at the newline. Changed to adaptive framing: newline ends a statement only until the first ';' is observed."
+  },
+  {
+   "n": 11,
+   "source": "agent",
+   "content": "Pushed the rewrite to new branches through the GitHub web UI (git push and the GitHub connector both returned 403). Kept the teammate's work on round2-chenlp-backup (8583f7c) and merged branch round2-claude-v2 into 2026-competition-round2 via PR #11 (merge commit 5b2453d); the merged tree was checked byte-identical to the locally tested commit."
+  },
+  {
+   "n": 12,
+   "source": "student",
+   "content": "Submitted 5b2453d formally; the platform reported 执行失败 with no log. The student then reproduced locally (build, start, ready, 5/5 public cases) to rule out build/crash, compared against the earlier submission tip#1 (TSV + OK n framing: 执行成功/未通过) and hypothesised that the JSON-lines framing made the driver abort early, explicitly marking this as unconfirmed (U14)."
+  },
+  {
+   "n": 13,
+   "source": "agent",
+   "content": "Checked the hypothesis against the mechanism: a TSV driver reads lines until an 'OK n' or 'ERROR' terminator; a single JSON line has no terminator, so the driver would block until timeout, which fits 执行失败/未完成. Read the teammate's writeResult at 8583f7c and changed the default output to match it byte for byte: header/rows/'OK n', 'ERROR <msg>' without code, encoding/json rendering for numbers and vectors (5.0 -> 5), newline-or-semicolon statement boundary."
   }
  ],
  "experiments": [
@@ -140,12 +185,24 @@
    "source": "tool",
    "command": "printf 'CREATE TABLE t (id BIGINT PRIMARY KEY);\\nINSERT INTO t VALUES (1);\\nBEGIN;\\nINSERT INTO t VALUES (2);\\n' | minivectordb ... ; kill -TERM; restart; SELECT",
    "output": "{\"columns\":[\"id\"],\"rows\":[[1]]}"
+  },
+  {
+   "id": "E8",
+   "source": "tool",
+   "command": "printf '<statements from the teammate formal_framing_test.go>' | minivectordb  (default --format tsv), compared with the expected bytes in that test",
+   "output": "OK 0\nOK 2\nid\\tdistance\n1\\t0\n2\\t5\nOK 2\nid\nOK 0\nERROR Duplicate entry '1' for key 'PRIMARY'\nmulti-statement framing: identical\nSELECT 1 framing: identical\nready line only on stderr: 1"
+  },
+  {
+   "id": "E9",
+   "source": "tool",
+   "command": "python3 scripts/run_public_cases.py  (runner now parses the TSV framing)",
+   "output": "5/5 cases passed"
   }
  ],
  "limitations": [
   "In this session the contestant supplied the task statement and the public-case link and asked for the work; the design, code, tests and performance experiments above were done by the AI agent. This file does not claim student understanding that did not happen.",
-  "The official stdin/stdout framing, error codes, ready marker and ann parameter are unpublished; the JSON-lines output is an assumption to verify with the platform pre-check.",
-  "Docker image build was not run (no Docker daemon in the sandbox); the identical go build command was run and produced a static x86-64 binary that passes the public cases."
+  "Docker image build was not run (no Docker daemon in the sandbox); the identical go build command was run and produced a static x86-64 binary that passes the public cases.",
+  "The official stdin/stdout framing is still unpublished. TSV + 'OK n' is inferred from which submission the driver ran to completion (U14), not confirmed by the platform; the formal result of the TSV version was not yet known when this file was written."
  ],
  "earlier_sessions": {
   "source": "agent",

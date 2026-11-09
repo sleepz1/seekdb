@@ -29,25 +29,27 @@ network port.
 | --- | --- | --- |
 | `--data-dir` / `MVDB_DATA_DIR` | `/data` | data directory (log file lives here) |
 | `--mode` / `MVDB_SEARCH_MODE` | `exact` | default vector search mode, `exact` or `ann` |
-| `--format` / `MVDB_FORMAT` | `json` | response format, `json` or `tsv` |
+| `--format` / `MVDB_FORMAT` | `tsv` | response format, `tsv` (default) or `json` |
 | `--ready-line` / `MVDB_READY_LINE` | empty | line printed to stdout after recovery (none by default) |
 | `--cache-mb` | auto | decoded-row cache budget; auto = 1/4 of the cgroup memory limit |
 
 ### Protocol
 
-* **Statement boundaries**: a statement ends at `;` outside quotes/comments.
-  Until the first `;` is seen, a newline (outside quotes, brackets balanced)
-  also ends a statement, so "one statement per line" input works with or
-  without semicolons; once `;` is in use, statements may span lines.
-* **Responses** (`--format json`, one line each, field names as in the public
-  `.result` files):
-  * query: `{"columns":["id","distance"],"rows":[[2,1.0],[3,2.0]]}`
-  * other success: `{"affected_rows":3}` (DDL and transaction control report 0)
-  * error: `{"error":{"code":1062,"sqlstate":"23000","message":"Duplicate entry '1' for key 'PRIMARY'"}}`
+* **Statement boundaries**: a statement ends at `;` outside quotes/comments,
+  or at a newline outside quotes when parentheses/brackets are balanced, so
+  one statement per line works with or without `;`.
+* **Responses** (default `--format tsv`; byte-compatible with the framing the
+  team's earlier submission used, which the official driver ran to completion):
+  * query: column names joined by TAB, one TAB-separated line per row, then
+    `OK <row count>` (also for empty results: header line, then `OK 0`)
+  * other success: `OK <affected rows>` (DDL and transaction control: `OK 0`)
+  * error: `ERROR <message>`
 
-  BIGINT values are JSON integers, distances are JSON floats (always with a
-  decimal point), VARCHAR values are strings, vector values are strings such
-  as `"[3,4]"`. Output is flushed after every statement.
+  Strings escape backslash, TAB, LF and CR as `\\`, `\t`, `\n`, `\r`.
+  Numbers and vectors use Go `encoding/json` rendering, e.g. a distance of
+  5.0 prints `5`, a vector prints `[3,4]`. Output is flushed after every
+  statement. `--format json` prints one JSON object per statement instead
+  (`{"columns":...,"rows":...}`, `{"affected_rows":n}`, `{"error":{...}}`).
 * **Ready**: the database only starts reading stdin after recovery has
   finished. `minivectordb: ready` is written to stderr; an optional stdout
   ready line can be configured with `--ready-line`.
@@ -57,9 +59,9 @@ network port.
 * **Shutdown**: EOF on stdin, `EXIT;`/`QUIT;`, SIGTERM or SIGINT. An open
   transaction is rolled back; committed data is already durable.
 
-> The official test driver framing is not public. JSON lines matching the
-> `.result` field names is this implementation's choice; `--format tsv` gives
-> a mysql `--batch`-like alternative. Error numbers follow MySQL conventions.
+> The official test driver framing is not public. A submission using one JSON
+> line per statement ended as "执行失败/未完成", while the earlier submission
+> with this TSV + `OK n` framing ran to completion, so TSV is the default.
 
 ## Example (empty data directory)
 
@@ -185,8 +187,8 @@ Local results on a 2-vCPU sandbox:
 ## Known limitations
 
 * The official driver protocol (response framing, error codes, ready marker,
-  mode parameter) is not public yet. The choices above may need adjusting
-  once the platform's environment pre-check reports a protocol mismatch.
+  mode parameter) is not public. The TSV framing is inferred from which
+  earlier submission the driver ran to completion, not from a specification.
 * ANN mode is exact search, so it is correct but not faster.
 * The primary-key index and slot table stay in memory (about 70 bytes per
   row). Very large tables are bounded by that, not by row size.
