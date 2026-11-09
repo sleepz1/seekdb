@@ -449,3 +449,17 @@ This supersedes earlier process-locking OPEN_ITEMS.
 
 OPEN_ITEMS: official framing/driver; large-scale recovery and total RSS;
 large statements/results; representative ANN performance and hidden-distribution recall.
+
+M16 extends local coverage to 16,384 rows with 32D vectors, automatic snapshot plus
+redo, and two correctness-checked reopens. One isolated run measured recovery at
+0.486 s unlimited and 4.045–4.198 s with a 4096-byte decoded cache. Observed loaded
+VmRSS was 52,656 / 15,380 kB respectively; recovery samples were 109,676–124,940 /
+15,612–15,720 kB. Shared-process allocator history prevents treating these as peak
+RSS comparisons. Decoded cache peak was 888 bytes; that budget excludes other
+process allocations and the kernel filesystem page cache. See SELFTEST for details.
+New seed-1601 independent Gaussian 64D ANN queries measured recall@10 mean/min
+0.29688/0.00 unfiltered and 0.28438/0.00 filtered; exact matches the independent
+oracle. Mean regression floor is 0.20, with no minimum or general recall guarantee.
+Upstream remains `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c`; framing is TBD and
+interim `reportReady` is unchanged. OPEN_ITEMS: official driver, larger recovery/
+peak RSS profiling, large inputs/results and high-dimensional ANN quality.

@@ -428,3 +428,48 @@ This supersedes earlier process-locking OPEN_ITEMS.
 
 OPEN_ITEMS: official framing/driver; large-scale recovery and total RSS;
 large statements/results; representative ANN performance and hidden-distribution recall.
+
+## M16 RSS, recovery scale and ANN generalization
+
+Upstream re-fetch remains `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c`:
+samples only, FRAMING=TBD, interim `reportReady` unchanged. No formal submission.
+No runtime change was needed: WAL already streams records, checkpoint writes rows
+incrementally, and the decoded cache is bounded. M12 probing and M15 flock remain.
+
+`TestM16RSSRecoveryScale` uses 16,384 rows, 32D vectors and 640-byte text in
+64 batches of 256 rows, unlimited and 4096-byte cache modes. The real 8 MiB WAL
+threshold automatically produces snapshot LSN 45; final version 67 leaves
+3,885,035 bytes of redo including index creation and a payload update. Close with
+an uncommitted DELETE, then two reopens verify every scalar/vector, all bucket
+offsets exactly once, LSNs and filtered exact/ANN singleton queries. Close does
+not checkpoint; this is a scale/reopen test, while M13/M15 retain real SIGKILL.
+First isolated run, Open through readiness (no wall-time assertions):
+
+| Cache budget | Recovery durations | Rows/sec | VmRSS before / loaded / reopened (kB) |
+| --- | --- | --- | --- |
+| unlimited | 486.06 / 486.31 ms | 33708 / 33690 | 5076 / 52656 / 124940, 109676 |
+| 4096 bytes | 4.045 / 4.198 s | 4051 / 3903 | 109680 / 15380 / 15612, 15720 |
+
+Peak decoded cache was 888 bytes in bounded mode. VmRSS is sampled with t.Logf,
+not capped; shared-process GC/allocator history explains why the second mode
+starts high. These are observations, not isolated peak-memory comparisons.
+The decoded row/page cache budget excludes active rows, SQL/parser buffers,
+results, references, indexes, Go heap slack and runtime overhead. Kernel filesystem
+page cache also consumes host/container memory and is distinct from process VmRSS;
+neither cache budget nor these samples establish a total memory ceiling.
+
+`TestM16ANNGeneralization`: seed 1601, 2048 independent isotropic Gaussian
+64D rows, 32 independent queries, k=10; no planted neighbors. Unfiltered mean/min
+recall is 0.29688/0.00; category=1 (one third eligible) is 0.28438/0.00.
+All 64 exact results match an independent full-sort L2 oracle using documented
+float32 accumulation and PK ties. ANN asserts cardinality, unique valid IDs and
+predicate membership. A conservative mean >=0.20 regression floor leaves headroom
+below both measured means; minimum is logged, not guaranteed. Eight coordinate
+signs lose substantial information in 64D. This is evidence against generalizing
+M12's near-duplicate recall to arbitrary data, not a contest 0.95 claim.
+
+Validation: go test ./..., requested M10–M16/recovery/checksum/lock selection,
+M1–M16 smoke, unchanged public sample harness 5/5, dual conversation equality and
+128 KiB limit, and git diff --check. No public sample rewriting or prestoring.
+OPEN_ITEMS: official framing/driver; larger recovery and peak RSS profiling;
+large statements/results; weak ANN recall on independent high-dimensional data.

@@ -242,3 +242,9 @@ for name in Lock LockFailedOpen LockProcess; do
  grep -q -- "--- PASS: TestM15$name " "$tmp/m15tests"
 done
 printf '%s\n' 'PASS: M15 process lock, second-open rejection, Close/reopen, failed-open cleanup, SIGKILL restart'
+# M16 wider RSS observations, automatic snapshot+redo scale, independent Gaussian ANN.
+go test -count=1 -v ./internal/db -run '^TestM16' >"$tmp/m16tests"
+for name in RSSRecoveryScale ANNGeneralization; do
+ grep -q -- "--- PASS: TestM16$name " "$tmp/m16tests"
+done
+printf '%s\n' 'PASS: M16 16384-row 32D RSS/recovery, auto-checkpoint+redo, 64D Gaussian ANN recall and exact oracle'
