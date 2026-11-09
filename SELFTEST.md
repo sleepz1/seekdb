@@ -308,3 +308,51 @@ Upstream fetched: **a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c**, samples-only;
 framing remains **TBD**, interim reportReady unchanged. No formal contest submit
 or 提测. Automatic checkpoint scheduling, process locking, recovery performance,
 total RSS and large statements/results remain open.
+
+## M13 recovery performance and framing watch
+
+Fetched upstream `2026-competition-round2`: **a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c**,
+unchanged samples-only tip. Official framing remains **TBD**; interim `reportReady`,
+stdin/stdout and Dockerfile remain unchanged. No formal submission / 提测.
+
+WAL replay now defers derived Sign-LSH bucket rebuilds until the existing final
+pre-readiness pass. Previously every replayed mutation rebuilt all indexes over
+all accumulated rows. SQL validation and exact mutation semantics do not depend
+on buckets. Live writes retain their existing rebuild behavior. Checksum validation
+still precedes application with two streaming passes; fsync and checkpoint ordering
+are unchanged. This removes repeated index scans during replay, not all quadratic
+work: per-INSERT PK validation still scans prior rows. Snapshot decoding may also
+construct indexes before the final pass. No before/after speedup is claimed.
+
+`TestM13Recovery` writes 128 real transaction commits of 32 rows (4096 total), with
+an index created before inserts, then commits a vector update and delete/reinsert.
+A subprocess is SIGKILLed with an uncommitted full-table delete. Four configurations
+cover unlimited memory / 256-byte decoded page cache and WAL-only / checkpoint
+halfway plus redo. Each reopens twice, checks every ID, payload and vector, every
+bucket's membership/uniqueness/coverage, exact and ANN nearest results, the readiness
+gate, and cache accounting. WAL-only recovery also checks buckets were not built
+before the final pass. M10 retains corruption/publication and bounded-growth tests;
+M11/M12 retain exact oracle and recall floors.
+
+First isolated local run (Open through readiness, including final index rebuild
+and bounded-mode compaction; two observations per configuration):
+
+| Cache budget | Recovery source | WAL bytes | Duration | Rows/sec |
+| --- | --- | ---: | --- | --- |
+| unlimited | WAL | 362619 | 32.70–37.92 ms | 108028–125245 |
+| unlimited | snapshot + WAL | 183063 | 30.40–30.52 ms | 134188–134757 |
+| 256 bytes | WAL | 362619 | 1.217–1.385 s | 2957–3365 |
+| 256 bytes | snapshot + WAL | 183063 | 1.002–1.063 s | 3854–4089 |
+
+Rows/sec counts all 4096 recovered live rows, including snapshot rows. Fixture
+creation and verification queries are excluded. Timings are observational, with
+no wall-time assertion; OS cache, storage and host load affect results. These are
+local regression measurements, not official recovery scores or an RSS guarantee.
+
+Automatic checkpoint scheduling remains disabled: `Engine.Checkpoint()` is explicit
+and rejects active transactions. No new knobs. Validation: `go test ./...`, targeted
+`M13|M12|M11|ANNRecall|M10|WALChecksum|Recover`, all prior smoke lines plus M13,
+and unchanged local public-case harness 5/5. Dual conversation files remain identical
+and <=128 KiB. OPEN_ITEMS: official framing; automatic checkpoint scheduling;
+process locking; PK-validation and bounded-page replay performance at larger scale;
+total RSS/large statements/results; ANN generalization beyond fixed fixtures.

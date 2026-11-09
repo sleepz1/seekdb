@@ -264,7 +264,7 @@ func (e *Engine) readRecord(r io.Reader, apply bool) error {
 				}
 				checksumStatement(h, stmt)
 				if apply && lsn > e.snapshotLSN {
-					_, write, err := runStored(e.state, stmt, false, e.pages)
+					_, write, err := runStoredMaintenance(e.state, stmt, false, e.pages, false)
 					if err != nil {
 						return err
 					}

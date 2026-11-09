@@ -222,7 +222,13 @@ func run(state State, sql string) (Result, bool, error) { return runMode(state, 
 func runMode(state State, sql string, ann bool) (result Result, write bool, err error) {
 	return runStored(state, sql, ann, nil)
 }
-func runStored(state State, sql string, ann bool, pages *pageStore) (result Result, write bool, err error) {
+func runStored(state State, sql string, ann bool, pages *pageStore) (Result, bool, error) {
+	return runStoredMaintenance(state, sql, ann, pages, true)
+}
+
+// Recovery defers derived index maintenance until all authoritative writes have
+// replayed. Replay uses exact mode; mutation validation does not consult buckets.
+func runStoredMaintenance(state State, sql string, ann bool, pages *pageStore, rebuild bool) (result Result, write bool, err error) {
 	defer func() {
 		if v := recover(); v != nil {
 			if e, ok := v.(storageError); ok {
@@ -236,7 +242,7 @@ func runStored(state State, sql string, ann bool, pages *pageStore) (result Resu
 	}()
 	sql = normalizeSQL(sql)
 	defer func() {
-		if write && err == nil {
+		if rebuild && write && err == nil {
 			for _, t := range state {
 				rebuildIndexes(t)
 			}

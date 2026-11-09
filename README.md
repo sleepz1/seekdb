@@ -360,3 +360,20 @@ Upstream fetched: **a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c**, samples-only;
 framing remains **TBD**, interim reportReady unchanged. No formal contest submit
 or 提测. Automatic checkpoint scheduling, process locking, recovery performance,
 total RSS and large statements/results remain open.
+
+## M13 recovery and framing watch
+
+Upstream remains `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c` (samples only).
+Official framing is **TBD**; interim `reportReady` is unchanged. Replay now skips
+per-statement Sign-LSH rebuilds and constructs buckets in the final pass before
+readiness. Live write behavior, checksum verification and durability are unchanged.
+
+A deterministic SIGKILL test recovers 4096 rows from 128 transaction commits, both
+WAL-only and checkpoint-plus-redo, with two reopens and full row/index checks.
+First local WAL-only observations: **32.70–37.92 ms (108028–125245 rows/sec)** in
+memory, **1.217–1.385 s (2957–3365 rows/sec)** with a 256-byte page cache. Snapshot
+plus redo measured **30.40–30.52 ms** / **1.002–1.063 s**, respectively. Timing covers
+Open through readiness; it has no strict assertion and is not an official score.
+See SELFTEST for fixture details and limits. PK validation still scans existing
+rows; larger-scale recovery and total RSS remain open. Automatic checkpoints are
+not enabled: callers use `Engine.Checkpoint()` with no active transactions.

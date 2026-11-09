@@ -215,3 +215,8 @@ go test -count=1 -v ./internal/db -run '^TestM12' >"$tmp/m12tests"
 grep -q -- '--- PASS: TestM12ANNFilteredExpansion' "$tmp/m12tests"
 grep -q 'M12 timing:' "$tmp/m11tests"
 printf '%s\n' 'PASS: M12 expanded Sign-LSH recall mean>=0.95/min>=0.90, SQL timing log, filtered distant-shell cardinality'
+# M13 recovery includes real SIGKILL, many commits, final index rebuild and timing.
+go test -count=1 -v ./internal/db -run '^TestM13Recovery$' >"$tmp/m13tests"
+grep -q -- '--- PASS: TestM13Recovery' "$tmp/m13tests"
+grep -q 'M13 recovery:' "$tmp/m13tests"
+printf '%s\n' 'PASS: M13 4096-row recovery, 128 batch commits, SIGKILL, snapshot+redo, deferred index rebuild, timing log'

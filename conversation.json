@@ -825,6 +825,24 @@
         "quote": "unfiltered mean/min 0.71250/0.10 -> 1.00000/1.00"
       },
       "score": null
+    },
+    {
+      "id": "U12-M13-recovery-framing",
+      "baseline": "7a14bee2b72c427346533526162d089f73ca5c97",
+      "upstream_tip": "a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c",
+      "contest_formally_submitted": false,
+      "user_prompt_excerpt": "Improve or measure large-WAL / many-row recovery without breaking correctness:",
+      "attribution": "User request excerpt above; implementation and observations below are Agent/tool work, not inferred student understanding. Prior evidence unchanged.",
+      "design": "Replay defers per-statement Sign-LSH rebuilds to the existing final pre-readiness pass. Live writes still rebuild normally. Mutation validation does not use buckets. Two-pass checksum verification, WAL fsync, checkpoint ordering and framing unchanged. No automatic checkpoint scheduling; explicit Engine.Checkpoint remains available.",
+      "fixture": "TestM13Recovery: 128 real commits x 32 rows = 4096, index created before inserts, vector update and delete/reinsert, SIGKILL with uncommitted DELETE FROM t. Unlimited and 256-byte cache, WAL-only and checkpoint halfway plus redo; two reopens each. Assert every row/payload/vector, bucket coverage/uniqueness/membership, exact/ANN nearest, readiness and cache bound. No strict timing threshold.",
+      "results": "First isolated run, Open through readiness: WAL-only 362619 bytes, unlimited 32.70-37.92 ms / 108028-125245 rows/sec; 256-byte cache 1.217-1.385 s / 2957-3365 rows/sec. Snapshot+redo 183063 WAL bytes, unlimited 30.40-30.52 ms / 134188-134757 rows/sec; bounded 1.002-1.063 s / 3854-4089 rows/sec. Throughput includes all 4096 live rows. Local observations, not official scores or before/after speedup claims.",
+      "checks": "go test ./... PASS; go test -count=1 ./internal/db/ -run M13|M12|M11|ANNRecall|M10|WALChecksum|Recover -v PASS; unchanged public harness SUMMARY pass=5 fail=0. Harness remains untracked and excluded from commit. ./scripts/smoke.sh PASS all prior lines plus M13; git diff --check PASS.",
+      "limitations": "Upstream fetched unchanged samples-only; official framing TBD and reportReady unchanged. No formal contest submit. Remaining: automatic checkpoint scheduling, process locking, PK-validation scans and bounded-page recovery at larger scales, total RSS/large statements/results, ANN generalization. Snapshot decoding may rebuild indexes before final pass; no claim to remove all quadratic replay work.",
+      "result_evidence": {
+        "pointer": "/evidence_units/11/results",
+        "quote": "WAL-only 362619 bytes"
+      },
+      "score": null
     }
   ]
 }
