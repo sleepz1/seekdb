@@ -1,530 +1,193 @@
-# MiniVectorDB M12 — Sign-LSH recall and performance
+# MiniVectorDB
 
-Pure Go SQL/vector engine. No external storage engine or vector library. Requires
-Go 1.22+; smoke requires Bash. Default mode is a foreground stdin session with
-stdout results, stderr logs, no network listener, and data directory `/data`.
-The confirmed contest protocol is stdin/stdout; exact round2 pack framing is TBD.
+A single-process, single-client vector database written from scratch in Go
+(standard library only) for the 2026 OceanBase competition, extra round
+(`2026-competition-round2`). It supports a SQL subset, exact filtered vector
+TopK, durable storage in `/data`, transactions and crash recovery.
+
+## Build and run
+
+Language: Go 1.22 (no third-party modules). Runtime image: Ubuntu 24.04.
+
+```sh
+docker build -t minivectordb:latest .
+docker run --rm -i -v minivectordb-data:/data minivectordb:latest
+```
+
+Without Docker:
 
 ```sh
 go build -o minivectordb ./cmd/minivectordb
-printf 'SELECT 1;\n' | ./minivectordb -data /tmp/x
-./scripts/smoke.sh
+./minivectordb --data-dir /tmp/mvdb
 ```
 
-Temporary protocol (stable until pack reconciliation): SQL statements end at a
-semicolon outside SQL single quotes, or a newline outside quotes and balanced
-parentheses/brackets. Multiple statements per line are supported. Multiline
-CREATE/INSERT works inside parentheses; arbitrary multiline clauses must stay on
-one line. SQL doubled quotes (`''`) escape quotes. Comments are not supported.
-EOF executes any remaining statement, then exits cleanly; unfinished transaction
-writes are discarded. Malformed unterminated quotes consume input until EOF and
-produce an error. Each stdin process owns one Session.
+The process runs in the foreground, reads SQL from **stdin**, writes one
+response line per statement to **stdout** and logs to **stderr**. It opens no
+network port.
 
-Successful writes and transaction commands print `OK <affected>` (zero for DDL
-and transaction commands). SELECT prints tab-separated column names, then one row
-per line, then `OK <rowcount>`, including empty results. Text cells escape backslash,
-tab, newline and carriage return as `\\`, `\t`, `\n`, `\r`; numbers and vectors
-use JSON notation (vectors are arrays). SQL errors print `ERROR <message>` and the
-loop continues. Every response is flushed immediately. Startup and I/O failures
-log to stderr and exit nonzero. There is no stdout banner.
-
-```sql
-CREATE TABLE items (id BIGINT PRIMARY KEY, label VARCHAR(32), embedding VECTOR(2));
-BEGIN;
-INSERT INTO items VALUES (1, 'first', [1,0]);
-COMMIT;
-SELECT * FROM items ORDER BY L2_DISTANCE(embedding, [1,0]) LIMIT 1;
-```
-
-Supported SQL: CREATE TABLE with exactly one inline BIGINT PRIMARY KEY and at most
-one VECTOR(n); INT/INTEGER, TEXT/VARCHAR/VARCHAR(n), FLOAT/DOUBLE remain available
-for other columns. INSERT INTO ... VALUES supports multiple rows atomically.
-UPDATE ... SET col=literal [, ...] WHERE predicates rejects PK assignments.
-DELETE FROM supports predicates or deletes all rows without WHERE. SELECT supports
-* or projected columns/distance expressions, optional AS aliases, ordinary-column
-or distance ORDER BY with ASC/DESC, and LIMIT. WHERE supports =, <, <=, >, >= and
-AND; vectors are rejected. BIGINT compares numerically; UTF-8 text compares in
-Unicode code point order. Also: SELECT 1, DROP TABLE, BEGIN/START TRANSACTION,
-COMMIT, ROLLBACK. Unsupported SQL returns ERROR and the next statement still runs.
-Duplicate primary keys are rejected without partial writes, including duplicate
-keys within one multi-row INSERT. Bare and SQL-quoted vector arrays are accepted
-in INSERT, UPDATE and distance expressions.
-INT/INTEGER/BIGINT use int64 and ParseInt: fractions, exponent notation and values
-outside [-9223372036854775808, 9223372036854775807] are rejected. Typed transaction
-copies and snapshot decoding preserve integer precision; WAL retains SQL literals.
-VARCHAR(n) enforces a positive maximum Unicode rune count, not bytes; bare VARCHAR
-and TEXT remain unlimited. Strings require SQL quotes and valid UTF-8.
-VECTOR(n) requires a positive fixed dimension, stores []float32, and rounds inputs
-to float32. NaN, infinities, null elements, conversion overflow and dimension
-mismatch are errors on insertion and query. Distance arithmetic accumulates in
-float32 (square root uses Go math then rounds to float32); nonfinite distance
-results are errors, including overflow from large finite input values.
-L2_DISTANCE is primary; EUCLIDEAN and DISTANCE are aliases. COSINE computes cosine
-distance and DOT negative inner product. Filtering precedes candidate selection,
-distance sorting and LIMIT. All ORDER BY ties use the explicit primary key
-ascending, including DESC. Example projection:
-`SELECT id, L2_DISTANCE(embedding, '[1,0]') AS distance FROM items ORDER BY distance LIMIT 2;`
-
-Search defaults to exact. `-ann` sets the mode for new sessions;
-`SET search_mode=ann` / `SET search_mode=exact` changes the current session and
-`SELECT search_mode` reads it. Mode is session configuration, unaffected by
-ROLLBACK and not persisted. `CREATE VECTOR INDEX idx ON items(embedding)`
-creates a self-built sign-LSH index using up to eight vector coordinates.
-ANN probes complete Hamming shells through radius 2 and expands to a post-filter
-8*K candidate target (capped by table size); it has no general recall guarantee. Without an index, the retained M4 ANN
-fallback samples every second filtered row. Exact always scans all qualifying
-rows, regardless of indexes. Queries without vector ORDER BY are unaffected.
-Index metadata is stored in snapshot JSON / WAL DDL. Startup rebuilds every bucket
-before marking the engine ready; online CREATE VECTOR INDEX finishes rebuilding
-before success. Transactions share immutable buckets until mutation rebuilds them.
-Rollback discards private index changes. This is not yet a performance-tuned index.
-
-```sql
-SELECT * FROM items WHERE label = 'first' AND id = 1 ORDER BY L2_DISTANCE(embedding, [1,0]) LIMIT 1;
-SET search_mode=ann;
-SELECT search_mode;
-SET search_mode=exact;
-```
-
-Startup emits `minivectordb: ready` on **stderr only**, after recovery and index
-rebuild. `Engine.Ready()` remains false until then; `Session.Execute` returns
-`database not ready` during the gate. `Open` never returns a partially ready engine.
-This is our interim readiness handshake; official ready framing is **待题包确认**.
-Numeric error codes, exact framing and official ANN/recall requirements remain
-pending. SQL errors allow continued input; startup/I/O failures exit nonzero.
-
-BEGIN/START TRANSACTION creates a private state copy with read-your-writes;
-other sessions see only committed state. COMMIT checks the engine version,
-appends all successful writes as one newline-terminated JSON WAL record with a
-sequential LSN, and fsyncs before publishing state or returning success.
-Autocommit writes use the same path with one statement. ROLLBACK and disconnect
-discard private writes. A failed statement leaves prior successful statements
-in the transaction intact. Concurrent commits use a coarse database-wide version
-check; conflicts require ROLLBACK. Nested BEGIN is rejected. COMMIT/ROLLBACK
-without an active transaction are no-ops.
-
-Open loads the legacy snapshot, then replays complete WAL records in LSN order.
-An incomplete final record is truncated and synced before accepting new writes;
-malformed complete records or LSN gaps fail startup. WAL creation is synced along
-with its directory. Read-only transactions write no redo. Write/fsync failure
-blocks subsequent durable writes until restart; a commit interrupted before its
-acknowledgment has an uncertain outcome and may recover if its full record exists.
-Only one server/Engine may own a data directory at a time; there is no process lock.
-
-`-memory-budget=BYTES` bounds the decoded row cache (CLI default: 67108864 bytes,
-64 MiB). `0` selects the legacy unlimited path. Library callers retain compatibility:
-`Open(dir)` is unlimited; `OpenWithOptions(dir, OpenOptions{MemoryBudgetBytes: n})`
-enables bounded storage. Negative budgets are rejected.
-
-Bounded mode stores immutable one-row pages in `segments/rows-*.page` beneath
-`-data`. Tables retain offset/length directories, not `Table.Rows` payloads;
-transaction copies copy references. A conservative single-page hot cache evicts
-before decoding a different page. Rows larger than the budget are read uncached.
-The budget covers decoded cached payloads, not a process RSS limit: one active row,
-SQL/parser buffers, returned results, schema, page references, PK validation keys,
-index buckets and ordering keys are additional memory. Limited TopK retains at
-most k candidates plus the current candidate. Unbounded SELECT results still scale
-with output size. `ResidentRowBytes`, `PeakResidentRowBytes` and `ResidentPages`
-expose cache accounting for automated tests.
-
-Successful mutations append immutable pages; COMMIT syncs segments before writing
-and syncing the authoritative JSON WAL batch. Active transaction SQL is spooled to
-`segments/tx-*.pending`, so a batch does not retain all SQL payloads in RAM. Failed
-statements discard private references; rollback and EOF never publish their pages
-or pending SQL. Recovery streams complete WAL batches one statement at a time and
-legacy snapshots one row at a time, reconstructing a fresh segment and page
-directory without loading all payloads together. Index rebuild scans cold pages.
-Snapshot and WAL remain the recovery authority; keep both together. Old segments
-and abandoned transaction spools are never recovery input; successful bounded
-startup compacts the recovered generation and removes abandoned generations/spools.
-
-Recovery replay cost, page/reference copying, per-row file I/O, large individual
-SQL statements/results and process locking remain open work. Only one Engine/process may own a data
-directory. Checkpointing is explicit through `Engine.Checkpoint()`; no automatic threshold is enabled.
-Optional local MySQL wire helper replaces stdin mode only when explicitly set:
-
-```sh
-./minivectordb -mysql-addr 127.0.0.1:3306 -data /tmp/wire-data
-go run ./scripts/mysqlsmoke -addr 127.0.0.1:3306 -query 'SELECT 1'
-```
-
-`-addr` is an alias. The retained helper supports protocol 10, COM_QUERY, COM_PING,
-COM_INIT_DB and COM_QUIT, JSON vectors and text results. Authentication accepts
-any username/password; no TLS, prepared statements or wire multi-statements.
-Wire-specific SELECT VERSION() and SET NAMES remain available. Its transaction
-commands must share a connection (repeat client `-query` flags). Primary smoke
-does not use the wire helper.
-
-```sh
-sg docker -c 'docker build -t minivectordb:m3 .'
-printf 'SELECT 1;\n' | docker run --rm -i -v minivectordb-data:/data minivectordb:m3
-```
-
-Docker uses CGO=0 and scratch, WORKDIR /data, ENTRYPOINT /minivectordb and CMD
-`-data /data`; no port exposure is needed. See [SELFTEST.md](SELFTEST.md).
-Exact official framing and broader contest SQL dialect remain open. No official
-contest submission or PR merge has been made.
-
-M8 adds `Engine.Compact()` for bounded storage. It copies only live page bytes
-into a new segment, fsyncs the file and directory, then publishes new references
-and removes the old segment. Row ordinals and index buckets remain unchanged.
-Active transactions pin references: explicit compaction returns an error while
-any are active. Automatic maintenance runs after writes/COMMIT when the current
-segment is at least 1 MiB and more than twice its live bytes, unless transactions
-are active. Automatic maintenance errors do not undo an acknowledged durable
-commit; explicit Compact reports errors. Unlimited `Open` is a no-op for Compact.
-Snapshot + WAL remain authoritative through interruption at any compaction stage.
-Recovery compacts before readiness; this bounds recovered segment generations,
-not WAL size or peak temporary disk usage. One Engine owns each data directory.
-Library callers must end transactions with COMMIT/ROLLBACK to release their pins.
-
-Ready framing adapter: `cmd/minivectordb/main.go:reportReady` is the single switch
-point for the interim stderr-only `minivectordb: ready`; official framing remains
-**待题包确认**. Upstream fetched for M8:
-`c842a368c3394748d0499386c18f6b465242e141` (unchanged scaffold).
-
-Budget policy is **exclude**: ResidentRowBytes/PeakResidentRowBytes meter only
-decoded row page cache contents. Active/oversized uncached rows, SQL/parser and
-copy buffers, returned result sets, schema, page references, PK validation keys,
-index buckets and ordering keys are excluded. This is not an RSS bound.
-`go test -count=1 ./internal/db -run 'M7|M8|Compact|Budget|Stress' -v` verifies
-compaction, recovery, readiness, large results, oversized rows and eviction.
-
-## M9 WAL checksum, hard crash and coarse recall
-
-Upstream competition branch fetched before coding: `c842a368c3394748d0499386c18f6b465242e141`
-(unchanged scaffold). Official ready/error/result framing remains **待题包确认 / TBD**.
-The single `reportReady` adapter still emits `minivectordb: ready` on stderr only,
-after snapshot/WAL recovery and index rebuild; stdout flush behavior is unchanged.
-
-Every new WAL record includes an IEEE CRC32 checksum. Input is the little-endian
-uint64 LSN followed, for each statement in order, by its little-endian uint64
-UTF-8 byte length and UTF-8 bytes. JSON escaping is not part of the checksum.
-Recovery requires checksums (pre-M9 checksum-free WAL is not accepted), verifies
-a complete record before applying any of its statements, and uses two streaming
-passes without retaining the whole batch. Complete-record corruption fails Open
-with an offset and checksum error; it does not skip records or modify the bad WAL.
-The committed prefix remains recoverable by explicit operator repair: preserve a
-backup and truncate at the reported first bad record offset, discarding that record
-and everything later. An incomplete final line is automatically truncated as before.
-CRC32 detects accidental corruption, not malicious tampering. An unacknowledged
-complete record may recover; failure before acknowledgment alone does not prove rollback.
-
-`TestM9WALChecksum` and `TestM9WALCorruptTail` cover valid checksums, altered payloads,
-checksum damage, missing checksums, bad middle records, explicit prefix repair,
-and multiple truncation offsets. `TestM9WALHardCrash` kills subprocesses after a
-real streaming COMMIT writer is interrupted with a partial record before fsync,
-and after a fully synced COMMIT; two reopens check absence/presence respectively.
-Existing smoke retains real CLI SIGKILL and ready-gate checks.
-
-`TestM9ANNRecallCoarse` builds 160 deterministic 2D vectors in four sign-separated
-clusters around (+/-10,+/-10), with small deterministic offsets, and compares four
-indexed Sign-LSH queries to exact Top10. Recall is intersection size / 10. Measured
-recall@10 was **1.00 for each query, mean 1.00**; each query asserts only a 0.10
-floor and rejects empty ANN output. Exact neighbors share each query's sign bucket,
-so this is an intentionally easy degeneration check, not an official contest metric
-or a general recall guarantee. No external ANN library is used.
-Linux `/proc/self/status` VmRSS in the targeted run was 5700 kB before and 6420 kB
-after the recall test. These are observations only, vary across runs, and do not
-establish a process RSS cap; page cache budget is not process RSS. Unsupported
-systems log an observation skip.
-
-M9 validation: `go test ./...`,
-`go test -count=1 ./internal/db/ -run 'M9|WALChecksum|HardCrash|ANNRecall|Corrupt' -v`,
-`./scripts/smoke.sh`, JSON identity/size/pointer checks and `git diff --check`.
-OPEN_ITEMS: official framing; WAL checkpoint/growth; process locking; recovery
-performance; total RSS/large statements/results; representative ANN recall and
-performance. M9 supersedes earlier checksum and unmeasured coarse-recall open items.
-No formal contest submission or 提测.
-
-## M10 explicit WAL checkpoint / bounded growth
-
-Upstream fetched before coding: `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c`
-(samples only; companion driver/framing remains unpublished). `reportReady` remains
-the single interim stderr adapter; official framing is TBD. Dockerfile and stdin
-result flushing are unchanged. No formal submission / 提测.
-
-`Engine.Checkpoint()` holds the engine mutex and rejects active transactions,
-not-ready engines and poisoned WAL writers. It streams committed rows and index
-metadata into a temporary snapshot under `-data`, fsyncs it, renames it to
-`snapshot.json`, and fsyncs the directory before truncating and fsyncing `wal.log`.
-Snapshots use `[checkpointLSN, tableMap]`; table schemas/rows/index metadata retain
-the existing encoding, and Open still accepts legacy bare table-map snapshots.
-Recovery verifies checksums even on retained WAL records covered by the snapshot,
-skips applying those records, and replays later sequential LSNs. Thus interruption
-between snapshot publication and WAL truncation cannot duplicate committed SQL.
-New records retain M9 CRC32 checksums and monotonically increasing LSNs. A failed
-WAL truncation/sync blocks further writes until recovery. Temporary snapshots are
-not recovery input; a killed checkpoint may leave an ignored temporary file.
-
-Policy: explicit library API only, no SQL/protocol extension or automatic trigger.
-After each successful checkpoint WAL size is **0 bytes**; between calls its size
-is the committed redo since the last checkpoint. Callers must schedule checkpoints
-to bound growth; the default CLI still has no automatic WAL bound. Snapshot size
-scales with live data, and replacement temporarily requires old plus new snapshot
-space as well as WAL. Bounded mode streams one row at a time; existing cache-budget
-exclusions still apply. Checkpoint does not replace page-segment Compact.
-
-`TestM10WALBoundedGrowth` uses a 128-byte cache, three rounds of 200 committed
-batches, and checks WAL sizes **15418->0**, **15543->0**, **15548->0 bytes**.
-It then commits row 600, leaves row 999 uncommitted, SIGKILLs the subprocess and
-reopens twice: all 601 committed IDs survive, row 999 does not. Checkpoint tests
-also cover unlimited/bounded recovery, an empty checkpoint, active-txn rejection,
-rollback, deleted rows, index metadata, snapshot publication with old WAL retained,
-post-checkpoint checksum corruption, failed snapshot rename and poisoned writers.
-
-Validation: `go test ./...`, targeted `M10|Checkpoint|BoundedGrowth|WALChecksum|HardCrash`,
-and smoke with all prior PASS lines plus M10. M10 closes the explicit checkpoint
-work item; automatic scheduling, process locking, official framing, representative
-ANN recall, recovery performance and total RSS limits remain open.
-
-## M11 representative ANN regression
-
-`TestM11ANNRecallRepresentative` uses Go math/rand seed **1101**, **32 dimensions**,
-32 standard-normal centers, 40 near-duplicates per center with independent Gaussian
-noise sigma 0.15, and 256 independent standard-normal distractors: **1536 rows**.
-Each center supplies one query with independent Gaussian noise sigma 0.08.
-All inputs are rounded to float32 and serialized losslessly. Coordinates 9–32
-contribute to L2 but are invisible to the existing eight-bit coordinate-sign index.
-Near-duplicates cross bucket boundaries: 92/320 unfiltered and 98/320 filtered
-exact neighbors have a different signature from their query. This adds difficulty
-beyond M9's separated 2D quadrants; M9 remains unchanged and green.
-
-Each of 32 queries runs both unfiltered and with `category = 1` (odd IDs, half the
-rows). An independent brute-force float64 L2 calculation over float32 inputs,
-rounded to float32 and sorted with ascending PK ties, supplies Top10 truth. On this
-fixture all exact-mode ordered IDs agree despite the engine's float32 accumulation.
-Recall is intersection size / 10, including when ANN returns fewer than ten rows.
-Measured mean/min recall@10: **0.71250 / 0.10 unfiltered**, **0.69375 / 0.20 filtered**.
-Each group asserts mean >= **0.60** and every query >= **0.10**: mean headroom is
-about 0.09 below the weaker baseline, while the per-query floor rejects total misses.
-Validity, uniqueness and predicate compliance are checked separately. A singleton
-predicate forces expansion beyond an occupied query bucket, catching filtering
-after candidate selection/TopK; an empty predicate result must remain empty.
-
-No runtime/index parameter changes or dependencies were needed. The existing
-nearest nonempty Hamming shell can return fewer than K rows and has weak worst-case
-recall. These deterministic local regression numbers are **not official metrics**,
-not evidence of the stated 0.95 contest recall target, and not a general recall or
-performance guarantee. Wider probing would trade more distance evaluations for
-recall; higher-dimensional signatures and representative performance remain future
-work. The fixed planted fixture does not cover every overlapping distribution.
-
-Validation: `go test ./...`, targeted `M11|ANNRecall|M10|WALChecksum`, and
-`./scripts/smoke.sh` all pass, retaining prior smoke checks plus the M11 PASS line.
-The existing local public-case harness reports **5/5**, without implementation
-changes or stored answers. Root/agent conversation files are identical and below
-128 KiB. Upstream remains `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c` (samples only);
-official framing remains TBD and interim `reportReady` is unchanged. No formal
-contest submission / 提测. Other open items: automatic checkpoint scheduling,
-process locking, recovery performance, total RSS and large statements/results.
-
-## M12 Sign-LSH recall and timing
-
-The self-implemented eight-coordinate Sign-LSH now accumulates complete Hamming
-shells through radius 2, then expands until it has min(8*K, table rows) eligible
-candidates or exhausts all buckets. WHERE is applied before counting candidates;
-full shells avoid truncation bias between equally distant buckets. LIMIT 0 returns
-no candidates; queries without LIMIT exhaust the index. Exact mode is unchanged.
-No dependencies, signature format, rebuilding, protocol or persistence changes.
-M5 assertions that required short ANN results now expect min(K,N), retaining the
-nearest-ID, transaction, rollback and recovery checks. M12 adds a filtered fixture
-with eligible rows at Hamming distance 8, including K=0 and K>N.
-
-On the unchanged M11 seed=1101, dims=32, 1536-row, 32-query-per-group fixture:
-
-| Recall@10 mean / minimum | M11 baseline | M12 |
+| Flag / env | Default | Meaning |
 | --- | --- | --- |
-| Unfiltered | 0.71250 / 0.10 | 1.00000 / 1.00 |
-| category=1 | 0.69375 / 0.20 | 1.00000 / 1.00 |
+| `--data-dir` / `MVDB_DATA_DIR` | `/data` | data directory (log file lives here) |
+| `--mode` / `MVDB_SEARCH_MODE` | `exact` | default vector search mode, `exact` or `ann` |
+| `--format` / `MVDB_FORMAT` | `json` | response format, `json` or `tsv` |
+| `--ready-line` / `MVDB_READY_LINE` | empty | line printed to stdout after recovery (none by default) |
+| `--cache-mb` | auto | decoded-row cache budget; auto = 1/4 of the cgroup memory limit |
 
-M11 retains its independent exact oracle and now asserts mean >=0.95 and minimum
->=0.90 in each group, plus exactly ten ANN results. Observational SQL timing in a
-targeted run (32 queries, excluding mode switches, data/index preparation and oracle):
-unfiltered exact **9.769 ms**, ANN **3.400 ms**; filtered exact **6.210 ms**, ANN
-**2.308 ms**. Timing uses time.Now around Session.Execute via the test helper; no
-wall-clock assertion. Earlier measurement: 10.249/2.858 ms and 5.530/2.736 ms.
-These are warm, local timings, not official end-to-end or cgroup measurements.
+### Protocol
 
-Wider probing costs candidate offsets, predicate reads and distance evaluations;
-selective filters or large K can exhaust the whole index, and completing a shell
-can exceed the candidate target. The first eight coordinate signs still ignore
-remaining dimensions and vector magnitudes: the planted fixture's perfect recall
-does not guarantee 0.95 on other distributions or hidden seeds. No-index ANN keeps
-the legacy sampling behavior. Rebuild cost and bounded-cache disk performance
-remain unmeasured here.
+* **Statement boundaries**: a statement ends at `;` outside quotes/comments.
+  Until the first `;` is seen, a newline (outside quotes, brackets balanced)
+  also ends a statement, so "one statement per line" input works with or
+  without semicolons; once `;` is in use, statements may span lines.
+* **Responses** (`--format json`, one line each, field names as in the public
+  `.result` files):
+  * query: `{"columns":["id","distance"],"rows":[[2,1.0],[3,2.0]]}`
+  * other success: `{"affected_rows":3}` (DDL and transaction control report 0)
+  * error: `{"error":{"code":1062,"sqlstate":"23000","message":"Duplicate entry '1' for key 'PRIMARY'"}}`
 
-Validation: go test ./..., targeted M12|M11|ANNRecall|M10|WALChecksum, all prior
-smoke checks plus M12, and unchanged local public harness **5/5** pass.
-Upstream fetched: **a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c**, samples-only;
-framing remains **TBD**, interim reportReady unchanged. No formal contest submit
-or 提测. Automatic checkpoint scheduling, process locking, recovery performance,
-total RSS and large statements/results remain open.
+  BIGINT values are JSON integers, distances are JSON floats (always with a
+  decimal point), VARCHAR values are strings, vector values are strings such
+  as `"[3,4]"`. Output is flushed after every statement.
+* **Ready**: the database only starts reading stdin after recovery has
+  finished. `minivectordb: ready` is written to stderr; an optional stdout
+  ready line can be configured with `--ready-line`.
+* **Exact / ANN**: default `exact`. `SET search_mode = ann` / `exact` changes
+  the session mode, `--mode ann` sets the default, and `ORDER BY ... APPROXIMATE`
+  is accepted. ANN currently runs the same exact search (recall 1.0).
+* **Shutdown**: EOF on stdin, `EXIT;`/`QUIT;`, SIGTERM or SIGINT. An open
+  transaction is rolled back; committed data is already durable.
 
-## M13 recovery and framing watch
+> The official test driver framing is not public. JSON lines matching the
+> `.result` field names is this implementation's choice; `--format tsv` gives
+> a mysql `--batch`-like alternative. Error numbers follow MySQL conventions.
 
-Upstream remains `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c` (samples only).
-Official framing is **TBD**; interim `reportReady` is unchanged. Replay now skips
-per-statement Sign-LSH rebuilds and constructs buckets in the final pass before
-readiness. Live write behavior, checksum verification and durability are unchanged.
+## Example (empty data directory)
 
-A deterministic SIGKILL test recovers 4096 rows from 128 transaction commits, both
-WAL-only and checkpoint-plus-redo, with two reopens and full row/index checks.
-First local WAL-only observations: **32.70–37.92 ms (108028–125245 rows/sec)** in
-memory, **1.217–1.385 s (2957–3365 rows/sec)** with a 256-byte page cache. Snapshot
-plus redo measured **30.40–30.52 ms** / **1.002–1.063 s**, respectively. Timing covers
-Open through readiness; it has no strict assertion and is not an official score.
-See SELFTEST for fixture details and limits. PK validation still scans existing
-rows; larger-scale recovery and total RSS remain open. Automatic checkpoints are
-not enabled: callers use `Engine.Checkpoint()` with no active transactions.
+```sql
+CREATE TABLE docs (id BIGINT PRIMARY KEY, category VARCHAR(8), content VARCHAR(16), embedding VECTOR(2));
+INSERT INTO docs VALUES (3, '乙', '三', '[0, 2]'), (1, '甲', '一', '[0, 0]'), (2, '甲', '二', '[1, 0]');
+SELECT * FROM docs WHERE category = '甲' ORDER BY id;
+SELECT id, L2_DISTANCE(embedding, '[0, 0]') AS distance FROM docs ORDER BY distance LIMIT 10;
+BEGIN;
+UPDATE docs SET embedding = '[3,4]' WHERE id = 1;
+DELETE FROM docs WHERE id = 3;
+ROLLBACK;                       -- both changes are undone
+BEGIN;
+INSERT INTO docs VALUES (4, '乙', '四', '[2, 2]');
+COMMIT;                         -- durable before this response is written
+CREATE VECTOR INDEX idx_emb ON docs(embedding);
+```
 
-## M14 automatic checkpoint and RSS observation
+After a restart (or `kill -9`) with the same `/data`, the table contains ids
+1, 2, 3, 4 with their committed values.
 
-Upstream re-fetched: `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c` remains samples-only.
-FRAMING=TBD; interim `reportReady`, stdin/stdout protocol and Dockerfile are unchanged.
-No official contest submission or formal 提测.
+## Supported SQL
 
-Automatic checkpoints are now enabled for both library and CLI. Constants
-`AutoCheckpointWALBytes = 8 << 20` (8 MiB) and `AutoCheckpointEveryN = 1024`
-trigger at either threshold, checked synchronously after each ready-engine statement.
-DDL/autocommit writes each count once; a nonempty explicit transaction counts once
-at COMMIT. Empty commits and reads do not count. All active transactions defer
-maintenance, including a conflicted transaction until ROLLBACK. The last transaction's
-COMMIT/ROLLBACK permits maintenance; an idle SELECT can retry pending maintenance.
-Recovered WAL bytes and commits are included. There is no timer or background worker.
-Constants are the configuration points; no new CLI flags or protocol commands.
+* `CREATE TABLE [IF NOT EXISTS] t (col type [PRIMARY KEY] [NOT NULL], ..., [PRIMARY KEY (col)])`
+  with `BIGINT` (also `INT`/`INTEGER`), `VARCHAR(n)`, `VECTOR(n)`; exactly one
+  BIGINT primary key, at most one VECTOR column.
+* `DROP TABLE [IF EXISTS] t`, `CREATE VECTOR INDEX name ON t(vec_col)`, `DROP INDEX name ON t`.
+* `INSERT INTO t [(cols)] VALUES (...), (...)`: all columns required.
+* `SELECT * | expr [AS alias], ... FROM t [WHERE ...] [ORDER BY expr|alias|ordinal [ASC|DESC], ...] [LIMIT n [OFFSET m] | LIMIT m, n]`.
+* `UPDATE t SET col = value, ... [WHERE ...]`; `DELETE FROM t [WHERE ...]`.
+* Predicates: `=, !=, <>, <, <=, >, >=`, `AND`, `OR`, `NOT`, parentheses.
+* `L2_DISTANCE(vec_col, '[...]')`: Euclidean distance (not squared), usable in
+  the select list, `ORDER BY` and `WHERE`.
+* `BEGIN` / `START TRANSACTION`, `COMMIT`, `ROLLBACK`; `SET search_mode = ...`.
 
-The existing M10 checkpoint implementation runs under the engine mutex; explicit
-`Engine.Checkpoint()` remains available. Only a successful checkpoint resets both
-threshold counters. Snapshot failures log to stderr, retain redo and retry after later
-statements without changing the statement result. WAL truncate/sync failures retain
-the existing poisoned-writer behavior: reads continue, writes require restart.
-WAL is zero immediately after success, but may exceed the byte threshold by one
-statement/transaction; active transactions or persistent errors can defer it indefinitely.
-Checkpoint latency and temporary snapshot disk space grow with live data.
-This supersedes earlier explicit-only / AUTO_CHECKPOINT=no descriptions.
+Semantics: duplicate primary keys are rejected; VARCHAR length counts Unicode
+characters; strings compare by code point; vectors are float32, and NaN,
+Infinity, wrong dimension and float32 overflow are rejected; distances are
+accumulated in float64 over the stored float32 values. Ties in any `ORDER BY`
+(including DESC and distance ties) are broken by primary key ascending. Results
+without `ORDER BY` come out in primary-key order. A filtered TopK applies the
+`WHERE` clause to every visible row before choosing the K nearest. `UPDATE`
+reports matched rows. A failed statement leaves no partial changes; in an open
+transaction, earlier successful statements remain.
 
-`TestM14RSSObserve` inserts 1024 deterministic 2D vectors in 32 batches, creates an
-index and checks exact/ANN Top10, with unlimited and 256-byte row-cache modes.
-Linux `/proc/self/status` VmRSS is logged via t.Logf before/after, without cap assertions.
-One isolated M14 run observed 15680 -> 15596 kB (unlimited), and 15596 -> 16164 kB
-(256-byte cache, peak decoded row bytes 96). These shared-process observations include
-prior tests and allocator history, are not leak measurements or official resource scores.
-The decoded row-cache budget excludes indexes, references, results and parser buffers;
-it is not a process RSS bound. Non-Linux systems log an observation skip.
+Not supported (error code 1235 or 1064, never silently reinterpreted): NULL,
+JOIN, aggregates, GROUP BY, subqueries, ALTER TABLE, foreign keys, nested
+transactions (`BEGIN` inside a transaction is an error) and primary-key
+updates. DDL inside a transaction implicitly commits it first (MySQL
+behaviour).
 
-M14 tests cover commit and byte triggers, explicit transaction completion, multi-session
-pins/conflicts, failure diagnostics, idle retry after recovery, and M10 API coexistence.
-OPEN_ITEMS: official framing/driver; process locking; large-scale recovery and total RSS;
-large statements/results; representative ANN performance and hidden-distribution recall.
+## Design
 
-## M15 process locking and framing watch
+**Storage.** `/data/mvdb.log` is an append-only log and the only durable
+structure. Every committed transaction, autocommit statement or DDL statement
+is one record: `u32 length | u32 CRC32C | payload`, where the payload is a
+list of ops (create/drop table, create/drop index, put row, delete row). Rows
+use a compact binary encoding (8-byte BIGINT, varint-prefixed UTF-8, raw
+little-endian float32 vectors). COMMIT writes the record and calls
+`fdatasync` before the response is printed.
 
-Upstream re-fetched: `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c` is unchanged,
-samples-only. FRAMING=TBD; interim `reportReady` remains unchanged. No official
-contest submission or formal 提测.
+**In-memory state.** Per table: a primary-key hash index pointing to slots
+that hold the row's file offset and length, plus the decoded row while the
+row cache has room. The cache budget is derived from the cgroup memory limit
+(`memory.max / 4`) and `GOMEMLIMIT` is set to 60% of the limit. Rows that do
+not fit are read back from the log with `pread`; full scans read them in file
+order. Tables larger than memory therefore work, with only the index resident.
 
-`Open` / `OpenWithOptions` acquire an exclusive, nonblocking OS `flock` on
-`LOCK` under `-data` (default `/data`) before opening WAL, snapshots or segments.
-Linux is supported using Go stdlib `syscall.Flock`, with no added dependency.
-A competing engine/process fails immediately with a data-directory lock error;
-the CLI exits nonzero with `ERROR opening database` on stderr, before readiness.
-This is an advisory lock: every writer must honor it, on a filesystem supporting
-flock. Do not remove/replace `LOCK` or the data directory while an owner is alive.
+**Transactions.** One explicit transaction keeps a per-table map
+`pk -> new row | tombstone`. Each statement first builds its own change set
+over (statement ∪ transaction ∪ committed) views; only if it succeeds is it
+merged into the transaction (or committed immediately in autocommit mode).
+Reads, including vector TopK, see statement, then transaction, then committed
+versions, giving read-your-writes. ROLLBACK discards the map, so nothing
+uncommitted ever reaches the log.
 
-`Engine.Close()` serializes with execution/maintenance, disables existing sessions,
-and releases ownership; repeated Close is safe. It does not checkpoint or commit
-active transactions. Library callers must Close before reopening. The CLI defers
-Close on normal EOF; process exit, including SIGKILL, releases the OS lock even
-when defers do not run. Startup failures also release it. The empty LOCK file
-remains permanently as a stable inode; its existence is not a stale-lock signal,
-and no manual deletion is needed after a crash.
+**Recovery.** Startup scans the log, applying every record whose length and
+CRC are valid. The first torn or invalid record marks the end: the file is
+truncated there and synced. A kill during COMMIT therefore yields all-or-
+nothing, and recovery is idempotent if it is itself interrupted. The engine
+reads stdin only after recovery is complete.
 
-M15 tests cover same-directory opens, Close/reopen, closed-session rejection,
-failed startup (including recovered storage panic), live subprocess contention and
-SIGKILL/restart with committed WAL recovery. Earlier in-process recovery fixtures
-now Close before reopening, without introducing checkpoints; existing real crash
-tests remain intact. Smoke retains prior checks and adds the M15 PASS line.
-This supersedes earlier process-locking OPEN_ITEMS.
+**Compaction.** When the log is over 64 MiB and more than half dead, live rows
+are rewritten into `mvdb.log.compact`, which is fsynced and atomically renamed
+over the log. A leftover temporary file from a killed compaction is deleted on
+startup.
 
-OPEN_ITEMS: official framing/driver; large-scale recovery and total RSS;
-large statements/results; representative ANN performance and hidden-distribution recall.
+**Vector search.** Exact search only. The TopK path scans the slot array
+linearly (sequential memory), applies the filter, computes float64 L2 with a
+4-way unrolled loop and early termination against the current K-th distance
+(with a safety margin so primary-key tie-breaks are unaffected), and keeps a
+bounded max-heap. On tables of 4096 rows or more with no pending transaction
+changes, the scan is split across `min(NumCPU, cgroup CPU quota)` goroutines
+and merged in the same (distance, pk) order. `CREATE VECTOR INDEX` is
+persisted and validated; since the search is exact, index maintenance after
+inserts, updates and deletes is correct by construction.
 
-M16 extends local coverage to 16,384 rows with 32D vectors, automatic snapshot plus
-redo, and two correctness-checked reopens. One isolated run measured recovery at
-0.486 s unlimited and 4.045–4.198 s with a 4096-byte decoded cache. Observed loaded
-VmRSS was 52,656 / 15,380 kB respectively; recovery samples were 109,676–124,940 /
-15,612–15,720 kB. Shared-process allocator history prevents treating these as peak
-RSS comparisons. Decoded cache peak was 888 bytes; that budget excludes other
-process allocations and the kernel filesystem page cache. See SELFTEST for details.
-New seed-1601 independent Gaussian 64D ANN queries measured recall@10 mean/min
-0.29688/0.00 unfiltered and 0.28438/0.00 filtered; exact matches the independent
-oracle. Mean regression floor is 0.20, with no minimum or general recall guarantee.
-Upstream remains `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c`; framing is TBD and
-interim `reportReady` is unchanged. OPEN_ITEMS: official driver, larger recovery/
-peak RSS profiling, large inputs/results and high-dimensional ANN quality.
+## Verification
 
-## M17 Gaussian64 ANN recall
+```sh
+go test ./...                       # engine tests (also passes with -race)
+go build -o minivectordb ./cmd/minivectordb
+python3 scripts/run_public_cases.py # 5/5 public mysqltest cases
+python3 scripts/crash_test.py       # SIGKILL loop: acknowledged commits kept, no partial txns
+python3 scripts/bench.py            # 10k x 128 workload
+```
 
-Local Sign-LSH tuning expands the mandatory complete Hamming shells from radius
-2 to 4 (163 of 256 eight-sign buckets). The existing post-filter target of 8*K,
-overflow cap and further expansion through radius 8 remain. No external ANN
-library, new hash format, exact-mode change or protocol change was introduced.
+The engine tests cover restart and simulated crash, torn tails cut at every
+7th byte of a record, transaction read-your-writes and rollback (including
+vector search), statement atomicity, validation errors, PK tie ordering,
+filter-before-TopK, randomized comparison against a brute-force model in
+fully cached and fully on-disk modes, compaction with crash, and
+parallel-vs-sequential equality.
 
-The unchanged M16 fixture uses seed 1601, 2048 independent Gaussian 64D rows,
-32 queries per group and K=10. M16 still runs; M17 shares its data generator and
-independent float32 full-sort exact oracle, adding stronger recall and candidate
-subset assertions:
+Local results on a 2-vCPU sandbox:
 
-| Query group | M16 before mean/min | M17 after mean/min | Candidates per query |
-| --- | --- | --- | --- |
-| Unfiltered | 0.29688 / 0.00 | 0.84062 / 0.60 | 1255–1348 of 2048 |
-| category=1 | 0.28438 / 0.00 | 0.81250 / 0.50 | 409–457 of 683 |
+* 5/5 public cases pass.
+* `crash_test.py`: 40 SIGKILL rounds, 11,405 committed rows verified.
+* `bench.py` (10,000 × 128-dim, batches of 100, 1,000 queries with half
+  filtered, K = 10): about 3.7 ms per committed batch, 0.84 ms per query end
+  to end, 22 MiB peak RSS, 5.2 MiB data.
 
-M17 asserts mean >=0.75 and minimum >=0.40 for both groups, with headroom below
-these measurements. Every query asserts unique, predicate-matching candidates
-between K and 75% of eligible rows: distance ranking still uses an ANN subset.
-M12's unchanged representative data remains mean/min **1.00/1.00** in both groups;
-its regression now requires those exact values. Exact mode still matches the oracle.
+## Known limitations
 
-This trades more distance evaluations for recall: roughly 61–67% of eligible rows
-are scored here. It is not a speedup claim. Eight coordinate signs still omit most
-64D information; no universal recall floor or official contest score is claimed.
-Radius 4 meets the local target, so wider shells were not adopted merely to approach
-an exhaustive scan. Sparse predicates, small datasets, large K or no LIMIT can
-exhaust all buckets under the existing expansion rules; there is no new exact
-fallback. Index storage and rebuild work are unchanged.
-
-Upstream remains `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c`, samples-only.
-FRAMING=TBD; interim `reportReady`, stdin/stdout, `-data` and Dockerfile remain.
-Validation: go test ./..., requested M17/M16/M12/M11/ANNRecall selection,
-M1–M17 smoke, unchanged public mysqltest samples 5/5, identical conversation files
-within 128 KiB, and git diff --check. No official submit or formal 提测.
-OPEN_ITEMS: official driver/framing; broader ANN distributions and recall/cost tuning;
-larger recovery and peak RSS profiling; large statements/results.
-
-## M18 broader ANN and RSS observation
-
-Upstream checked via HTTPS ls-remote: `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c`,
-unchanged samples-only tip. Framing remains TBD.
-
-`TestM18ANNBroaderRSS` adds seed 1801, 4096 independent Gaussian 96D rows,
-32 queries per group, K=10. It shares the independent full-sort float32 exact
-oracle with M16/M17, preserving their seeds and dimensions. Unfiltered recall
-mean/min is **0.79063/0.50**, filtered **0.77500/0.50**. Both assert mean >=0.75
-and min >=0.40, with modest headroom below measured results. Candidate counts
-are 2560–2660/4096 and 839–900/1365; every query asserts unique eligible
-candidates between K and 75% of eligible rows. IDs, cardinality and predicate
-membership are checked. No index tuning was needed; M12/M17 asserts remain.
-
-An isolated run logged Linux VmRSS before build / after build / after queries:
-**5060 / 55856 / 19468 kB**. These are phase samples via t.Logf, not a continuous
-peak measurement or memory cap; the maximum observed sample was 55856 kB.
-The process includes fixture/oracle allocations and Go GC effects. Unsupported
-systems log an observation skip. No retention change or runtime change.
-
-Validation: go test ./..., requested M18/M17/M16/M12/ANNRecall selection,
-M1–M18 smoke, unchanged public sample harness 5/5, conversation equality and
-128 KiB bound, git diff --check.
-Open: official driver/framing, broader distributions and ANN cost, continuous
-peak RSS profiling, larger recovery and large statements/results. No formal submission.
+* The official driver protocol (response framing, error codes, ready marker,
+  mode parameter) is not public yet. The choices above may need adjusting
+  once the platform's environment pre-check reports a protocol mismatch.
+* ANN mode is exact search, so it is correct but not faster.
+* The primary-key index and slot table stay in memory (about 70 bytes per
+  row). Very large tables are bounded by that, not by row size.
+* `UPDATE`/`DELETE` collect the matching keys in memory before applying them.
