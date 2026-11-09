@@ -148,3 +148,40 @@ SELECT id FROM docs ORDER BY L2_DISTANCE(embedding,'[0.9,0.1,0,0]') LIMIT 2;
 SQL
 [[ $(cat "$tmp/m5recovered") == $'OK 0\nid\n1\n2\nOK 2\nOK 0\nid\n1\n2\nOK 2' ]]
 printf '%s\n' 'PASS: M5 Yuque 2.2 projection/distance, PK, multi-INSERT atomicity, quoted vectors, UPDATE/DELETE rollback, comparisons, index ANN/exact and WAL restart'
+# M7: bounded storage, index recovery and stderr-only interim readiness.
+go test -count=1 -v ./internal/db -run '^TestM7' >"$tmp/m7tests"
+grep -q -- '--- PASS: TestM7BeyondMemory' "$tmp/m7tests"
+grep -q -- '--- PASS: TestM7ReadyGate' "$tmp/m7tests"
+mkfifo "$tmp/m7in"
+exec 3<>"$tmp/m7in"
+"$bin" -data "$tmp/m7" -memory-budget=512 <"$tmp/m7in" >"$tmp/m7out" 2>"$tmp/m7err" 3>&- &
+pid=$!
+{
+ printf '%s\n' 'CREATE TABLE t (id BIGINT PRIMARY KEY, label TEXT, v VECTOR(2));' 'BEGIN;'
+ for i in {0..159}; do printf "INSERT INTO t VALUES (%d, 'payload beyond a tiny cache budget', [%d,1]);\n" "$i" "$i"; done
+ printf '%s\n' 'CREATE VECTOR INDEX ix ON t(v);' 'COMMIT;' 'SELECT id FROM t WHERE id >= 100 ORDER BY L2_DISTANCE(v, [102,1]) LIMIT 3;'
+} >&3
+for _ in {1..200}; do
+ if grep -q '^OK 3$' "$tmp/m7out"; then break; fi
+ kill -0 "$pid"
+ sleep .05
+done
+grep -q '^OK 3$' "$tmp/m7out"
+grep -qx 'minivectordb: ready' "$tmp/m7err"
+! grep -q 'ready\|ERROR' "$tmp/m7out"
+kill -9 "$pid"
+wait "$pid" 2>/dev/null || true
+pid=''
+exec 3>&-
+cat <<'SQL' | "$bin" -data "$tmp/m7" -memory-budget=512 >"$tmp/m7recovered" 2>"$tmp/m7err"
+SET search_mode=ann;
+SELECT id FROM t WHERE id >= 100 ORDER BY L2_DISTANCE(v, [102,1]) LIMIT 3;
+SET search_mode=exact;
+SELECT id FROM t;
+SQL
+grep -qx 'minivectordb: ready' "$tmp/m7err"
+! grep -q 'ready\|ERROR' "$tmp/m7recovered"
+grep -q '^OK 160$' "$tmp/m7recovered"
+[[ $(head -6 "$tmp/m7recovered") == $'OK 0\nid\n102\n101\n103\nOK 3' ]]
+printf '%s\n' 'PASS: M7 beyond-memory 512-byte cache, 160 rows, cold filtered TopK, SIGKILL + WAL/index recovery (resident bounds asserted in Go tests)'
+printf '%s\n' 'PASS: M7 ready-gate rejection/rebuild unit test, stderr ready handshake, clean stdout'

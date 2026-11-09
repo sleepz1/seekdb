@@ -58,7 +58,8 @@ func rebuildIndexes(t *Table) {
 		if col < 0 || t.Columns[col].Type != "VECTOR" {
 			continue
 		}
-		for n, row := range t.Rows {
+		for n := 0; n < t.rowCount(); n++ {
+			row := t.rowAt(n)
 			key := bucket(row[col].([]float32))
 			idx.buckets[key] = append(idx.buckets[key], n)
 		}
@@ -75,18 +76,18 @@ func vectorIndex(t *Table, col int) *VectorIndex {
 
 // Probe the closest nonempty Hamming shell after predicates. This approximate
 // path can return fewer than LIMIT rows; exact mode never uses these candidates.
-func indexCandidates(t *Table, idx *VectorIndex, q []float32, preds []predicate) [][]any {
+func indexCandidateOffsets(t *Table, idx *VectorIndex, q []float32, preds []predicate) []int {
 	key := bucket(q)
 	for radius := 0; radius <= 8; radius++ {
-		out := [][]any{}
+		out := []int{}
 		for b := 0; b < 256; b++ {
 			if bits.OnesCount8(uint8(b)^key) != radius {
 				continue
 			}
 			for _, n := range idx.buckets[uint8(b)] {
-				row := t.Rows[n]
+				row := t.rowAt(n)
 				if matches(row, preds) {
-					out = append(out, row)
+					out = append(out, n)
 				}
 			}
 		}

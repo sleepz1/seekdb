@@ -59,3 +59,37 @@ Temporary protocol / open items:
   without that metadata remain readable; pre-M5 WAL CREATE statements lacking
   PRIMARY KEY are not migrated by this milestone.
 - Docker runtime checks were not rerun. No contest submission or PR merge.
+
+
+## M7 engineering hardening
+
+Baseline: `f724f01d8059a1b06b7240ce94b3ae77f8f5f8ff` (M6). This section
+supersedes the M5 whole-payload clone and missing ready-gate limitations above.
+`-memory-budget=512` selects a tiny decoded payload cache; CLI default is 64 MiB,
+while `Open` and explicit zero retain unlimited compatibility. Immutable row pages
+and pending transaction SQL live under `<data>/segments/`. Recovery streams the
+snapshot/WAL to a fresh page generation, then rebuilds all index buckets before
+readiness. The cache budget excludes active rows, SQL, output and metadata; an
+oversized row is read uncached. Compaction and recovery speed remain open.
+
+`go test ./...` covers 160 rows exceeding a 512-byte cache, asserts nonzero bounded
+resident/peak counters and empty `Table.Rows`, checks transaction SQL spooling,
+cold filtered TopK in exact/ANN modes, no-close WAL recovery, mutation commit and
+rollback, failed multi-row statement atomicity, streaming legacy snapshots, and
+page I/O errors without acknowledging failed mutations. `TestM7ReadyGate` observes
+not-ready, checks Execute rejection, erases replay buckets and verifies the final
+startup rebuild restores ANN results. Existing unlimited tests remain enabled.
+
+Smoke adds a real SIGKILL after COMMIT, reopens with the same 512-byte budget,
+verifies 160 rows and indexed filtered TopK, and checks `minivectordb: ready` only
+on stderr. Official ready framing is **待题包确认**; stdout still flushes each
+statement result. New smoke output:
+
+```text
+PASS: M7 beyond-memory 512-byte cache, 160 rows, cold filtered TopK, SIGKILL + WAL/index recovery (resident bounds asserted in Go tests)
+PASS: M7 ready-gate rejection/rebuild unit test, stderr ready handshake, clean stdout
+```
+
+Validation: `go test ./...`, `go test -race ./internal/db/... ./cmd/minivectordb/...`,
+`./scripts/smoke.sh`, conversation byte identity/size checks and `git diff --check`.
+No Docker EXPOSE, wire expansion, external engine, formal submission or 提测.

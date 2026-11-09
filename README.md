@@ -1,4 +1,4 @@
-# MiniVectorDB M5 — SQL subset and vector index
+# MiniVectorDB M7 — bounded storage and startup readiness
 
 Pure Go SQL/vector engine. No external storage engine or vector library. Requires
 Go 1.22+; smoke requires Bash. Default mode is a foreground stdin session with
@@ -74,10 +74,10 @@ ANN uses the nearest nonempty Hamming shell after filtering; it may return fewer
 than k rows and has no recall guarantee. Without an index, the retained M4 ANN
 fallback samples every second filtered row. Exact always scans all qualifying
 rows, regardless of indexes. Queries without vector ORDER BY are unaffected.
-Index metadata is stored in snapshot JSON / WAL DDL, with buckets rebuilt before
-Open returns, on transaction copies and after successful writes. Rollback discards
-private index changes. Rebuilding and whole-state cloning prioritize correctness;
-this is not yet a performance-tuned index.
+Index metadata is stored in snapshot JSON / WAL DDL. Startup rebuilds every bucket
+before marking the engine ready; online CREATE VECTOR INDEX finishes rebuilding
+before success. Transactions share immutable buckets until mutation rebuilds them.
+Rollback discards private index changes. This is not yet a performance-tuned index.
 
 ```sql
 SELECT * FROM items WHERE label = 'first' AND id = 1 ORDER BY L2_DISTANCE(embedding, [1,0]) LIMIT 1;
@@ -86,12 +86,12 @@ SELECT search_mode;
 SET search_mode=exact;
 ```
 
-Ready flag/handshake, numeric error codes, exact framing and official ANN/recall
-requirements are **pending official pack / 待确认**. There is currently no ready
-flag or unsolicited ready line: a successful `SELECT 1` response can be used as a
-local readiness probe. `ERROR <message>` has no numeric SQL error code; process
-startup/I/O failure exits nonzero, while SQL errors allow continued input. These
-are temporary local conventions, not a claim of official pack compatibility.
+Startup emits `minivectordb: ready` on **stderr only**, after recovery and index
+rebuild. `Engine.Ready()` remains false until then; `Session.Execute` returns
+`database not ready` during the gate. `Open` never returns a partially ready engine.
+This is our interim readiness handshake; official ready framing is **待题包确认**.
+Numeric error codes, exact framing and official ANN/recall requirements remain
+pending. SQL errors allow continued input; startup/I/O failures exit nonzero.
 
 BEGIN/START TRANSACTION creates a private state copy with read-your-writes;
 other sessions see only committed state. COMMIT checks the engine version,
@@ -111,12 +111,36 @@ blocks subsequent durable writes until restart; a commit interrupted before its
 acknowledgment has an uncertain outcome and may recover if its full record exists.
 Only one server/Engine may own a data directory at a time; there is no process lock.
 
-M3 does not rewrite the base snapshot or compact the WAL. New databases recover
-entirely from WAL; old databases retain their immutable snapshot base. Keep both
-files together. Automatic atomic checkpoints, WAL checksums, process locking,
-bounded log growth, and faster recovery remain open work. Transactions still
-clone the in-memory database, and redo uses the supported deterministic SQL
-statements rather than page-level changes.
+`-memory-budget=BYTES` bounds the decoded row cache (CLI default: 67108864 bytes,
+64 MiB). `0` selects the legacy unlimited path. Library callers retain compatibility:
+`Open(dir)` is unlimited; `OpenWithOptions(dir, OpenOptions{MemoryBudgetBytes: n})`
+enables bounded storage. Negative budgets are rejected.
+
+Bounded mode stores immutable one-row pages in `segments/rows-*.page` beneath
+`-data`. Tables retain offset/length directories, not `Table.Rows` payloads;
+transaction copies copy references. A conservative single-page hot cache evicts
+before decoding a different page. Rows larger than the budget are read uncached.
+The budget covers decoded cached payloads, not a process RSS limit: one active row,
+SQL/parser buffers, returned results, schema, page references, PK validation keys,
+index buckets and ordering keys are additional memory. Limited TopK retains at
+most k candidates plus the current candidate. Unbounded SELECT results still scale
+with output size. `ResidentRowBytes`, `PeakResidentRowBytes` and `ResidentPages`
+expose cache accounting for automated tests.
+
+Successful mutations append immutable pages; COMMIT syncs segments before writing
+and syncing the authoritative JSON WAL batch. Active transaction SQL is spooled to
+`segments/tx-*.pending`, so a batch does not retain all SQL payloads in RAM. Failed
+statements discard private references; rollback and EOF never publish their pages
+or pending SQL. Recovery streams complete WAL batches one statement at a time and
+legacy snapshots one row at a time, reconstructing a fresh segment and page
+directory without loading all payloads together. Index rebuild scans cold pages.
+Snapshot and WAL remain the recovery authority; keep both together. Old segments
+and abandoned transaction spools are retained, and are never recovery input.
+
+Recovery replay cost, page/reference copying, per-row file I/O, large individual
+SQL statements/results, segment/WAL compaction, bounded disk growth, WAL checksums
+and process locking remain open work. Only one Engine/process may own a data
+directory. No automatic checkpoint rewrites the immutable legacy snapshot.
 Optional local MySQL wire helper replaces stdin mode only when explicitly set:
 
 ```sh

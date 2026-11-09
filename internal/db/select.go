@@ -198,54 +198,83 @@ func selectRows(state State, sql string, ann bool) (Result, error) {
 			return fail("cannot order vector column")
 		}
 	}
-	rows := [][]any{}
-	for _, row := range t.Rows {
-		if matches(row, preds) {
-			rows = append(rows, row)
-		}
-	}
-	if ann && order != "" && ordering.metric != "" {
-		if idx := vectorIndex(t, ordering.index); idx != nil {
-			rows = indexCandidates(t, idx, ordering.query, preds)
-		} else {
-			rows = annCandidates(rows)
+	limit := -1
+	if lim := clauses[" LIMIT "]; lim != "" {
+		limit, err = strconv.Atoi(lim)
+		if err != nil || limit < 0 {
+			return fail("invalid LIMIT")
 		}
 	}
 	type item struct {
-		row []any
+		n   int
 		key any
+		pk  any
 	}
-	items := make([]item, len(rows))
-	for i, row := range rows {
-		items[i].row = row
+	items := []item{}
+	pk := primaryIndex(t)
+	less := func(i, j int) bool {
+		c := compare(items[i].key, items[j].key)
+		if c == 0 {
+			return pk >= 0 && compare(items[i].pk, items[j].pk) < 0
+		}
+		if desc {
+			return c > 0
+		}
+		return c < 0
+	}
+	// ANN candidates contain offsets only, never decoded payloads.
+	var candidates []int
+	if ann && order != "" && ordering.metric != "" {
+		if idx := vectorIndex(t, ordering.index); idx != nil {
+			candidates = indexCandidateOffsets(t, idx, ordering.query, preds)
+		} else {
+			matched := 0
+			for n := 0; n < t.rowCount(); n++ {
+				if matches(t.rowAt(n), preds) {
+					if matched%2 == 0 {
+						candidates = append(candidates, n)
+					}
+					matched++
+				}
+			}
+		}
+		if candidates == nil {
+			candidates = []int{}
+		}
+	}
+	count := t.rowCount()
+	if candidates != nil {
+		count = len(candidates)
+	}
+	for i := 0; i < count; i++ {
+		n := i
+		if candidates != nil {
+			n = candidates[i]
+		}
+		row := t.rowAt(n)
+		if !matches(row, preds) {
+			continue
+		}
+		it := item{n: n}
+		if pk >= 0 {
+			it.pk = row[pk]
+		}
 		if order != "" {
-			items[i].key, err = ordering.eval(row)
+			it.key, err = ordering.eval(row)
 			if err != nil {
 				return Result{}, err
 			}
 		}
+		items = append(items, it)
+		if limit >= 0 && len(items) > limit {
+			if order != "" {
+				sort.SliceStable(items, less)
+			}
+			items = items[:limit]
+		}
 	}
-	pk := primaryIndex(t)
 	if order != "" {
-		sort.SliceStable(items, func(i, j int) bool {
-			c := compare(items[i].key, items[j].key)
-			if c == 0 {
-				return pk >= 0 && compare(items[i].row[pk], items[j].row[pk]) < 0
-			}
-			if desc {
-				return c > 0
-			}
-			return c < 0
-		})
-	}
-	if lim := clauses[" LIMIT "]; lim != "" {
-		n, err := strconv.Atoi(lim)
-		if err != nil || n < 0 {
-			return fail("invalid LIMIT")
-		}
-		if n < len(items) {
-			items = items[:n]
-		}
+		sort.SliceStable(items, less)
 	}
 	r := Result{}
 	for _, e := range exprs {
@@ -254,9 +283,12 @@ func selectRows(state State, sql string, ann bool) (Result, error) {
 	for _, it := range items {
 		row := []any{}
 		for _, e := range exprs {
-			v, err := e.eval(it.row)
+			v, err := e.eval(t.rowAt(it.n))
 			if err != nil {
 				return Result{}, err
+			}
+			if vec, ok := v.([]float32); ok {
+				v = append([]float32(nil), vec...)
 			}
 			row = append(row, v)
 		}

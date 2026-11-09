@@ -18,6 +18,8 @@ type Column struct {
 	CharLen int
 }
 type Table struct {
+	pages   *pageStore
+	refs    []pageRef
 	Indexes []VectorIndex
 	Columns []Column
 	Rows    [][]any
@@ -30,6 +32,8 @@ type Result struct {
 	Error    string   `json:"error,omitempty"`
 }
 type Engine struct {
+	ready      bool
+	pages      *pageStore
 	mu         sync.Mutex
 	dir        string
 	state      State
@@ -38,6 +42,8 @@ type Engine struct {
 	defaultANN bool
 }
 type Session struct {
+	spool      string
+	txWrites   int
 	e          *Engine
 	statements []string
 	tx         State
@@ -55,9 +61,9 @@ func (e *Engine) Session() *Session {
 func clone(s State) State {
 	t := State{}
 	for name, table := range s {
-		n := &Table{Columns: append([]Column(nil), table.Columns...)}
+		n := &Table{Columns: append([]Column(nil), table.Columns...), pages: table.pages, refs: append([]pageRef(nil), table.refs...)}
 		for _, idx := range table.Indexes {
-			n.Indexes = append(n.Indexes, VectorIndex{Name: idx.Name, Column: idx.Column})
+			n.Indexes = append(n.Indexes, VectorIndex{Name: idx.Name, Column: idx.Column, buckets: idx.buckets})
 		}
 		for _, row := range table.Rows {
 			r := append([]any(nil), row...)
@@ -68,7 +74,6 @@ func clone(s State) State {
 			}
 			n.Rows = append(n.Rows, r)
 		}
-		rebuildIndexes(n)
 		t[name] = n
 	}
 	return t
@@ -77,6 +82,9 @@ func clone(s State) State {
 func (s *Session) Execute(sql string) Result {
 	s.e.mu.Lock()
 	defer s.e.mu.Unlock()
+	if !s.e.ready {
+		return Result{Error: "database not ready"}
+	}
 	r, err := s.execute(strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(sql), ";")))
 	if err != nil {
 		return Result{Error: err.Error()}
@@ -101,12 +109,12 @@ func (s *Session) execute(sql string) (Result, error) {
 		if s.tx != nil {
 			return Result{}, errors.New("transaction already active")
 		}
-		s.statements = nil
+		s.clearStatements()
 		s.tx = clone(s.e.state)
 		s.version = s.e.version
 		return Result{}, nil
 	case "ROLLBACK":
-		s.statements = nil
+		s.clearStatements()
 		s.tx = nil
 		return Result{}, nil
 	case "COMMIT":
@@ -116,23 +124,27 @@ func (s *Session) execute(sql string) (Result, error) {
 		if s.version != s.e.version {
 			return Result{}, errors.New("transaction conflict; ROLLBACK required")
 		}
-		if err := s.e.persist(s.statements); err != nil {
+		if err := s.persistStatements(); err != nil {
 			return Result{}, err
 		}
-		if len(s.statements) > 0 {
+		if s.txWrites > 0 {
 			s.e.version++
 		}
 		s.e.state = s.tx
 		s.tx = nil
-		s.statements = nil
+		s.clearStatements()
 		return Result{}, nil
 	}
 	state := s.e.state
 	if s.tx != nil {
 		state = s.tx
 	}
+	if strings.HasPrefix(strings.ToUpper(sql), "SELECT ") {
+		r, _, err := runMode(state, sql, s.ann)
+		return r, err
+	}
 	next := clone(state)
-	r, write, err := runMode(next, sql, s.ann)
+	r, write, err := runStored(next, sql, s.ann, s.e.pages)
 	if err != nil {
 		return r, err
 	}
@@ -140,7 +152,9 @@ func (s *Session) execute(sql string) (Result, error) {
 		return r, nil
 	}
 	if s.tx != nil {
-		s.statements = append(s.statements, sql)
+		if err := s.recordStatement(sql); err != nil {
+			return Result{}, err
+		}
 		s.tx = next
 		return r, nil
 	}
@@ -197,6 +211,20 @@ func split(v string) ([]string, error) {
 }
 func run(state State, sql string) (Result, bool, error) { return runMode(state, sql, false) }
 func runMode(state State, sql string, ann bool) (result Result, write bool, err error) {
+	return runStored(state, sql, ann, nil)
+}
+func runStored(state State, sql string, ann bool, pages *pageStore) (result Result, write bool, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			if e, ok := v.(storageError); ok {
+				result = Result{}
+				write = false
+				err = e.error
+			} else {
+				panic(v)
+			}
+		}
+	}()
 	sql = normalizeSQL(sql)
 	defer func() {
 		if write && err == nil {
@@ -222,7 +250,7 @@ func runMode(state State, sql string, ann bool) (result Result, write bool, err 
 		if err != nil {
 			return fail(err.Error())
 		}
-		t := &Table{}
+		t := &Table{pages: pages}
 		seen := map[string]bool{}
 		pkCount, vectors := 0, 0
 		for _, p := range parts {
@@ -280,7 +308,8 @@ func runMode(state State, sql string, ann bool) (result Result, write bool, err 
 		pending := [][]any{}
 		keys := map[any]bool{}
 		pk := primaryIndex(t)
-		for _, row := range t.Rows {
+		for n := 0; n < t.rowCount(); n++ {
+			row := t.rowAt(n)
 			if pk >= 0 {
 				keys[row[pk]] = true
 			}
@@ -312,7 +341,9 @@ func runMode(state State, sql string, ann bool) (result Result, write bool, err 
 			}
 			pending = append(pending, row)
 		}
-		t.Rows = append(t.Rows, pending...)
+		for _, row := range pending {
+			t.appendRow(row)
+		}
 		return Result{Affected: len(pending)}, true, nil
 	}
 	if m := updateRE.FindStringSubmatch(sql); m != nil {
@@ -359,11 +390,14 @@ func runMode(state State, sql string, ann bool) (result Result, write bool, err 
 			values[idx] = v
 		}
 		count := 0
-		for _, row := range t.Rows {
+		for n := 0; n < t.rowCount(); n++ {
+			row := t.rowAt(n)
 			if matches(row, preds) {
+				row = append([]any(nil), row...)
 				for idx, v := range values {
 					row[idx] = v
 				}
+				t.replaceRow(n, row)
 				count++
 			}
 		}
@@ -379,15 +413,22 @@ func runMode(state State, sql string, ann bool) (result Result, write bool, err 
 			return fail(err.Error())
 		}
 		kept := [][]any{}
+		keptRefs := []pageRef{}
 		count := 0
-		for _, row := range t.Rows {
+		for n := 0; n < t.rowCount(); n++ {
+			row := t.rowAt(n)
 			if matches(row, preds) {
 				count++
 			} else {
-				kept = append(kept, row)
+				if t.pages != nil {
+					keptRefs = append(keptRefs, t.refs[n])
+				} else {
+					kept = append(kept, row)
+				}
 			}
 		}
 		t.Rows = kept
+		t.refs = keptRefs
 		return Result{Affected: count}, true, nil
 	}
 
@@ -397,11 +438,12 @@ func runMode(state State, sql string, ann bool) (result Result, write bool, err 
 		if t == nil {
 			return fail("unknown table")
 		}
-		count := len(t.Rows)
+		count := t.rowCount()
 		if strings.EqualFold(m[1], "DROP TABLE") {
 			delete(state, n)
 		} else {
 			t.Rows = nil
+			t.refs = nil
 		}
 		return Result{Affected: count}, true, nil
 	}

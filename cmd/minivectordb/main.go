@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"minivectordb/internal/db"
 	"minivectordb/internal/mysqlwire"
@@ -15,11 +16,13 @@ func main() {
 	flag.StringVar(&addr, "mysql-addr", "", "optional MySQL helper listen address (replaces stdin mode)")
 	data := flag.String("data", "/data", "WAL and optional snapshot directory")
 	ann := flag.Bool("ann", false, "approximate search using every second filtered candidate")
+	budget := flag.Int64("memory-budget", 64<<20, "decoded row cache budget in bytes (0 unlimited)")
 	flag.Parse()
-	e, err := db.Open(*data)
+	e, err := db.OpenWithOptions(*data, db.OpenOptions{MemoryBudgetBytes: *budget})
 	if err != nil {
 		log.Fatal(err)
 	}
+	fmt.Fprintln(os.Stderr, "minivectordb: ready")
 	e.SetDefaultANN(*ann)
 	if addr == "" {
 		if err := repl(os.Stdin, os.Stdout, e.Session()); err != nil {

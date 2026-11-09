@@ -62,7 +62,9 @@
         "path": "smoke-m5-baseline.txt",
         "sha256": "a1e76151d5631aaae7b6048a79089a4ce85521ba38b4426dcf651319d9327c5a"
       }
-    ]
+    ],
+    "m7_head_baseline": "f724f01d8059a1b06b7240ce94b3ae77f8f5f8ff (M6); existing head_baseline above remains historical M5 evidence context",
+    "m7_scope": "M7 implementation and live local validation appended; all five prior evidence units and their source material preserved. No official contest submit/formal 提测."
   },
   "user_prompts": [
     {
@@ -372,6 +374,18 @@
       "role": "agent",
       "source": "ref-conversation-5020334.json/durability; also extracted in M6-EVIDENCE-PACK.json",
       "content": "Existing fsynced transaction WAL, COMMIT/ROLLBACK/EOF and crash recovery retained. PK/index metadata survives snapshot decoding and WAL replay; index buckets rebuilt before ready."
+    },
+    {
+      "id": "M7-user-requirement",
+      "role": "user",
+      "source": "Current M7 task prompt, verbatim excerpts",
+      "content": "Implement a real spill/segment path so queries and restart work when the working set exceeds a configurable resident-memory budget:\nEngine starts **not ready** during recover/rebuild.\nAfter snapshot+WAL recover, rebuild all vector index buckets (`rebuildIndexes`) **before** marking ready."
+    },
+    {
+      "id": "M7-agent-engineering",
+      "role": "agent",
+      "source": "M7 implementation in internal/db/pages.go, transaction_spool.go, wal.go, db.go, select.go; this session",
+      "content": "语雀 §2.3 explicitly includes data exceeding the memory limit. M6 kept Table.Rows and cloned every payload per statement; that fails the beyond-memory requirement. M7 bounded mode uses immutable row pages under -data/segments and table offset/length directories; transaction clones copy references. A single-page eviction cache enforces decoded cached payload accounting. Cold SELECT, filters, limited TopK and index rebuilding load pages on demand. COMMIT fsyncs segments, then the authoritative JSON WAL batch. Transaction SQL is spooled to disk and recovery streams WAL statements and legacy snapshot rows. Open remains unlimited for compatibility; CLI defaults to a 64 MiB cache and accepts -memory-budget=512. The startup hook observes Ready()==false and Execute rejection; a final rebuild precedes readiness and the stderr-only minivectordb: ready line. Official ready framing remains 待题包确认."
     }
   ],
   "experiments": [
@@ -465,6 +479,30 @@
       "smoke_exit_code": 0,
       "output": "ok  \tminivectordb/cmd/minivectordb\t(cached)\nok  \tminivectordb/internal/db\t(cached)\nok  \tminivectordb/internal/mysqlwire\t(cached)\n?   \tminivectordb/scripts/mysqlsmoke\t[no test files]\nPASS: stdin/stdout, types, vector ranking, error continuation, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/EOF isolation, DELETE/DROP\nPASS: M4 int64 WAL round-trip, Unicode VARCHAR, finite float32/dimensions, filter-before-TopK, PK ties, exact/ann session and CLI, ERROR continuation\nPASS: M5 Yuque 2.2 projection/distance, PK, multi-INSERT atomicity, quoted vectors, UPDATE/DELETE rollback, comparisons, index ANN/exact and WAL restart\n",
       "interpretation": "本轮实际执行输出与M5 baseline三条PASS一致。Go包结果使用cache，smoke重新构建并运行临时二进制，包括SIGKILL恢复。重复复测仅证明本轮材料修改未破坏smoke，不新增学习计分实例。"
+    },
+    {
+      "id": "M7-local-validation",
+      "role": "tool_result",
+      "source": "Live commands executed in /workspace/seekdb-work/seekdb after M7 implementation on M6 baseline; temporary logs /tmp/m7-{gotest,race,unit,smoke}.txt",
+      "commands": [
+        "go test ./...",
+        "go test -race ./internal/db/... ./cmd/minivectordb/...",
+        "go test -count=1 -v ./internal/db -run '^TestM7'",
+        "./scripts/smoke.sh",
+        "git diff --check"
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "go_test_output": "ok  \tminivectordb/cmd/minivectordb\t0.009s\nok  \tminivectordb/internal/db\t0.321s\nok  \tminivectordb/internal/mysqlwire\t0.051s\n?   \tminivectordb/scripts/mysqlsmoke\t[no test files]\n",
+      "race_output": "ok  \tminivectordb/internal/db\t2.994s\nok  \tminivectordb/cmd/minivectordb\t1.018s\n",
+      "unit_output": "=== RUN   TestM7BeyondMemory\n    m7_test.go:55: rows=160 budget=512 resident=228 peak=228 pages=1\n    m7_test.go:58: rows=160 budget=512 resident=228 peak=228 pages=1\n    m7_test.go:67: rows=160 budget=512 resident=228 peak=228 pages=1\n    m7_test.go:89: PASS: M7 beyond-memory bounded payloads, cold TopK, WAL reopen, mutations and rollback\n--- PASS: TestM7BeyondMemory (0.27s)\n=== RUN   TestM7ReadyGate\n    m7_test.go:121: PASS: M7 ready gate rejects Execute before rebuild and serves rebuilt index afterwards\n--- PASS: TestM7ReadyGate (0.00s)\n=== RUN   TestM7StreamingSnapshot\n--- PASS: TestM7StreamingSnapshot (0.00s)\n=== RUN   TestM7PageFailure\n--- PASS: TestM7PageFailure (0.00s)\nPASS\nok  \tminivectordb/internal/db\t0.279s\n",
+      "smoke_output": "PASS: stdin/stdout, types, vector ranking, error continuation, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/EOF isolation, DELETE/DROP\nPASS: M4 int64 WAL round-trip, Unicode VARCHAR, finite float32/dimensions, filter-before-TopK, PK ties, exact/ann session and CLI, ERROR continuation\nPASS: M5 Yuque 2.2 projection/distance, PK, multi-INSERT atomicity, quoted vectors, UPDATE/DELETE rollback, comparisons, index ANN/exact and WAL restart\nPASS: M7 beyond-memory 512-byte cache, 160 rows, cold filtered TopK, SIGKILL + WAL/index recovery (resident bounds asserted in Go tests)\nPASS: M7 ready-gate rejection/rebuild unit test, stderr ready handshake, clean stdout\n",
+      "interpretation": "160 rows at 228 decoded bytes each exceed the 512-byte cache. Measurements before and after no-close recovery and rollback show resident=228, peak=228, pages=1; tests additionally assert Table.Rows is empty, all 160 references exist, and pending SQL is spooled. Smoke performs actual SIGKILL after acknowledged COMMIT, reopens at the same budget, checks all 160 rows and ANN filtered TopK [102,101,103]. Ready-gate test deletes replay buckets inside the not-ready hook and verifies final rebuild restores ANN results. Stderr ready and clean stdout are asserted. Existing unlimited tests and M3/M4/M5 smoke remain green."
     }
   ],
   "retrospective": [
@@ -594,6 +632,28 @@
         "quote": "exact/ann session and CLI"
       },
       "review_context": "此处结果引用历史M4报告用于模式分离；U2引用M5类型回归。语义上仅ANN/exact路径与recall边界属于此实例，不重复计算类型测试。M5索引改进作为后续背景，未记录recall测量或学生事后量化反思。",
+      "score": null
+    },
+    {
+      "id": "U6-M7-storage-readiness",
+      "dimension": "M7 engineering hardening (append-only extension; no inferred student score)",
+      "requirement_evidence": {
+        "pointer": "/conversations/44/content",
+        "quote": "Engine starts **not ready** during recover/rebuild."
+      },
+      "design_evidence": {
+        "pointer": "/conversations/45/content",
+        "quote": "M7 bounded mode uses immutable row pages under -data/segments and table offset/length directories; transaction clones copy references."
+      },
+      "result_evidence": {
+        "pointer": "/experiments/9/unit_output",
+        "quote": "rows=160 budget=512 resident=228 peak=228 pages=1"
+      },
+      "crash_evidence": {
+        "pointer": "/experiments/9/smoke_output",
+        "quote": "PASS: M7 beyond-memory 512-byte cache, 160 rows, cold filtered TopK, SIGKILL + WAL/index recovery (resident bounds asserted in Go tests)"
+      },
+      "limitations": "Cache accounting is not an RSS cap. One active/oversized row, statement parsing, result buffers and metadata remain outside the cache budget. Unlimited-result SELECT can use output-sized memory. Recovery regenerates segments from WAL; old generations/spools and WAL need future compaction. Per-row I/O, reference copies and index rebuilds need performance work. Official ready framing is unconfirmed; no formal submission. Agent implementation and tool results are not attributed as student understanding.",
       "score": null
     }
   ]
