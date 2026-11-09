@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"hash"
 	"hash/crc32"
@@ -60,27 +59,8 @@ func OpenWithOptions(dir string, opts OpenOptions) (engine *Engine, openErr erro
 			return nil, err
 		}
 	}
-	if e.pages != nil {
-		f, err := os.Open(filepath.Join(dir, "snapshot.json"))
-		if err == nil {
-			e.state, err = decodePagedSnapshot(f, e.pages)
-			f.Close()
-			if err != nil {
-				return nil, fmt.Errorf("recover snapshot: %w", err)
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
-	} else {
-		b, err := os.ReadFile(filepath.Join(dir, "snapshot.json"))
-		if err == nil {
-			e.state, err = decodeState(b)
-			if err != nil {
-				return nil, fmt.Errorf("recover snapshot: %w", err)
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
+	if err = e.loadSnapshot(); err != nil {
+		return nil, err
 	}
 	f, err := os.OpenFile(filepath.Join(dir, "wal.log"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
@@ -283,7 +263,7 @@ func (e *Engine) readRecord(r io.Reader, apply bool) error {
 					return err
 				}
 				checksumStatement(h, stmt)
-				if apply {
+				if apply && lsn > e.snapshotLSN {
 					_, write, err := runStored(e.state, stmt, false, e.pages)
 					if err != nil {
 						return err
@@ -308,13 +288,13 @@ func (e *Engine) readRecord(r io.Reader, apply bool) error {
 	if err = d.Decode(new(any)); err != io.EOF {
 		return fmt.Errorf("trailing WAL data")
 	}
-	if lsn != e.version+1 || count == 0 {
+	if (lsn > e.snapshotLSN && lsn != e.version+1) || lsn == 0 || count == 0 {
 		return fmt.Errorf("invalid WAL LSN or empty batch")
 	}
 	if !seen["checksum"] || checksum != h.Sum32() {
 		return fmt.Errorf("WAL checksum mismatch or missing checksum")
 	}
-	if apply {
+	if apply && lsn > e.snapshotLSN {
 		e.version = lsn
 	}
 	return nil

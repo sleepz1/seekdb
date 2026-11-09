@@ -766,6 +766,27 @@
       },
       "limitations": "Official ready/error/result framing still TBD (upstream tip unchanged empty scaffold). WAL checkpoint/bounded growth and process locking remain open. Coarse ANN recall is synthetic/easy; not an official contest metric. VmRSS is observational only, not a process RSS cap. No formal submission/提测. Agent work is not attributed as student understanding.",
       "score": null
+    },
+    {
+      "id": "U9-M10-wal-checkpoint-bounded",
+      "dimension": "M10 engineering evidence; no inferred student score",
+      "baseline": "35e7de7a0e1fd217cb4c43eadfba9a68be556e36",
+      "upstream_tip": "a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c",
+      "contest_formally_submitted": false,
+      "user_prompt_excerpt": "WAL file can still grow unboundedly across many commits.\nEngine.Checkpoint() error (explicit; reject with active transactions like Compact)\nNo inventing official framing. reportReady stays the single stderr adapter.",
+      "attribution": "Task excerpts from the M10 user request; implementation and observations below are Agent/tool work, not inferred student understanding. Prior evidence retained unchanged.",
+      "agent_design": "Explicit Checkpoint serializes under engine mutex; rejects active transactions/not-ready/poisoned WAL. Streams committed rows and index metadata into [LSN, legacy table-map] snapshot; fsync file, atomic rename, fsync directory, then truncate and fsync WAL. Open accepts old bare snapshots. Covered WAL records remain checksum-verified but are not applied, so publication-before-truncation is recoverable. New redo retains CRC32 and increasing LSNs. No auto threshold or new protocol.",
+      "unit_command": "go test -count=1 ./internal/db/ -run 'M10|Checkpoint|BoundedGrowth|WALChecksum|HardCrash' -v",
+      "unit_output": "--- PASS: TestM10WALCheckpoint\n--- PASS: TestM10WALCheckpoint/0\n--- PASS: TestM10WALCheckpoint/128\nWAL cycle=0 15418->0 bytes\nWAL cycle=1 15543->0 bytes\nWAL cycle=2 15548->0 bytes\n--- PASS: TestM10WALBoundedGrowth\n--- PASS: TestM10CheckpointFailure\n--- PASS: TestM9WALChecksum\n--- PASS: TestM9WALHardCrash\nPASS",
+      "checks": "go test ./...: PASS. ./scripts/smoke.sh: exit 0, all previous PASS lines retained. go run ./tools/run_public_cases.go: SUMMARY pass=5 fail=0; existing untracked harness untouched and excluded from commit.",
+      "smoke_output": "PASS: M10 WAL checkpoint, active-txn reject, publication recovery, post-checkpoint checksum\nPASS: M10 bounded WAL growth, 600 batch commits, SIGKILL recovery of 601 committed rows",
+      "result_interpretation": "Three 200-batch rounds reclaim WAL to exactly zero. The child then commits row 600, leaves row 999 active, and receives SIGKILL. Two bounded-cache reopens verify exact IDs 0..600. Other tests retain old WAL after snapshot publication, recover deleted rows/index metadata, reject post-checkpoint payload corruption, and verify failed rename leaves redo intact. This is local test evidence, not formal contest admission.",
+      "limitations": "Explicit library checkpoint only; default CLI WAL still grows until maintenance is invoked by a caller. Snapshot size scales with live data; temporary replacement needs old+new snapshot plus WAL. Killed checkpoints can leave ignored temp files. Process locking, automatic scheduling, total RSS and representative ANN performance remain open. Upstream samples-only tip verified by fetch; companion framing/driver remains TBD. reportReady, stdout flush and Dockerfile unchanged. No official submit/formal 提测.",
+      "result_evidence": {
+        "pointer": "/evidence_units/8/unit_output",
+        "quote": "WAL cycle=2 15548->0 bytes"
+      },
+      "score": null
     }
   ]
 }

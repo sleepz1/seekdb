@@ -199,3 +199,10 @@ for name in WALChecksum WALCorruptTail WALHardCrash ANNRecallCoarse; do
 done
 printf '%s\n' 'PASS: M9 WAL checksum, corrupt/torn tail, SIGKILL before/after COMMIT durability'
 printf '%s\n' 'PASS: M9 Sign-LSH ANN coarse recall@10=1.00 (synthetic), VmRSS observation'
+# M10 explicit checkpoint, crash recovery, and repeated WAL reclamation.
+go test -count=1 -v ./internal/db -run '^TestM10' >"$tmp/m10tests"
+for name in WALCheckpoint WALBoundedGrowth CheckpointFailure; do
+ grep -q -- "--- PASS: TestM10$name" "$tmp/m10tests"
+done
+printf '%s\n' 'PASS: M10 WAL checkpoint, active-txn reject, publication recovery, post-checkpoint checksum'
+printf '%s\n' 'PASS: M10 bounded WAL growth, 600 batch commits, SIGKILL recovery of 601 committed rows'

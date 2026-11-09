@@ -228,6 +228,17 @@ func (e *Engine) ResidentPages() int {
 func decodePagedSnapshot(r io.Reader, p *pageStore) (State, error) {
 	d := json.NewDecoder(r)
 	d.UseNumber()
+	state, err := decodeSnapshotTables(d, p)
+	if err != nil {
+		return nil, err
+	}
+	if err = d.Decode(new(any)); err != io.EOF {
+		return nil, fmt.Errorf("trailing snapshot data")
+	}
+	return state, nil
+}
+
+func decodeSnapshotTables(d *json.Decoder, p *pageStore) (State, error) {
 	token, err := d.Token()
 	if err != nil || token != json.Delim('{') {
 		return nil, fmt.Errorf("invalid snapshot object")
@@ -290,9 +301,6 @@ func decodePagedSnapshot(r io.Reader, p *pageStore) (State, error) {
 	}
 	if _, err = d.Token(); err != nil {
 		return nil, err
-	}
-	if err = d.Decode(new(any)); err != io.EOF {
-		return nil, fmt.Errorf("trailing snapshot data")
 	}
 	return state, nil
 }

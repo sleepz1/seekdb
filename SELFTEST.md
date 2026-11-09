@@ -184,3 +184,44 @@ OPEN_ITEMS: official framing; WAL checkpoint/growth; process locking; recovery
 performance; total RSS/large statements/results; representative ANN recall and
 performance. M9 supersedes earlier checksum and unmeasured coarse-recall open items.
 No formal contest submission or 提测.
+
+## M10 explicit WAL checkpoint / bounded growth
+
+Upstream fetched before coding: `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c`
+(samples only; companion driver/framing remains unpublished). `reportReady` remains
+the single interim stderr adapter; official framing is TBD. Dockerfile and stdin
+result flushing are unchanged. No formal submission / 提测.
+
+`Engine.Checkpoint()` holds the engine mutex and rejects active transactions,
+not-ready engines and poisoned WAL writers. It streams committed rows and index
+metadata into a temporary snapshot under `-data`, fsyncs it, renames it to
+`snapshot.json`, and fsyncs the directory before truncating and fsyncing `wal.log`.
+Snapshots use `[checkpointLSN, tableMap]`; table schemas/rows/index metadata retain
+the existing encoding, and Open still accepts legacy bare table-map snapshots.
+Recovery verifies checksums even on retained WAL records covered by the snapshot,
+skips applying those records, and replays later sequential LSNs. Thus interruption
+between snapshot publication and WAL truncation cannot duplicate committed SQL.
+New records retain M9 CRC32 checksums and monotonically increasing LSNs. A failed
+WAL truncation/sync blocks further writes until recovery. Temporary snapshots are
+not recovery input; a killed checkpoint may leave an ignored temporary file.
+
+Policy: explicit library API only, no SQL/protocol extension or automatic trigger.
+After each successful checkpoint WAL size is **0 bytes**; between calls its size
+is the committed redo since the last checkpoint. Callers must schedule checkpoints
+to bound growth; the default CLI still has no automatic WAL bound. Snapshot size
+scales with live data, and replacement temporarily requires old plus new snapshot
+space as well as WAL. Bounded mode streams one row at a time; existing cache-budget
+exclusions still apply. Checkpoint does not replace page-segment Compact.
+
+`TestM10WALBoundedGrowth` uses a 128-byte cache, three rounds of 200 committed
+batches, and checks WAL sizes **15418->0**, **15543->0**, **15548->0 bytes**.
+It then commits row 600, leaves row 999 uncommitted, SIGKILLs the subprocess and
+reopens twice: all 601 committed IDs survive, row 999 does not. Checkpoint tests
+also cover unlimited/bounded recovery, an empty checkpoint, active-txn rejection,
+rollback, deleted rows, index metadata, snapshot publication with old WAL retained,
+post-checkpoint checksum corruption, failed snapshot rename and poisoned writers.
+
+Validation: `go test ./...`, targeted `M10|Checkpoint|BoundedGrowth|WALChecksum|HardCrash`,
+and smoke with all prior PASS lines plus M10. M10 closes the explicit checkpoint
+work item; automatic scheduling, process locking, official framing, representative
+ANN recall, recovery performance and total RSS limits remain open.

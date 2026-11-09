@@ -32,15 +32,16 @@ type Result struct {
 	Error    string   `json:"error,omitempty"`
 }
 type Engine struct {
-	activeTx   int
-	ready      bool
-	pages      *pageStore
-	mu         sync.Mutex
-	dir        string
-	state      State
-	version    uint64
-	walErr     error
-	defaultANN bool
+	activeTx    int
+	ready       bool
+	pages       *pageStore
+	mu          sync.Mutex
+	dir         string
+	state       State
+	snapshotLSN uint64
+	version     uint64
+	walErr      error
+	defaultANN  bool
 }
 type Session struct {
 	spool      string
