@@ -160,7 +160,7 @@ func (s *Session) execute(sql string) (Result, error) {
 
 var create = regexp.MustCompile(`(?is)^CREATE TABLE (\w+)\s*\((.*)\)$`)
 var insert = regexp.MustCompile(`(?is)^INSERT INTO (\w+) VALUES\s*\((.*)\)$`)
-var selectRE = regexp.MustCompile(`(?is)^SELECT \* FROM (\w+)(?: ORDER BY (COSINE|DOT|EUCLIDEAN)\((\w+),\s*(\[.*\])\)(?: (ASC|DESC))?)?(?: LIMIT (\d+))?$`)
+var selectRE = regexp.MustCompile(`(?is)^SELECT \* FROM (\w+)(?: ORDER BY (DISTANCE|COSINE|DOT|EUCLIDEAN)\((\w+),\s*(\[.*\])\)(?: (ASC|DESC))?)?(?: LIMIT (\d+))?$`)
 var remove = regexp.MustCompile(`(?is)^(DROP TABLE|DELETE FROM) (\w+)$`)
 var columnRE = regexp.MustCompile(`(?i)^(\w+)\s+(INT|INTEGER|TEXT|FLOAT|DOUBLE|VECTOR)(?:\((\d+)\))?$`)
 
@@ -361,7 +361,7 @@ func run(state State, sql string) (Result, bool, error) {
 		}
 		return r, false, nil
 	}
-	return fail("unsupported SQL; see README.md for M1 grammar")
+	return fail("unsupported SQL; see README.md for supported grammar")
 }
 
 // COSINE is cosine distance; DOT is negative inner product (smaller is nearer).

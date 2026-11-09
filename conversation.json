@@ -1,12 +1,24 @@
 {
-  "milestone": "M1 MiniVectorDB scaffold",
+  "milestone": "M2 MySQL wire",
   "branch": "2026-competition-round2",
   "record_type": "Continuation summary, not a verbatim conversation transcript",
   "language": "Go",
   "language_rationale": "Keep the working Go engine; the standard library supplies TCP, JSON and filesystem support, and a CGO-disabled build produces a standalone binary for a small scratch Docker image.",
   "protocol": {
-    "now": "line-delimited SQL requests over TCP with one JSON response per line",
-    "later": "MySQL wire protocol TBD"
+    "now": "MySQL protocol 10 handshake, COM_QUERY text results, OK/ERR/EOF, COM_PING, COM_INIT_DB, COM_QUIT; default :3306",
+    "auth": "Advertise mysql_native_password; ignore response bytes and client plugin name; any username and empty/arbitrary password accepted. No credential verification or TLS.",
+    "capabilities": [
+      "CLIENT_LONG_PASSWORD",
+      "CLIENT_CONNECT_WITH_DB",
+      "CLIENT_PROTOCOL_41",
+      "CLIENT_TRANSACTIONS",
+      "CLIENT_SECURE_CONNECTION",
+      "CLIENT_PLUGIN_AUTH"
+    ],
+    "charset": "utf8mb4, collation 45",
+    "wire_vs_line": "Removed legacy line/JSON and server -query; host scripts/mysqlsmoke uses real go-sql-driver/mysql.",
+    "metadata": "VARCHAR text columns; vectors JSON; legacy EOF; autocommit status; single database namespace",
+    "limits": "64 MiB incoming messages; no TLS, compression, multi-statements or server prepared statements"
   },
   "persistence": {
     "file": "snapshot.json",
@@ -15,28 +27,46 @@
   "validation": {
     "go_test": {
       "command": "go test ./...",
-      "result": "PASS reported in preceding session; packages have no test files."
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    "race": {
+      "command": "go test -race ./...",
+      "exit_code": 0,
+      "result": "PASS: driver session reuse, auth, affected rows, empty result metadata, UTF-8 length encoding, packet continuation/boundary, invalid sequence"
     },
     "smoke": {
       "command": "./scripts/smoke.sh",
       "exit_code": 0,
-      "observed_output": "PASS: build, TCP SQL, vector ranking, SIGKILL snapshot recovery, DELETE/DROP"
+      "client": "github.com/go-sql-driver/mysql v1.8.1; mysql CLI absent",
+      "observed_output": "PASS: build, MySQL wire (go-sql-driver/mysql), empty/any-password auth, ERR, vector ranking, SIGKILL snapshot recovery, DELETE/DROP"
     },
     "docker": {
-      "command": "sg docker -c 'docker build -t minivectordb:m1 .'",
+      "command": "sg docker -c 'docker build -t minivectordb:m2 .'",
       "exit_code": 0,
       "result": "SUCCESS",
-      "image": "minivectordb:m1",
-      "image_id": "sha256:451c6f57e9eb190154036cf684b1160d45dc6ec2f1de0aebfbed6b6a2bf488b8",
-      "previous_error": "permission denied on docker.sock; resolved by running with sg docker",
-      "image_pushed": false
+      "image": "minivectordb:m2",
+      "image_id": "sha256:ac729104ea23962eda9307b6d3cb84866f8cab2c5babad0da731e86e55f400c3",
+      "image_pushed": false,
+      "container_runtime_tested": false
     }
   },
   "open_items": [
-    "Official mysqltest pack location and requirements are unknown; official pack has not been run.",
-    "MySQL wire protocol implementation and compatibility are TBD; current TCP protocol is custom SQL+JSON.",
-    "Transaction stubs depth remains to be defined and validated: current BEGIN/COMMIT/ROLLBACK use session snapshots and a global version conflict check; smoke does not exercise transaction semantics."
+    "Official mysqltest pack location and requirements unknown; not run.",
+    "Contest SQL dialect TBD; current narrow grammar documented in README.",
+    "MySQL CLI not installed: compatibility verified using real Go driver only.",
+    "Server prepared statements, TLS and full session/status semantics unimplemented.",
+    "WAL/crash-recovery and transaction semantics intentionally unchanged for M2."
   ],
   "contest_formally_submitted": false,
-  "engine_changes_in_continuation": "None"
+  "engine_changes_in_continuation": "DISTANCE alias for EUCLIDEAN and unsupported-SQL help text only; no persistence or transaction changes.",
+  "baseline_head": "6d2c8a465a8bbe422a16fd001350baec0cd47555",
+  "questions_and_decisions": [
+    "Use pure Go wire implementation and retain internal/db engine.",
+    "Choose native-password greeting for common clients, permissive auth for contest; accept client-supplied auth plugin without verification.",
+    "Advertise only selected capabilities; do not advertise SSL, multi-statements or deprecated EOF.",
+    "Use go-sql-driver/mysql smoke because mysql CLI is absent.",
+    "Add DISTANCE as EUCLIDEAN alias: baseline only exposed COSINE/DOT/EUCLIDEAN in ORDER BY.",
+    "Keep snapshot and transaction implementation unchanged."
+  ]
 }

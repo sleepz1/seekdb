@@ -1,33 +1,43 @@
-# M1 self-test
+# M2 self-test
 
-Run from the repository root (Go 1.22+ and Bash required):
+Observed commands from the repository root, all exit 0:
 
 ```sh
+go test ./...
+go test -race ./...
 ./scripts/smoke.sh
+sg docker -c 'docker build -t minivectordb:m2 .'
 ```
 
-Observed exit status: 0. Exact observed PASS line:
+Exact smoke PASS line:
 
 ```text
-PASS: build, TCP SQL, vector ranking, SIGKILL snapshot recovery, DELETE/DROP
+PASS: build, MySQL wire (go-sql-driver/mysql), empty/any-password auth, ERR, vector ranking, SIGKILL snapshot recovery, DELETE/DROP
 ```
 
-The script builds from source, uses a temporary data directory and ephemeral TCP
-port, checks vector ordering, kills the server with SIGKILL, restarts it, and
-checks snapshot recovery before DELETE/DROP. Temporary files are cleaned up.
-`go test ./...` also passed in the preceding session; there are no Go test files.
+No mysql CLI is installed in the verification environment. The host smoke uses
+`github.com/go-sql-driver/mysql` v1.8.1, builds the server and client, uses a
+temporary snapshot directory and ephemeral TCP port, and cleans up afterward.
+It verifies CREATE/INSERT/SELECT, EUCLIDEAN/DISTANCE/COSINE/DOT ORDER BY with
+LIMIT, empty/arbitrary-password authentication, SQL ERR handling, snapshot
+recovery following SIGKILL, DELETE, empty SELECT, and DROP.
 
-Docker build retried successfully (exit status 0):
+Wire tests additionally exercise connection reuse after ERR, COM_PING,
+handshake database selection, affected rows, empty result metadata, UTF-8 values
+requiring length-encoded prefixes, packet continuation including an exact
+16,777,215-byte boundary, and invalid packet sequence rejection. Race tests pass.
+
+Manual MySQL connection example (not CLI-verified here):
 
 ```sh
-sg docker -c 'docker build -t minivectordb:m1 .'
+mysql --protocol=TCP -h 127.0.0.1 -P 3306 -u root --ssl-mode=DISABLED -e 'SELECT 1'
 ```
 
-Built `minivectordb:m1`, image ID
-`sha256:451c6f57e9eb190154036cf684b1160d45dc6ec2f1de0aebfbed6b6a2bf488b8`.
-The earlier docker.sock permission error was resolved by `sg docker`.
-This verifies the image build; container runtime was not tested in this continuation.
-No image was pushed and no formal contest submission was made.
+Docker built `minivectordb:m2` successfully with CGO=0 and scratch runtime:
+`sha256:ac729104ea23962eda9307b6d3cb84866f8cab2c5babad0da731e86e55f400c3`.
+Container runtime was not tested; no image was pushed.
 
-Open validation: official mysqltest pack unknown; MySQL wire protocol TBD;
-transaction stubs depth and transaction semantics need further validation.
+Open: official mysqltest pack unknown; full contest SQL dialect TBD. Server
+prepared statements, TLS, full MySQL session/status semantics, and projection
+expressions are not implemented. WAL/crash-recovery and transaction semantics
+were not deepened. No formal contest submission or PR merge was performed.
