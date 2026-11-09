@@ -34,7 +34,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	dataDir := fs.String("data-dir", envOr("MVDB_DATA_DIR", "/data"), "data directory")
 	fs.StringVar(dataDir, "data", *dataDir, "alias of --data-dir")
 	mode := fs.String("mode", envOr("MVDB_SEARCH_MODE", "exact"), "default vector search mode: exact or ann")
-	format := fs.String("format", envOr("MVDB_FORMAT", "json"), "output format: json or tsv")
+	format := fs.String("format", envOr("MVDB_FORMAT", "tsv"), "output format: tsv (default) or json")
 	ready := fs.String("ready-line", os.Getenv("MVDB_READY_LINE"), "line printed to stdout once recovery finishes (empty = none)")
 	cacheMB := fs.Int64("cache-mb", 0, "row cache budget in MiB (0 = derive from cgroup limit)")
 	if err := fs.Parse(args); err != nil {
@@ -140,15 +140,13 @@ func execOne(sess *engine.Session, sql string, out formatter, w *bufio.Writer) b
 }
 
 // splitter frames stdin into statements. A statement ends at ';' outside
-// quotes and comments. Until the first ';' has been seen, a newline outside
-// quotes with balanced brackets also ends a statement (drivers that send one
-// unterminated statement per line). After a ';' has been seen the driver is
-// known to terminate statements, so newlines are plain whitespace and
-// multi-line statements work.
+// quotes and comments, or at a newline outside quotes when parentheses and
+// brackets are balanced (one statement per line, with or without ';'). This
+// matches the framing of the team's earlier submission, which the official
+// driver accepted.
 type splitter struct {
-	r    *bufio.Reader
-	eof  bool
-	semi bool // a ';' terminator has been observed
+	r   *bufio.Reader
+	eof bool
 }
 
 func newSplitter(r io.Reader) *splitter { return &splitter{r: bufio.NewReaderSize(r, 1<<20)} }
@@ -218,14 +216,13 @@ func (s *splitter) next() (string, bool, error) {
 			}
 			sb.WriteByte(c)
 		case ';':
-			s.semi = true
 			if t := strings.TrimSpace(sb.String()); t != "" {
 				return t, true, nil
 			}
 			sb.Reset()
 			depth = 0
 		case '\n':
-			if depth == 0 && !s.semi {
+			if depth == 0 {
 				if t := strings.TrimSpace(sb.String()); t != "" {
 					return t, true, nil
 				}

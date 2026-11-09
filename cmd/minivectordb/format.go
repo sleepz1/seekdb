@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"math"
 	"strconv"
 	"strings"
@@ -136,8 +137,17 @@ func writeJSONString(w *bufio.Writer, s string) {
 	w.WriteByte('"')
 }
 
-// tsvFormatter is a mysql --batch like rendering kept as an alternative:
-// header line, one line per row, then "OK <n>"; errors as "ERROR <code> (<state>): <msg>".
+// tsvFormatter is the default stdout framing. It is byte-compatible with the
+// interim framing the team's earlier submission used, which the official
+// driver ran to completion:
+//
+//	SELECT:  column names joined by TAB, one line per row (TAB-separated),
+//	         then "OK <row count>"
+//	writes:  "OK <affected rows>" (DDL / transaction control: "OK 0")
+//	errors:  "ERROR <message>"
+//
+// Strings escape backslash, TAB, LF and CR; numbers and vectors use Go
+// encoding/json rendering (5.0 -> 5, vectors -> [3,4]).
 type tsvFormatter struct{}
 
 func (tsvFormatter) writeResult(w *bufio.Writer, r *engine.Result) {
@@ -147,25 +157,14 @@ func (tsvFormatter) writeResult(w *bufio.Writer, r *engine.Result) {
 		w.WriteByte('\n')
 		return
 	}
-	w.WriteString(strings.Join(escapeAll(r.Columns), "\t"))
+	w.WriteString(strings.Join(r.Columns, "\t"))
 	w.WriteByte('\n')
 	for _, row := range r.Rows {
 		for j, v := range row {
 			if j > 0 {
 				w.WriteByte('\t')
 			}
-			switch v.K {
-			case engine.KInt, engine.KBool:
-				w.WriteString(strconv.FormatInt(v.I, 10))
-			case engine.KFloat:
-				w.WriteString(formatFloat(v.F))
-			case engine.KStr:
-				w.WriteString(escapeTSV(v.S))
-			case engine.KVec:
-				w.WriteString(engine.FormatVector(v.V))
-			default:
-				w.WriteString("NULL")
-			}
+			w.WriteString(tsvCell(v))
 		}
 		w.WriteByte('\n')
 	}
@@ -176,22 +175,37 @@ func (tsvFormatter) writeResult(w *bufio.Writer, r *engine.Result) {
 
 func (tsvFormatter) writeError(w *bufio.Writer, e *engine.SQLError) {
 	w.WriteString("ERROR ")
-	w.WriteString(strconv.Itoa(e.Code()))
-	w.WriteString(" (")
-	w.WriteString(e.SQLState())
-	w.WriteString("): ")
 	w.WriteString(escapeTSV(e.Msg))
 	w.WriteByte('\n')
 }
 
-func escapeAll(ss []string) []string {
-	out := make([]string, len(ss))
-	for i, s := range ss {
-		out[i] = escapeTSV(s)
+func tsvCell(v engine.Value) string {
+	switch v.K {
+	case engine.KStr:
+		return escapeTSV(v.S)
+	case engine.KInt:
+		return strconv.FormatInt(v.I, 10)
+	case engine.KBool:
+		if v.I != 0 {
+			return "true"
+		}
+		return "false"
+	case engine.KFloat:
+		b, err := json.Marshal(v.F)
+		if err != nil {
+			return "null"
+		}
+		return string(b)
+	case engine.KVec:
+		b, err := json.Marshal(v.V)
+		if err != nil {
+			return "null"
+		}
+		return string(b)
 	}
-	return out
+	return "null"
 }
 
-var tsvEscaper = strings.NewReplacer("\\", `\\`, "\t", `\t`, "\n", `\n`, "\r", `\r`, "\x00", `\0`)
+var tsvEscaper = strings.NewReplacer("\\", `\\`, "\t", `\t`, "\n", `\n`, "\r", `\r`)
 
 func escapeTSV(s string) string { return tsvEscaper.Replace(s) }
