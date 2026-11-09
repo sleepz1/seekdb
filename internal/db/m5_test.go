@@ -123,7 +123,10 @@ func TestM5Index(t *testing.T) {
 		}
 	}
 	check(s)
-	check(openTest(t, dir).Session())
+	e.Close()
+	e = openTest(t, dir)
+	s = e.Session()
+	check(s)
 	execTest(t, s, "SET search_mode=ann")
 	execTest(t, s, "BEGIN")
 	execTest(t, s, "UPDATE t SET v='[-3]' WHERE id=2")
@@ -173,7 +176,10 @@ func TestM5IndexSnapshotAndCommittedMutations(t *testing.T) {
 			t.Fatal("lost metadata")
 		}
 	}
-	check(openTest(t, dir).Session())
+	e.Close()
+	e = openTest(t, dir)
+	s = e.Session()
+	check(s)
 	raw, err := json.Marshal(e.state)
 	if err != nil {
 		t.Fatal(err)

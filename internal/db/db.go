@@ -4,6 +4,7 @@ package db
 import (
 	"errors"
 	"math"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,6 +33,7 @@ type Result struct {
 	Error    string   `json:"error,omitempty"`
 }
 type Engine struct {
+	lockFile          *os.File
 	checkpointVersion uint64
 	walBytes          int64
 	activeTx          int

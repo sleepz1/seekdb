@@ -35,6 +35,15 @@ grep -q '^ERROR ' "$tmp/out"
 grep -q $'^1\tfirst\t\[1,0\]$' "$tmp/out"
 test -s "$tmp/data/wal.log"
 cmp "$tmp/base.json" "$tmp/data/snapshot.json"
+if timeout 5 "$bin" -data "$tmp/data" </dev/null >"$tmp/lockout" 2>"$tmp/lockerr"; then
+ echo 'FAIL: second process accepted data directory'; exit 1
+else
+ test "$?" -eq 1
+fi
+grep -q 'ERROR opening database: cannot lock data directory' "$tmp/lockerr"
+! grep -q 'ready' "$tmp/lockerr"
+test ! -s "$tmp/lockout"
+
 kill -9 "$pid"
 wait "$pid" 2>/dev/null || true
 pid=''
@@ -227,3 +236,9 @@ grep -q -- '--- PASS: TestM14AutoCheckpointBytesDeferral' "$tmp/m14tests"
 grep -q -- '--- PASS: TestM14AutoCheckpointFailure' "$tmp/m14tests"
 grep -q -- '--- PASS: TestM14RSSObserve' "$tmp/m14tests"
 printf '%s\n' 'PASS: M14 automatic checkpoint thresholds, active-txn deferral, failure retry, RSS observation'
+# M15 nonblocking directory ownership and OS cleanup after SIGKILL.
+go test -count=1 -v ./internal/db -run '^TestM15' >"$tmp/m15tests"
+for name in Lock LockFailedOpen LockProcess; do
+ grep -q -- "--- PASS: TestM15$name " "$tmp/m15tests"
+done
+printf '%s\n' 'PASS: M15 process lock, second-open rejection, Close/reopen, failed-open cleanup, SIGKILL restart'

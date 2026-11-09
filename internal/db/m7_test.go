@@ -53,7 +53,8 @@ func TestM7BeyondMemory(t *testing.T) {
 		}
 	}
 	check(e)
-	// No graceful close/checkpoint: only acknowledged WAL commits may recover.
+	// Close releases ownership without checkpointing: only acknowledged WAL commits may recover.
+	e.Close()
 	e = open()
 	check(e)
 	s = e.Session()
@@ -73,6 +74,7 @@ func TestM7BeyondMemory(t *testing.T) {
 	execTest(t, s, "UPDATE t SET label='changed' WHERE id=102")
 	execTest(t, s, "DELETE FROM t WHERE id < 100")
 	execTest(t, s, "COMMIT")
+	e.Close()
 	e = open()
 	s = e.Session()
 	if len(execTest(t, s, "SELECT id FROM t").Rows) != 61 {
@@ -83,6 +85,7 @@ func TestM7BeyondMemory(t *testing.T) {
 	}
 	execTest(t, s, "DELETE FROM t")
 	execTest(t, s, "DROP TABLE t")
+	e.Close()
 	if open().Session().Execute("SELECT * FROM t").Error == "" {
 		t.Fatal("drop lost")
 	}
@@ -95,6 +98,7 @@ func TestM7ReadyGate(t *testing.T) {
 	execTest(t, s, "CREATE TABLE t (id BIGINT PRIMARY KEY, v VECTOR(1))")
 	execTest(t, s, "INSERT INTO t VALUES (1,[1]),(2,[-1])")
 	execTest(t, s, "CREATE VECTOR INDEX ix ON t(v)")
+	s.e.Close()
 	observed := false
 	e, err := OpenWithOptions(dir, OpenOptions{MemoryBudgetBytes: 128, AfterRecoverBeforeRebuild: func(e *Engine) {
 		observed = true
@@ -163,6 +167,7 @@ func TestM7PageFailure(t *testing.T) {
 	if s.Execute("INSERT INTO t VALUES (2,[2,2])").Error == "" {
 		t.Fatal("failed page write acknowledged")
 	}
+	e.Close()
 	e, err = OpenWithOptions(dir, OpenOptions{MemoryBudgetBytes: 64})
 	if err != nil {
 		t.Fatal(err)

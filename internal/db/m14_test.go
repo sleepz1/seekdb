@@ -28,6 +28,7 @@ func TestM14AutoCheckpointCommits(t *testing.T) {
 		t.Fatal("automatic checkpoint did not clear WAL", n)
 	}
 	execTest(t, s, "INSERT INTO t VALUES (1024)")
+	e.Close()
 	e = openTest(t, e.dir)
 	if n := len(execTest(t, e.Session(), "SELECT * FROM t").Rows); n != 1024 {
 		t.Fatal(n)
@@ -65,6 +66,7 @@ func TestM14AutoCheckpointBytesDeferral(t *testing.T) {
 			if m14WALSize(t, e) != 0 {
 				t.Fatal("deferred checkpoint not run")
 			}
+			e.Close()
 			e = openTest(t, e.dir)
 			if len(execTest(t, e.Session(), "SELECT id FROM t").Rows) != 1 {
 				t.Fatal("lost commit")
@@ -81,6 +83,7 @@ func TestM14AutoCheckpointBytesDeferral(t *testing.T) {
 			if end == "COMMIT" {
 				want = 2
 			}
+			e.Close()
 			e = openTest(t, e.dir)
 			if len(execTest(t, e.Session(), "SELECT id FROM t").Rows) != want {
 				t.Fatal("transaction outcome")
@@ -119,6 +122,7 @@ func TestM14AutoCheckpointFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Recovery retains pending maintenance; an idle SELECT retries it.
+	e.Close()
 	e = openTest(t, e.dir)
 	s = e.Session()
 	if len(execTest(t, s, "SELECT * FROM t").Rows) != int(AutoCheckpointEveryN) {

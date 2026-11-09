@@ -127,6 +127,7 @@ func TestM13Recovery(t *testing.T) {
 					if budget > 0 && e.PeakResidentRowBytes() > budget {
 						t.Fatal("cache budget exceeded")
 					}
+					e.Close()
 				}
 			})
 		}

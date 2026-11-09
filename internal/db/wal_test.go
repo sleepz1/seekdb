@@ -12,6 +12,7 @@ func openTest(t *testing.T, dir string) *Engine {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { e.Close() })
 	return e
 }
 func execTest(t *testing.T, s *Session, sql string) Result {
@@ -40,6 +41,7 @@ func TestWALTransactions(t *testing.T) {
 	execTest(t, s, "ROLLBACK")
 	execTest(t, s, "BEGIN")
 	execTest(t, s, "INSERT INTO t VALUES (3, [0,1])")
+	e.Close()
 	recovered := openTest(t, dir)
 	rows := execTest(t, recovered.Session(), "SELECT * FROM t ORDER BY DISTANCE(v, [1,0])").Rows
 	if len(rows) != 1 || rows[0][0] != int64(1) {
@@ -61,10 +63,13 @@ func TestWALTornTailAndRepeatRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
+	s.e.Close()
 	s = openTest(t, dir).Session()
 	execTest(t, s, "INSERT INTO t VALUES (1)")
 	for i := 0; i < 2; i++ {
-		rows := execTest(t, openTest(t, dir).Session(), "SELECT * FROM t").Rows
+		s.e.Close()
+		s = openTest(t, dir).Session()
+		rows := execTest(t, s, "SELECT * FROM t").Rows
 		if len(rows) != 1 || rows[0][0] != int64(1) {
 			t.Fatal(rows)
 		}
@@ -95,11 +100,13 @@ func TestSnapshotBaseConflictAndDeletes(t *testing.T) {
 		t.Fatal("missing conflict")
 	}
 	execTest(t, a, "ROLLBACK")
+	e.Close()
 	s := openTest(t, dir).Session()
 	if len(execTest(t, s, "SELECT * FROM t").Rows) != 0 {
 		t.Fatal("delete lost")
 	}
 	execTest(t, s, "DROP TABLE t")
+	s.e.Close()
 	if openTest(t, dir).Session().Execute("SELECT * FROM t").Error == "" {
 		t.Fatal("drop lost")
 	}

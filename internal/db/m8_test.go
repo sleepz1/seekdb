@@ -82,6 +82,7 @@ func TestM8CompactionStress(t *testing.T) {
 	// Abandon the engine without a graceful checkpoint, with private dirty pages.
 	execTest(t, s, "BEGIN")
 	execTest(t, s, "DELETE FROM t WHERE id >= 100")
+	e.Close()
 	e = open()
 	check(e)
 	files, _ := filepath.Glob(filepath.Join(dir, "segments", "*"))
@@ -150,6 +151,7 @@ func TestM8CompactTransactionAndFailure(t *testing.T) {
 	if e.Compact() == nil || e.pages.path != old || fmt.Sprint(refs) != fmt.Sprint(e.state["t"].refs) {
 		t.Fatal("failed copy published")
 	}
+	e.Close()
 	e, err = OpenWithOptions(e.dir, OpenOptions{MemoryBudgetBytes: 128})
 	if err != nil {
 		t.Fatal(err)

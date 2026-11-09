@@ -48,12 +48,14 @@ func TestM10WALCheckpoint(t *testing.T) {
 			if err = os.WriteFile(p, old, 0600); err != nil {
 				t.Fatal(err)
 			}
+			e.Close()
 			e = open()
 			s = e.Session()
 			if r := execTest(t, s, "SELECT id FROM t"); fmt.Sprint(r.Rows) != "[[1]]" {
 				t.Fatal(r)
 			}
 			execTest(t, s, "INSERT INTO t VALUES (4,[4,5])")
+			e.Close()
 			e = open()
 			s = e.Session()
 			if r := execTest(t, s, "SELECT id FROM t ORDER BY L2_DISTANCE(v,[4,5]) LIMIT 1"); fmt.Sprint(r.Rows) != "[[4]]" {
@@ -74,6 +76,7 @@ func TestM10WALCheckpoint(t *testing.T) {
 			if err = os.WriteFile(p, bad, 0600); err != nil {
 				t.Fatal(err)
 			}
+			e.Close()
 			if _, err = Open(dir); err == nil {
 				t.Fatal("post-checkpoint checksum corruption accepted")
 			}
@@ -147,6 +150,7 @@ func TestM10WALBoundedGrowth(t *testing.T) {
 		if e.PeakResidentRowBytes() > 128 {
 			t.Fatal("cache exceeded")
 		}
+		e.Close()
 	}
 }
 
@@ -156,6 +160,7 @@ func TestM10CheckpointFailure(t *testing.T) {
 	if err := e.Checkpoint(); err != nil {
 		t.Fatal(err)
 	}
+	e.Close()
 	e = openTest(t, dir)
 	s := e.Session()
 	execTest(t, s, "CREATE TABLE t (id BIGINT PRIMARY KEY)")
@@ -184,6 +189,7 @@ func TestM10CheckpointFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	execTest(t, s, "INSERT INTO t VALUES (2)")
+	e.Close()
 	e = openTest(t, dir)
 	if len(execTest(t, e.Session(), "SELECT * FROM t").Rows) != 2 {
 		t.Fatal("lost commit")

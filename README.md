@@ -417,3 +417,35 @@ M14 tests cover commit and byte triggers, explicit transaction completion, multi
 pins/conflicts, failure diagnostics, idle retry after recovery, and M10 API coexistence.
 OPEN_ITEMS: official framing/driver; process locking; large-scale recovery and total RSS;
 large statements/results; representative ANN performance and hidden-distribution recall.
+
+## M15 process locking and framing watch
+
+Upstream re-fetched: `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c` is unchanged,
+samples-only. FRAMING=TBD; interim `reportReady` remains unchanged. No official
+contest submission or formal 提测.
+
+`Open` / `OpenWithOptions` acquire an exclusive, nonblocking OS `flock` on
+`LOCK` under `-data` (default `/data`) before opening WAL, snapshots or segments.
+Linux is supported using Go stdlib `syscall.Flock`, with no added dependency.
+A competing engine/process fails immediately with a data-directory lock error;
+the CLI exits nonzero with `ERROR opening database` on stderr, before readiness.
+This is an advisory lock: every writer must honor it, on a filesystem supporting
+flock. Do not remove/replace `LOCK` or the data directory while an owner is alive.
+
+`Engine.Close()` serializes with execution/maintenance, disables existing sessions,
+and releases ownership; repeated Close is safe. It does not checkpoint or commit
+active transactions. Library callers must Close before reopening. The CLI defers
+Close on normal EOF; process exit, including SIGKILL, releases the OS lock even
+when defers do not run. Startup failures also release it. The empty LOCK file
+remains permanently as a stable inode; its existence is not a stale-lock signal,
+and no manual deletion is needed after a crash.
+
+M15 tests cover same-directory opens, Close/reopen, closed-session rejection,
+failed startup (including recovered storage panic), live subprocess contention and
+SIGKILL/restart with committed WAL recovery. Earlier in-process recovery fixtures
+now Close before reopening, without introducing checkpoints; existing real crash
+tests remain intact. Smoke retains prior checks and adds the M15 PASS line.
+This supersedes earlier process-locking OPEN_ITEMS.
+
+OPEN_ITEMS: official framing/driver; large-scale recovery and total RSS;
+large statements/results; representative ANN performance and hidden-distribution recall.

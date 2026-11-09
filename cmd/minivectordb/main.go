@@ -20,8 +20,9 @@ func main() {
 	flag.Parse()
 	e, err := db.OpenWithOptions(*data, db.OpenOptions{MemoryBudgetBytes: *budget})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("ERROR opening database: %v", err)
 	}
+	defer e.Close()
 	reportReady()
 	e.SetDefaultANN(*ann)
 	if addr == "" {

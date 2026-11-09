@@ -24,7 +24,9 @@ func TestM9WALChecksum(t *testing.T) {
 	if bytes.Count(data, []byte(`"checksum":`)) != 2 {
 		t.Fatal("missing checksums")
 	}
-	if r := execTest(t, openTest(t, dir).Session(), "SELECT id FROM t"); fmt.Sprint(r.Rows) != "[[1]]" {
+	s.e.Close()
+	s = openTest(t, dir).Session()
+	if r := execTest(t, s, "SELECT id FROM t"); fmt.Sprint(r.Rows) != "[[1]]" {
 		t.Fatal(r)
 	}
 	// A bad middle record must prevent later records from being replayed.
@@ -33,6 +35,7 @@ func TestM9WALChecksum(t *testing.T) {
 	if err = os.WriteFile(p, bad, 0600); err != nil {
 		t.Fatal(err)
 	}
+	s.e.Close()
 	if _, err = Open(dir); err == nil || !strings.Contains(err.Error(), "checksum") {
 		t.Fatal(err)
 	}
@@ -156,7 +159,10 @@ func TestM9WALHardCrash(t *testing.T) {
 				want = "[[1] [2]]"
 			}
 			for i := 0; i < 2; i++ {
-				if r := execTest(t, openTest(t, dir).Session(), "SELECT id FROM t"); fmt.Sprint(r.Rows) != want {
+				e := openTest(t, dir)
+				r := execTest(t, e.Session(), "SELECT id FROM t")
+				e.Close()
+				if fmt.Sprint(r.Rows) != want {
 					t.Fatal(r)
 				}
 			}

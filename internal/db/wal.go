@@ -51,8 +51,17 @@ func OpenWithOptions(dir string, opts OpenOptions) (engine *Engine, openErr erro
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
-	e := &Engine{dir: dir, state: State{}}
-	var err error
+	lock, err := acquireDirLock(dir)
+	if err != nil {
+		return nil, err
+	}
+	opened := false
+	defer func() {
+		if !opened {
+			lock.Close()
+		}
+	}()
+	e := &Engine{dir: dir, state: State{}, lockFile: lock}
 	if opts.MemoryBudgetBytes > 0 {
 		e.pages, err = newPageStore(dir, opts.MemoryBudgetBytes)
 		if err != nil {
@@ -131,6 +140,7 @@ func OpenWithOptions(dir string, opts OpenOptions) (engine *Engine, openErr erro
 	e.mu.Lock()
 	e.ready = true
 	e.mu.Unlock()
+	opened = true
 	return e, nil
 }
 

@@ -21,6 +21,7 @@ func TestREPLFramingAndRecovery(t *testing.T) {
 	if !strings.Contains(out.String(), "ERROR BIGINT requires an integer in int64 range\nid\tlabel\tv\n1\ta;'b\\tc\t[1,0]\nOK 1\n") {
 		t.Fatal(out.String())
 	}
+	e.Close()
 	e, err = db.Open(dir)
 	if err != nil {
 		t.Fatal(err)

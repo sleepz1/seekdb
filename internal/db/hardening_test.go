@@ -33,7 +33,10 @@ func TestM4TypesRecovery(t *testing.T) {
 		}
 	}
 	check(s)
-	check(openTest(t, dir).Session())
+	e.Close()
+	e = openTest(t, dir)
+	s = e.Session()
+	check(s)
 	// A JSON snapshot must also retain integer tokens and restore typed vectors.
 	raw, err := json.Marshal(e.state)
 	if err != nil {
