@@ -113,9 +113,9 @@ func (s *Session) execute(sql string) (Result, error) {
 
 var create = regexp.MustCompile(`(?is)^CREATE TABLE (\w+)\s*\((.*)\)$`)
 var insert = regexp.MustCompile(`(?is)^INSERT INTO (\w+) VALUES\s*\((.*)\)$`)
-var selectRE = regexp.MustCompile(`(?is)^SELECT \* FROM (\w+)(?: ORDER BY (DISTANCE|COSINE|DOT|EUCLIDEAN)\((\w+),\s*(\[.*\])\)(?: (ASC|DESC))?)?(?: LIMIT (\d+))?$`)
+var selectRE = regexp.MustCompile(`(?is)^SELECT \* FROM (\w+)(?: ORDER BY (L2_DISTANCE|DISTANCE|COSINE|DOT|EUCLIDEAN)\((\w+),\s*(\[.*\])\)(?: (ASC|DESC))?)?(?: LIMIT (\d+))?$`)
 var remove = regexp.MustCompile(`(?is)^(DROP TABLE|DELETE FROM) (\w+)$`)
-var columnRE = regexp.MustCompile(`(?i)^(\w+)\s+(INT|INTEGER|TEXT|FLOAT|DOUBLE|VECTOR)(?:\((\d+)\))?$`)
+var columnRE = regexp.MustCompile(`(?i)^(\w+)\s+(BIGINT|INT|INTEGER|VARCHAR|TEXT|FLOAT|DOUBLE|VECTOR)(?:\((\d+)\))?$`)
 
 // split respects quoted SQL strings, nested parentheses, and vector brackets.
 func split(v string) ([]string, error) {
@@ -164,6 +164,9 @@ func vector(v any) ([]float64, error) {
 	return a, err
 }
 func run(state State, sql string) (Result, bool, error) {
+	if strings.EqualFold(sql, "SELECT 1") {
+		return Result{Columns: []string{"1"}, Rows: [][]any{{float64(1)}}}, false, nil
+	}
 	fail := func(msg string) (Result, bool, error) { return Result{}, false, errors.New(msg) }
 	if m := create.FindStringSubmatch(sql); m != nil {
 		name := strings.ToLower(m[1])
@@ -191,7 +194,7 @@ func run(state State, sql string) (Result, bool, error) {
 				if col.Dim < 1 {
 					return fail("VECTOR requires positive dimension")
 				}
-			} else if c[3] != "" {
+			} else if c[3] != "" && col.Type != "VARCHAR" {
 				return fail("unexpected dimension")
 			}
 			t.Columns = append(t.Columns, col)
@@ -215,7 +218,7 @@ func run(state State, sql string) (Result, bool, error) {
 		for i, p := range parts {
 			c := t.Columns[i]
 			switch c.Type {
-			case "TEXT":
+			case "TEXT", "VARCHAR":
 				if len(p) < 2 || p[0] != '\'' || p[len(p)-1] != '\'' {
 					return fail("TEXT requires SQL quotes")
 				}
@@ -231,7 +234,7 @@ func run(state State, sql string) (Result, bool, error) {
 				if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
 					return fail("invalid number")
 				}
-				if (c.Type == "INT" || c.Type == "INTEGER") && n != math.Trunc(n) {
+				if (c.Type == "INT" || c.Type == "INTEGER" || c.Type == "BIGINT") && n != math.Trunc(n) {
 					return fail("integer required")
 				}
 				row[i] = n

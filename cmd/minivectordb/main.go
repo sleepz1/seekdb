@@ -6,22 +6,32 @@ import (
 	"minivectordb/internal/db"
 	"minivectordb/internal/mysqlwire"
 	"net"
+	"os"
 )
 
 func main() {
-	addr := flag.String("addr", ":3306", "MySQL TCP listen address")
-	data := flag.String("data", "./data", "snapshot directory")
+	var addr string
+	flag.StringVar(&addr, "addr", "", "optional MySQL helper listen address (replaces stdin mode)")
+	flag.StringVar(&addr, "mysql-addr", "", "optional MySQL helper listen address (replaces stdin mode)")
+	data := flag.String("data", "/data", "WAL and optional snapshot directory")
+	flag.Bool("ann", false, "reserved no-op; searches remain exact")
 	flag.Parse()
 	e, err := db.Open(*data)
 	if err != nil {
 		log.Fatal(err)
 	}
-	l, err := net.Listen("tcp", *addr)
+	if addr == "" {
+		if err := repl(os.Stdin, os.Stdout, e.Session()); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer l.Close()
-	log.Printf("MiniVectorDB M2 MySQL listening on %s", l.Addr())
+	log.Printf("MiniVectorDB optional MySQL listening on %s", l.Addr())
 	for {
 		c, err := l.Accept()
 		if err != nil {

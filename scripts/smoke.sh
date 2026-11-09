@@ -1,55 +1,63 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-tmp=$(mktemp -d "$PWD/.m3-smoke.XXXXXX")
+tmp=$(mktemp -d)
 pid=''
 cleanup() { if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi; rm -rf "$tmp"; }
 trap cleanup EXIT
 go build -o "$tmp/minivectordb" ./cmd/minivectordb
-go build -o "$tmp/mysqlsmoke" ./scripts/mysqlsmoke
-start() {
-  "$tmp/minivectordb" -addr 127.0.0.1:0 -data "$tmp/data" >"$tmp/server.log" 2>&1 &
-  pid=$!
-  for _ in {1..100}; do
-    if grep -q 'listening on' "$tmp/server.log"; then addr=$(sed -n 's/.*listening on //p' "$tmp/server.log"); return; fi
-    kill -0 "$pid" || { cat "$tmp/server.log"; exit 1; }
-    sleep .05
-  done
-  cat "$tmp/server.log"; exit 1
-}
-q() { "$tmp/mysqlsmoke" -addr "$addr" -query "$1"; }
-# An M2 snapshot base must continue to recover alongside new WAL commits.
+bin="$tmp/minivectordb"
 mkdir -p "$tmp/data"
 printf '%s' '{"legacy":{"Columns":[{"Name":"id","Type":"INT","Dim":0}],"Rows":[[42]]}}' > "$tmp/data/snapshot.json"
 cp "$tmp/data/snapshot.json" "$tmp/base.json"
-start
-[[ $(q 'SELECT * FROM legacy') == '[["42"]]' ]]
-q 'CREATE TABLE items (id INT, label TEXT, embedding VECTOR(2))'
-q "INSERT INTO items VALUES (1, 'first', [1,0])"
-q "INSERT INTO items VALUES (2, 'second', [0,1])"
-result=$(q 'SELECT * FROM items ORDER BY EUCLIDEAN(embedding, [1,0]) LIMIT 1')
-[[ "$result" == *'[["1","first","[1,0]"]]'* ]]
-for metric in DISTANCE COSINE DOT; do
-  [[ $(q "SELECT * FROM items ORDER BY $metric(embedding, [1,0]) LIMIT 1") == *'first'* ]]
+# FIFO keeps the foreground stdin process alive until we kill it after acknowledgment.
+mkfifo "$tmp/in"
+exec 3<>"$tmp/in"
+"$bin" -data "$tmp/data" <"$tmp/in" >"$tmp/out" 2>"$tmp/err" 3>&- &
+pid=$!
+cat >&3 <<'SQL'
+CREATE TABLE items (id BIGINT, label VARCHAR(32), embedding VECTOR(2));
+INSERT INTO items VALUES (1, 'first', [1,0]);
+BEGIN; INSERT INTO items VALUES (2, 'committed', [0,1]); COMMIT;
+BEGIN; INSERT INTO items VALUES (3, 'rolledback', [1,0]); ROLLBACK;
+INVALID SQL;
+SELECT * FROM items ORDER BY L2_DISTANCE(embedding, [1,0]) LIMIT 1;
+BEGIN; INSERT INTO items VALUES (4, 'uncommitted', [1,0]);
+SELECT * FROM items;
+SQL
+for _ in {1..100}; do
+ if grep -q '^OK 3$' "$tmp/out"; then break; fi
+ kill -0 "$pid"
+ sleep .05
 done
-"$tmp/mysqlsmoke" -addr "$addr" -password '' -query 'SELECT 1'
-if q 'INVALID SQL' >"$tmp/error.log" 2>&1; then echo 'Expected ERR'; exit 1; fi
-"$tmp/mysqlsmoke" -addr "$addr" -query BEGIN -query "INSERT INTO items VALUES (3, 'committed', [0.9,0])" -query COMMIT -query 'SELECT * FROM items' > "$tmp/committed.json"
-[[ $(cat "$tmp/committed.json") == *'committed'* ]]
-"$tmp/mysqlsmoke" -addr "$addr" -query 'START TRANSACTION' -query "INSERT INTO items VALUES (4, 'rolledback', [1,0])" -query ROLLBACK
-"$tmp/mysqlsmoke" -addr "$addr" -query BEGIN -query "INSERT INTO items VALUES (5, 'uncommitted', [1,0])"
+grep -q '^OK 3$' "$tmp/out"
+grep -q '^ERROR ' "$tmp/out"
+grep -q $'^1\tfirst\t\[1,0\]$' "$tmp/out"
 test -s "$tmp/data/wal.log"
 cmp "$tmp/base.json" "$tmp/data/snapshot.json"
-# SIGKILL exercises recovery without a graceful shutdown.
-kill -9 "$pid"; wait "$pid" 2>/dev/null || true; pid=''
-start
-result=$(q 'SELECT * FROM items')
-[[ "$result" == *'second'* && "$result" == *'committed'* && "$result" != *'rolledback'* && "$result" != *'uncommitted'* ]]
-[[ $(q 'SELECT * FROM legacy') == '[["42"]]' ]]
-for metric in EUCLIDEAN DISTANCE COSINE DOT; do
-  [[ $(q "SELECT * FROM items ORDER BY $metric(embedding, [1,0]) LIMIT 1") == *'first'* ]]
+kill -9 "$pid"
+wait "$pid" 2>/dev/null || true
+pid=''
+exec 3>&-
+cat <<'SQL' | "$bin" -data "$tmp/data" >"$tmp/recovered" 2>"$tmp/err"
+SELECT * FROM legacy;
+SELECT * FROM items;
+SELECT * FROM items ORDER BY L2_DISTANCE(embedding, [1,0]) LIMIT 1;
+INVALID SQL
+SELECT 1;
+SQL
+grep -q '^42$' "$tmp/recovered"
+grep -q $'^2\tcommitted\t\[0,1\]$' "$tmp/recovered"
+! grep -Eq 'rolledback|uncommitted' "$tmp/recovered"
+grep -q '^OK 2$' "$tmp/recovered"
+grep -q '^ERROR ' "$tmp/recovered"
+[[ $(tail -3 "$tmp/recovered") == $'1\n1\nOK 1' ]]
+for metric in L2_DISTANCE EUCLIDEAN DISTANCE COSINE DOT; do
+ printf 'SELECT * FROM items ORDER BY %s(embedding, [1,0]) LIMIT 1;\n' "$metric" | "$bin" -data "$tmp/data" >"$tmp/rank"
+ [[ $(cat "$tmp/rank") == $'id\tlabel\tembedding\n1\tfirst\t[1,0]\nOK 1' ]]
 done
-q 'DELETE FROM items'
-[[ $(q 'SELECT * FROM items') == '[]' ]]
-q 'DROP TABLE items'
-printf '%s\n' 'PASS: build, MySQL wire (go-sql-driver/mysql), empty/any-password auth, ERR, vector ranking, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/disconnect isolation, recovered vector ranking, DELETE/DROP'
+printf '%s\n' 'BEGIN' "INSERT INTO items VALUES (5, 'eof_uncommitted', [1,0])" | "$bin" -data "$tmp/data" >"$tmp/eof"
+printf 'SELECT * FROM items;\nDELETE FROM items;\nSELECT * FROM items;\nDROP TABLE items;\n' | "$bin" -data "$tmp/data" >"$tmp/deleted"
+! grep -q eof_uncommitted "$tmp/deleted"
+grep -q '^OK 0$' "$tmp/deleted"
+printf '%s\n' 'PASS: stdin/stdout, types, vector ranking, error continuation, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/EOF isolation, DELETE/DROP'

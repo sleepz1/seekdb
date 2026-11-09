@@ -1,53 +1,52 @@
-# MiniVectorDB M3 — transactions and WAL recovery
+# MiniVectorDB M3b — stdin/stdout and WAL
 
-Pure Go SQL/vector server with fsynced `wal.log` redo persistence and recovery
-from an optional legacy `snapshot.json` base. Requires Go
-1.22+; smoke also requires Bash. MySQL wire is the default on :3306; the old
-line/JSON protocol and server `-query` option have been removed.
-
-```sh
-go build -o /tmp/minivectordb ./cmd/minivectordb
-/tmp/minivectordb -addr 127.0.0.1:3306 -data /tmp/minivectordb-data
-mysql --protocol=TCP -h 127.0.0.1 -P 3306 -u root --ssl-mode=DISABLED
-```
-
-Run SQL in that client:
-
-```sql
-CREATE TABLE items (id INT, embedding VECTOR(2));
-INSERT INTO items VALUES (1, [1,0]);
-SELECT * FROM items ORDER BY DISTANCE(embedding, [1,0]) LIMIT 1;
-DELETE FROM items;
-DROP TABLE items;
-```
-
-Without a mysql CLI, use the real Go MySQL driver client:
+Pure Go SQL/vector engine. No external storage engine or vector library. Requires
+Go 1.22+; smoke requires Bash. Default mode is a foreground stdin session with
+stdout results, stderr logs, no network listener, and data directory `/data`.
+The confirmed contest protocol is stdin/stdout; exact round2 pack framing is TBD.
 
 ```sh
-go run ./scripts/mysqlsmoke -addr 127.0.0.1:3306 -query 'SELECT 1'
-go run ./scripts/mysqlsmoke -query BEGIN \
-  -query 'INSERT INTO items VALUES (2, [0,1])' \
-  -query COMMIT -query 'SELECT * FROM items'
+go build -o minivectordb ./cmd/minivectordb
+printf 'SELECT 1;\n' | ./minivectordb -data /tmp/x
 ./scripts/smoke.sh
 ```
 
-`github.com/go-sql-driver/mysql` DSN example:
-`root:any-password@tcp(127.0.0.1:3306)/contest`. Use SQL text without bound
-parameters (or driver-side `interpolateParams=true`); server prepared statements
-are not implemented. Database names in the connection handshake and COM_INIT_DB
-are accepted as a single shared namespace.
+Temporary protocol (stable until pack reconciliation): SQL statements end at a
+semicolon outside SQL single quotes, or a newline outside quotes and balanced
+parentheses/brackets. Multiple statements per line are supported. Multiline
+CREATE/INSERT works inside parentheses; arbitrary multiline clauses must stay on
+one line. SQL doubled quotes (`''`) escape quotes. Comments are not supported.
+EOF executes any remaining statement, then exits cleanly; unfinished transaction
+writes are discarded. Malformed unterminated quotes consume input until EOF and
+produce an error. Each stdin process owns one Session.
 
-Supported SQL: CREATE TABLE with INT/INTEGER, TEXT, FLOAT/DOUBLE and VECTOR(n);
-single-row INSERT INTO ... VALUES; SELECT * with optional vector ORDER BY and
-LIMIT; whole-table DELETE FROM; DROP TABLE; BEGIN/START TRANSACTION, COMMIT,
-ROLLBACK. Vector functions are DISTANCE (alias for EUCLIDEAN), EUCLIDEAN,
-COSINE (distance) and DOT (negative inner product), ordered ASC by default,
-with optional DESC. Functions currently work in ORDER BY, not projections.
-Transactions must share one connection. Repeat `-query` flags to execute SQL in
-order on one pinned TCP connection; one statement per flag, with no semicolon
-splitting. Each SELECT prints a JSON array on its own line; successful non-SELECT
-statements print nothing. Single `-query` mode and default `SELECT 1` still work.
-The client stops on the first error.
+Successful writes and transaction commands print `OK <affected>` (zero for DDL
+and transaction commands). SELECT prints tab-separated column names, then one row
+per line, then `OK <rowcount>`, including empty results. Text cells escape backslash,
+tab, newline and carriage return as `\\`, `\t`, `\n`, `\r`; numbers and vectors
+use JSON notation (vectors are arrays). SQL errors print `ERROR <message>` and the
+loop continues. Every response is flushed immediately. Startup and I/O failures
+log to stderr and exit nonzero. There is no stdout banner.
+
+```sql
+CREATE TABLE items (id BIGINT, label VARCHAR(32), embedding VECTOR(2));
+BEGIN;
+INSERT INTO items VALUES (1, 'first', [1,0]);
+COMMIT;
+SELECT * FROM items ORDER BY L2_DISTANCE(embedding, [1,0]) LIMIT 1;
+```
+
+Supported SQL: CREATE TABLE with INT/INTEGER/BIGINT, TEXT/VARCHAR/VARCHAR(n),
+FLOAT/DOUBLE, VECTOR(n); single-row INSERT INTO ... VALUES; SELECT * with optional
+vector ORDER BY and LIMIT; SELECT 1; whole-table DELETE FROM; DROP TABLE;
+BEGIN/START TRANSACTION, COMMIT, ROLLBACK. VARCHAR uses SQL quotes like TEXT;
+its optional length is accepted as metadata syntax, not enforced. BIGINT uses the
+existing INT integer check and float64 storage, so integers above 2^53 are not
+necessarily exact. VECTOR requires its declared positive dimension.
+L2_DISTANCE, EUCLIDEAN and DISTANCE compute Euclidean distance; COSINE computes
+cosine distance, DOT negative inner product. ORDER BY is ASC by default, with
+optional DESC; ties retain insertion order. Functions work in ORDER BY, not
+projections. Searches are exact; `-ann` is a reserved no-op flag.
 
 BEGIN/START TRANSACTION creates a private state copy with read-your-writes;
 other sessions see only committed state. COMMIT checks the engine version,
@@ -73,33 +72,26 @@ files together. Automatic atomic checkpoints, WAL checksums, process locking,
 bounded log growth, and faster recovery remain open work. Transactions still
 clone the in-memory database, and redo uses the supported deterministic SQL
 statements rather than page-level changes.
-`SELECT 1`, `SELECT VERSION()`, and `SET NAMES utf8[mb4]` are also accepted.
+Optional local MySQL wire helper replaces stdin mode only when explicitly set:
 
-Wire details: protocol 10 greeting, server version `8.0.36-minivectordb`, utf8mb4
-collation 45, COM_QUERY, COM_PING, COM_INIT_DB and COM_QUIT. Capabilities are
-LONG_PASSWORD, CONNECT_WITH_DB, PROTOCOL_41, TRANSACTIONS, SECURE_CONNECTION and
-PLUGIN_AUTH. Results use text rows, VARCHAR metadata (vectors encoded as JSON),
-and legacy EOF terminators. Packet continuation and sequence validation are
-supported with a 64 MiB incoming message limit. Errors use code 1105/HY000 for
-engine errors and 1047/HY000 for unsupported commands.
+```sh
+./minivectordb -mysql-addr 127.0.0.1:3306 -data /tmp/wire-data
+go run ./scripts/mysqlsmoke -addr 127.0.0.1:3306 -query 'SELECT 1'
+```
 
-Authentication is intentionally permissive for the contest: advertise
-`mysql_native_password`, ignore client auth bytes and plugin name, accept any
-username and empty or arbitrary passwords, and immediately return OK. There is
-no credential verification, TLS, compression, multi-statement support or server
-prepared-statement support. This is an unauthenticated contest server.
-Status reports autocommit; full MySQL session/transaction status semantics and
-SQL dialect compatibility remain outside M3.
-
-Wire layout references: [MySQL handshake](https://dev.mysql.com/doc/dev/mysql-server/8.0.46/page_protocol_connection_phase_packets_protocol_handshake_v10.html)
-and [text result sets](https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html).
+`-addr` is an alias. The retained helper supports protocol 10, COM_QUERY, COM_PING,
+COM_INIT_DB and COM_QUIT, JSON vectors and text results. Authentication accepts
+any username/password; no TLS, prepared statements or wire multi-statements.
+Wire-specific SELECT VERSION() and SET NAMES remain available. Its transaction
+commands must share a connection (repeat client `-query` flags). Primary smoke
+does not use the wire helper.
 
 ```sh
 sg docker -c 'docker build -t minivectordb:m3 .'
-docker run --rm -p 127.0.0.1:3306:3306 -v minivectordb-data:/data minivectordb:m3
+printf 'SELECT 1;\n' | docker run --rm -i -v minivectordb-data:/data minivectordb:m3
 ```
 
-The multi-stage Docker build uses CGO=0 and a scratch runtime exposing 3306.
-The driver smoke runs on the host; the server has no third-party runtime imports.
-See [SELFTEST.md](SELFTEST.md) for observed verification. Official mysqltest pack
-requirements and dialect are TBD. No official contest submission has been made.
+Docker uses CGO=0 and scratch, WORKDIR /data, ENTRYPOINT /minivectordb and CMD
+`-data /data`; no port exposure is needed. See [SELFTEST.md](SELFTEST.md).
+Exact official framing and broader contest SQL dialect remain open. No official
+contest submission or PR merge has been made.

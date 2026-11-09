@@ -1,49 +1,53 @@
-# M3 self-test
+# M3b self-test
 
+Built on M3 HEAD `6baa3fd` without changing `internal/db/wal.go`.
 Observed commands from the repository root, all exit 0:
 
 ```sh
 go test ./...
 go test -race ./...
 ./scripts/smoke.sh
+go build -o minivectordb ./cmd/minivectordb
+printf 'SELECT 1;\n' | ./minivectordb -data /tmp/x
 sg docker -c 'docker build -t minivectordb:m3 .'
+cmp conversation.json agent/conversation.json
 ```
 
-Exact smoke PASS line:
+Manual demo stdout:
 
 ```text
-PASS: build, MySQL wire (go-sql-driver/mysql), empty/any-password auth, ERR, vector ranking, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/disconnect isolation, recovered vector ranking, DELETE/DROP
+1
+1
+OK 1
 ```
 
-The smoke uses go-sql-driver/mysql v1.8.1 over TCP on an ephemeral port, with
-server default :3306 unchanged. It builds both binaries in a temporary directory
-and cleans up. No mysql CLI is installed. It verifies M2 CREATE/INSERT/SELECT,
-all four vector ranking metrics, authentication, ERR, DELETE and DROP.
+Exact smoke output:
 
-A seeded M2 snapshot supplies a legacy table. New autocommit rows and an explicit
-BEGIN/INSERT/COMMIT row are written only to WAL: smoke checks the WAL is nonempty
-and the snapshot is byte-identical to its original. After SIGKILL/restart, the
-legacy table and all committed rows survive; rolled-back and disconnected
-uncommitted rows are absent. All vector metrics still rank correctly. Repeated
--query flags execute transaction statements and the final SELECT on one pinned
-connection. This verifies crash recovery without a graceful shutdown.
+```text
+PASS: stdin/stdout, types, vector ranking, error continuation, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/EOF isolation, DELETE/DROP
+```
 
-Engine unit tests cover multi-statement commit atomicity at truncated record
-boundaries, failed-statement exclusion, read-your-writes, WAL-only recovery, isolation from
-other sessions, rollback, an active uncommitted transaction during recovery,
-read-only commits without LSN gaps, truncation of an incomplete final record,
-append after torn-tail recovery, repeated recovery, malformed complete records,
-LSN gaps, legacy snapshot plus redo, conflict rejection, and durable DELETE/DROP.
-Existing MySQL wire tests remain passing, including connection reuse after ERR,
-COM_PING, handshake database selection, affected rows, empty metadata, UTF-8,
-packet continuation/boundary, and invalid packet sequence rejection.
+Primary smoke builds in a temporary directory and uses stdin exclusively, with no
+listener or MySQL client. A FIFO keeps the foreground process alive after COMMIT
+acknowledgment, before SIGKILL. Restart uses the same data directory and proves
+committed rows survive, rollback and active uncommitted rows do not, the legacy
+snapshot remains byte-identical, and vector ranking survives WAL replay. A
+separate EOF session proves uncommitted writes are discarded. Bad SQL is followed
+by successful SELECT output. All five distance names, BIGINT and VARCHAR(n),
+DELETE and DROP are exercised.
 
-Docker built minivectordb:m3 successfully with CGO=0 and a scratch runtime:
-`sha256:758e0813cce8954356d32127bed6a15bddb4600da2e2cd4d2485bb93bc4f3ac4`.
-Container runtime was not tested; no image was pushed.
+New REPL tests cover multiline parentheses, semicolon splitting, doubled SQL
+quotes, semicolons and tabs in strings, TSV escaping, integer rejection with
+continuation, EOF without a terminator, and transaction recovery. Existing WAL
+tests still cover atomic committed records, torn tails, repeat recovery,
+corruption/LSN rejection, snapshot bases, isolation and conflicts. Existing MySQL
+wire tests also pass. Race tests pass.
 
-Open: periodic atomic checkpoints/WAL compaction, checksums and process locking;
-WAL growth/replay time and full-state cloning; disk-failure/power-loss fault
-injection beyond torn-tail tests; official mysqltest pack and full SQL dialect;
-prepared statements, TLS, full MySQL session/status semantics. Data directories
-require a single server owner. No official contest submission or PR merge.
+Docker image minivectordb:m3 built successfully; no image was pushed. Container
+runtime was not tested. The manual binary is not committed.
+
+Open: exact round2 pack framing and broader SQL grammar; precise full-range BIGINT
+storage (current INT-compatible float64); VARCHAR length enforcement; ANN is a
+no-op and searches remain exact; atomic checkpoints/compaction, checksums,
+process locking, WAL growth and cloning costs, disk-failure fault injection.
+Only one process may own a data directory. No formal submission or PR merge.

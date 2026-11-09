@@ -7,6 +7,5 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /minivectordb ./cmd/min
 FROM scratch
 COPY --from=builder /minivectordb /minivectordb
 WORKDIR /data
-EXPOSE 3306
 ENTRYPOINT ["/minivectordb"]
-CMD ["-addr", ":3306", "-data", "/data"]
+CMD ["-data", "/data"]
