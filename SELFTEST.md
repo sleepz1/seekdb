@@ -225,3 +225,44 @@ Validation: `go test ./...`, targeted `M10|Checkpoint|BoundedGrowth|WALChecksum|
 and smoke with all prior PASS lines plus M10. M10 closes the explicit checkpoint
 work item; automatic scheduling, process locking, official framing, representative
 ANN recall, recovery performance and total RSS limits remain open.
+
+## M11 representative ANN regression
+
+`TestM11ANNRecallRepresentative` uses Go math/rand seed **1101**, **32 dimensions**,
+32 standard-normal centers, 40 near-duplicates per center with independent Gaussian
+noise sigma 0.15, and 256 independent standard-normal distractors: **1536 rows**.
+Each center supplies one query with independent Gaussian noise sigma 0.08.
+All inputs are rounded to float32 and serialized losslessly. Coordinates 9–32
+contribute to L2 but are invisible to the existing eight-bit coordinate-sign index.
+Near-duplicates cross bucket boundaries: 92/320 unfiltered and 98/320 filtered
+exact neighbors have a different signature from their query. This adds difficulty
+beyond M9's separated 2D quadrants; M9 remains unchanged and green.
+
+Each of 32 queries runs both unfiltered and with `category = 1` (odd IDs, half the
+rows). An independent brute-force float64 L2 calculation over float32 inputs,
+rounded to float32 and sorted with ascending PK ties, supplies Top10 truth. On this
+fixture all exact-mode ordered IDs agree despite the engine's float32 accumulation.
+Recall is intersection size / 10, including when ANN returns fewer than ten rows.
+Measured mean/min recall@10: **0.71250 / 0.10 unfiltered**, **0.69375 / 0.20 filtered**.
+Each group asserts mean >= **0.60** and every query >= **0.10**: mean headroom is
+about 0.09 below the weaker baseline, while the per-query floor rejects total misses.
+Validity, uniqueness and predicate compliance are checked separately. A singleton
+predicate forces expansion beyond an occupied query bucket, catching filtering
+after candidate selection/TopK; an empty predicate result must remain empty.
+
+No runtime/index parameter changes or dependencies were needed. The existing
+nearest nonempty Hamming shell can return fewer than K rows and has weak worst-case
+recall. These deterministic local regression numbers are **not official metrics**,
+not evidence of the stated 0.95 contest recall target, and not a general recall or
+performance guarantee. Wider probing would trade more distance evaluations for
+recall; higher-dimensional signatures and representative performance remain future
+work. The fixed planted fixture does not cover every overlapping distribution.
+
+Validation: `go test ./...`, targeted `M11|ANNRecall|M10|WALChecksum`, and
+`./scripts/smoke.sh` all pass, retaining prior smoke checks plus the M11 PASS line.
+The existing local public-case harness reports **5/5**, without implementation
+changes or stored answers. Root/agent conversation files are identical and below
+128 KiB. Upstream remains `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c` (samples only);
+official framing remains TBD and interim `reportReady` is unchanged. No formal
+contest submission / 提测. Other open items: automatic checkpoint scheduling,
+process locking, recovery performance, total RSS and large statements/results.

@@ -206,3 +206,7 @@ for name in WALCheckpoint WALBoundedGrowth CheckpointFailure; do
 done
 printf '%s\n' 'PASS: M10 WAL checkpoint, active-txn reject, publication recovery, post-checkpoint checksum'
 printf '%s\n' 'PASS: M10 bounded WAL growth, 600 batch commits, SIGKILL recovery of 601 committed rows'
+# M11 deterministic 32D near-duplicates/distractors with an independent L2 oracle.
+go test -count=1 -v ./internal/db -run '^TestM11ANNRecallRepresentative$' >"$tmp/m11tests"
+grep -q -- '--- PASS: TestM11ANNRecallRepresentative' "$tmp/m11tests"
+printf '%s\n' 'PASS: M11 representative 32D ANN recall, exact oracle, filtered TopK and cross-shell predicate'

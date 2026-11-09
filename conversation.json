@@ -787,6 +787,26 @@
         "quote": "WAL cycle=2 15548->0 bytes"
       },
       "score": null
+    },
+    {
+      "id": "U10-M11-ann-representative",
+      "baseline": "97d61cbf7e70be1ed8f1a1a4ae99fc9609be9595",
+      "upstream_tip": "a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c",
+      "contest_formally_submitted": false,
+      "user_prompt_excerpt": "Higher dimension (e.g. 16–64D; pick one and document).\nFixed seed; compare ANN TopK vs exact L2 TopK; compute recall@k (document k, e.g. 10).\nKeep filter-before-TopK semantics: at least one case with a predicate so ANN cannot skip filters.",
+      "attribution": "Excerpts from the M11 user request. Design, implementation and observed results below are Agent/tool work, not inferred student understanding. Prior evidence retained unchanged.",
+      "design": "No runtime changes. Add deterministic 32D planted near-duplicates plus distractors, seed 1101 using Go math/rand. 32 standard-normal centers, 40 rows each with Gaussian sigma 0.15 noise; 256 standard-normal distractors, 1536 rows total. 32 queries use center plus sigma 0.08 noise. All inputs float32. Repeat queries unfiltered and category=1 (odd IDs). Independent float64 brute-force L2 over stored float32 values, rounded to float32 with ascending PK ties, verifies every exact-mode ordered ID. Recall intersection/10 penalizes short ANN output. Validate ANN IDs, uniqueness, predicates. Singleton predicate requires searching beyond occupied query bucket; empty predicate returns no rows.",
+      "unit_command": "go test -count=1 ./internal/db/ -run 'M11|ANNRecall|M10|WALChecksum' -v",
+      "unit_output": "TestM11ANNRecallRepresentative/unfiltered: dims=32 seed=1101 rows=1536 queries=32 mean recall@10=0.71250 min=0.10 cross-sign exact neighbors=92/320\nTestM11ANNRecallRepresentative/filtered: dims=32 seed=1101 rows=1536 queries=32 mean recall@10=0.69375 min=0.20 cross-sign exact neighbors=98/320\nPASS TestM11ANNRecallRepresentative and both subtests\nPASS TestM10WALCheckpoint, TestM10WALBoundedGrowth, TestM10CheckpointFailure, TestM9WALChecksum, TestM9ANNRecallCoarse (mean recall@10=1.00)",
+      "interpretation": "Measured baseline first with mean floor 0.40/min 0.10, then tightened final mean floor to 0.60, leaving about 0.09 headroom below weaker filtered mean. Per-query floor 0.10 rejects total misses. Final targeted run and smoke reproduced identical means/minima. 24 coordinates invisible to the eight-sign signature still influence full L2; boundary-crossing exact neighbors demonstrate why M9 quadrant recall does not generalize. All 64 exact queries agree with independent oracle. No ANN tuning necessary for this local regression floor.",
+      "checks": "go test ./...: PASS. Targeted command: PASS. ./scripts/smoke.sh: exit 0 with all prior PASS lines and M11. go run ./tools/run_public_cases.go: SUMMARY pass=5 fail=0. Existing untracked harness unchanged and excluded from commit. git diff --check: PASS.",
+      "smoke_output": "PASS: M11 representative 32D ANN recall, exact oracle, filtered TopK and cross-shell predicate",
+      "limitations": "Local synthetic regression, not official metrics or a 0.95 contest recall claim. Existing nearest nonempty Hamming shell may return fewer than K and has weak minimum recall. Fixed planted distribution is not comprehensive. Wider probing costs more distance evaluations; production ANN quality/performance remains open. Upstream samples-only tip unchanged after fetch; official framing TBD, reportReady unchanged. No protocol/Dockerfile/runtime changes, external ANN libraries, stored sample answers or formal submission. Automatic checkpoint scheduling, process locking, recovery performance and total RSS remain open.",
+      "result_evidence": {
+        "pointer": "/evidence_units/9/unit_output",
+        "quote": "mean recall@10=0.69375 min=0.20"
+      },
+      "score": null
     }
   ]
 }
