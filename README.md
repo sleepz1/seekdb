@@ -7,7 +7,9 @@ TopK, durable storage in `/data`, transactions and crash recovery.
 
 ## Build and run
 
-Language: Go 1.22 (no third-party modules). Runtime image: Ubuntu 24.04.
+Language: Go 1.22 (no third-party modules). The Dockerfile builds with
+`golang:1.22` and runs the static binary on `scratch` (same image layout as
+the team's earlier submission that the platform built and ran).
 
 ```sh
 docker build -t minivectordb:latest .
