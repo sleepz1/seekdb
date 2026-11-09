@@ -9,6 +9,18 @@ import (
 	"strings"
 )
 
+// resultCodec selects stdout framing. Default interimTSV matches tip#1 / current
+// public-sample runners. Official codec is 待题包确认 — do not flip default
+// without driver evidence (see FORMAL-MYSQL-GAP-MATRIX.md).
+type resultCodec int
+
+const (
+	codecInterimTSV resultCodec = iota
+)
+
+// activeResultCodec is a test hook; production stays at codecInterimTSV.
+var activeResultCodec = codecInterimTSV
+
 // Newlines terminate statements outside quotes and parentheses/brackets.
 // Semicolons terminate statements outside quotes, including malformed SQL.
 func repl(in io.Reader, out io.Writer, session *db.Session) error {
@@ -24,29 +36,8 @@ func repl(in io.Reader, out io.Writer, session *db.Session) error {
 		if statement == "" {
 			return nil
 		}
-		result := session.Execute(statement)
-		if result.Error != "" {
-			fmt.Fprintln(w, "ERROR "+escape(result.Error))
-		} else if len(result.Columns) > 0 {
-			fmt.Fprintln(w, strings.Join(result.Columns, "\t"))
-			for _, row := range result.Rows {
-				cells := make([]string, len(row))
-				for i, value := range row {
-					if s, ok := value.(string); ok {
-						cells[i] = escape(s)
-					} else {
-						b, err := json.Marshal(value)
-						if err != nil {
-							return err
-						}
-						cells[i] = string(b)
-					}
-				}
-				fmt.Fprintln(w, strings.Join(cells, "\t"))
-			}
-			fmt.Fprintf(w, "OK %d\n", len(result.Rows))
-		} else {
-			fmt.Fprintf(w, "OK %d\n", result.Affected)
+		if err := writeResult(w, session.Execute(statement)); err != nil {
+			return err
 		}
 		return w.Flush()
 	}
@@ -86,6 +77,36 @@ func repl(in io.Reader, out io.Writer, session *db.Session) error {
 		}
 		sql.WriteByte(c)
 	}
+}
+
+func writeResult(w *bufio.Writer, result db.Result) error {
+	switch activeResultCodec {
+	default: // codecInterimTSV
+		if result.Error != "" {
+			fmt.Fprintln(w, "ERROR "+escape(result.Error))
+		} else if len(result.Columns) > 0 {
+			fmt.Fprintln(w, strings.Join(result.Columns, "\t"))
+			for _, row := range result.Rows {
+				cells := make([]string, len(row))
+				for i, value := range row {
+					if s, ok := value.(string); ok {
+						cells[i] = escape(s)
+					} else {
+						b, err := json.Marshal(value)
+						if err != nil {
+							return err
+						}
+						cells[i] = string(b)
+					}
+				}
+				fmt.Fprintln(w, strings.Join(cells, "\t"))
+			}
+			fmt.Fprintf(w, "OK %d\n", len(result.Rows))
+		} else {
+			fmt.Fprintf(w, "OK %d\n", result.Affected)
+		}
+	}
+	return nil
 }
 
 func escape(s string) string {
