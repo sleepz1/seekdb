@@ -1,4 +1,4 @@
-# M2 self-test
+# M3 self-test
 
 Observed commands from the repository root, all exit 0:
 
@@ -6,38 +6,44 @@ Observed commands from the repository root, all exit 0:
 go test ./...
 go test -race ./...
 ./scripts/smoke.sh
-sg docker -c 'docker build -t minivectordb:m2 .'
+sg docker -c 'docker build -t minivectordb:m3 .'
 ```
 
 Exact smoke PASS line:
 
 ```text
-PASS: build, MySQL wire (go-sql-driver/mysql), empty/any-password auth, ERR, vector ranking, SIGKILL snapshot recovery, DELETE/DROP
+PASS: build, MySQL wire (go-sql-driver/mysql), empty/any-password auth, ERR, vector ranking, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/disconnect isolation, recovered vector ranking, DELETE/DROP
 ```
 
-No mysql CLI is installed in the verification environment. The host smoke uses
-`github.com/go-sql-driver/mysql` v1.8.1, builds the server and client, uses a
-temporary snapshot directory and ephemeral TCP port, and cleans up afterward.
-It verifies CREATE/INSERT/SELECT, EUCLIDEAN/DISTANCE/COSINE/DOT ORDER BY with
-LIMIT, empty/arbitrary-password authentication, SQL ERR handling, snapshot
-recovery following SIGKILL, DELETE, empty SELECT, and DROP.
+The smoke uses go-sql-driver/mysql v1.8.1 over TCP on an ephemeral port, with
+server default :3306 unchanged. It builds both binaries in a temporary directory
+and cleans up. No mysql CLI is installed. It verifies M2 CREATE/INSERT/SELECT,
+all four vector ranking metrics, authentication, ERR, DELETE and DROP.
 
-Wire tests additionally exercise connection reuse after ERR, COM_PING,
-handshake database selection, affected rows, empty result metadata, UTF-8 values
-requiring length-encoded prefixes, packet continuation including an exact
-16,777,215-byte boundary, and invalid packet sequence rejection. Race tests pass.
+A seeded M2 snapshot supplies a legacy table. New autocommit rows and an explicit
+BEGIN/INSERT/COMMIT row are written only to WAL: smoke checks the WAL is nonempty
+and the snapshot is byte-identical to its original. After SIGKILL/restart, the
+legacy table and all committed rows survive; rolled-back and disconnected
+uncommitted rows are absent. All vector metrics still rank correctly. Repeated
+-query flags execute transaction statements and the final SELECT on one pinned
+connection. This verifies crash recovery without a graceful shutdown.
 
-Manual MySQL connection example (not CLI-verified here):
+Engine unit tests cover multi-statement commit atomicity at truncated record
+boundaries, failed-statement exclusion, read-your-writes, WAL-only recovery, isolation from
+other sessions, rollback, an active uncommitted transaction during recovery,
+read-only commits without LSN gaps, truncation of an incomplete final record,
+append after torn-tail recovery, repeated recovery, malformed complete records,
+LSN gaps, legacy snapshot plus redo, conflict rejection, and durable DELETE/DROP.
+Existing MySQL wire tests remain passing, including connection reuse after ERR,
+COM_PING, handshake database selection, affected rows, empty metadata, UTF-8,
+packet continuation/boundary, and invalid packet sequence rejection.
 
-```sh
-mysql --protocol=TCP -h 127.0.0.1 -P 3306 -u root --ssl-mode=DISABLED -e 'SELECT 1'
-```
-
-Docker built `minivectordb:m2` successfully with CGO=0 and scratch runtime:
-`sha256:ac729104ea23962eda9307b6d3cb84866f8cab2c5babad0da731e86e55f400c3`.
+Docker built minivectordb:m3 successfully with CGO=0 and a scratch runtime:
+`sha256:758e0813cce8954356d32127bed6a15bddb4600da2e2cd4d2485bb93bc4f3ac4`.
 Container runtime was not tested; no image was pushed.
 
-Open: official mysqltest pack unknown; full contest SQL dialect TBD. Server
-prepared statements, TLS, full MySQL session/status semantics, and projection
-expressions are not implemented. WAL/crash-recovery and transaction semantics
-were not deepened. No formal contest submission or PR merge was performed.
+Open: periodic atomic checkpoints/WAL compaction, checksums and process locking;
+WAL growth/replay time and full-state cloning; disk-failure/power-loss fault
+injection beyond torn-tail tests; official mysqltest pack and full SQL dialect;
+prepared statements, TLS, full MySQL session/status semantics. Data directories
+require a single server owner. No official contest submission or PR merge.

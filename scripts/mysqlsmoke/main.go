@@ -2,18 +2,26 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"flag"
 	"github.com/go-sql-driver/mysql"
 	"log"
 	"os"
+	"strings"
 	"time"
 )
 
+type queries []string
+
+func (q *queries) String() string     { return strings.Join(*q, "; ") }
+func (q *queries) Set(v string) error { *q = append(*q, v); return nil }
+
 func main() {
 	addr := flag.String("addr", "127.0.0.1:3306", "address")
-	query := flag.String("query", "SELECT 1", "SQL")
+	var statements queries
+	flag.Var(&statements, "query", "SQL; repeat to execute statements on one connection")
 	password := flag.String("password", "contest-password", "password")
 	flag.Parse()
 	cfg := mysql.NewConfig()
@@ -34,31 +42,49 @@ func main() {
 	if err = d.Ping(); err != nil {
 		log.Fatal(err)
 	}
-	rows, err := d.Query(*query)
+	conn, err := d.Conn(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer rows.Close()
-	cols, err := rows.Columns()
-	if err != nil {
-		log.Fatal(err)
+	defer conn.Close()
+	if len(statements) == 0 {
+		statements = queries{"SELECT 1"}
 	}
-	result := [][]string{}
-	for rows.Next() {
-		values := make([]string, len(cols))
-		dest := make([]any, len(cols))
-		for i := range values {
-			dest[i] = &values[i]
+	for _, query := range statements {
+		if !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(query)), "SELECT") {
+			if _, err := conn.ExecContext(context.Background(), query); err != nil {
+				log.Fatal(err)
+			}
+			continue
 		}
-		if err = rows.Scan(dest...); err != nil {
+		rows, err := conn.QueryContext(context.Background(), query)
+		if err != nil {
 			log.Fatal(err)
 		}
-		result = append(result, values)
+
+		cols, err := rows.Columns()
+		if err != nil {
+			log.Fatal(err)
+		}
+		result := [][]string{}
+		for rows.Next() {
+			values := make([]string, len(cols))
+			dest := make([]any, len(cols))
+			for i := range values {
+				dest[i] = &values[i]
+			}
+			if err = rows.Scan(dest...); err != nil {
+				log.Fatal(err)
+			}
+			result = append(result, values)
+		}
+		if err = rows.Err(); err != nil {
+			log.Fatal(err)
+		}
+		rows.Close()
+		if err = json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			log.Fatal(err)
+		}
 	}
-	if err = rows.Err(); err != nil {
-		log.Fatal(err)
-	}
-	if err = json.NewEncoder(os.Stdout).Encode(result); err != nil {
-		log.Fatal(err)
-	}
+
 }

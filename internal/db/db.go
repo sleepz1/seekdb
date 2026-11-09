@@ -1,13 +1,10 @@
-// Package db implements the M1 SQL engine and atomic snapshot commit boundary.
+// Package db implements SQL transactions with durable redo logging.
 package db
 
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -36,68 +33,18 @@ type Engine struct {
 	dir     string
 	state   State
 	version uint64
+	walErr  error
 }
 type Session struct {
-	e       *Engine
-	tx      State
-	version uint64
+	e          *Engine
+	statements []string
+	tx         State
+	version    uint64
 }
 
-func Open(dir string) (*Engine, error) {
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, err
-	}
-	e := &Engine{dir: dir, state: State{}}
-	b, err := os.ReadFile(filepath.Join(dir, "snapshot.json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return e, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err = json.Unmarshal(b, &e.state); err != nil {
-		return nil, fmt.Errorf("recover snapshot: %w", err)
-	}
-	if e.state == nil {
-		return nil, errors.New("invalid null snapshot")
-	}
-	return e, nil
-}
 func (e *Engine) Session() *Session { return &Session{e: e} }
 func clone(s State) State           { b, _ := json.Marshal(s); var t State; _ = json.Unmarshal(b, &t); return t }
 
-// persist writes and syncs a new snapshot before atomically replacing the old one.
-func (e *Engine) persist(s State) error {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(e.dir, "snapshot-*.tmp")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err = f.Write(b); err != nil {
-		f.Close()
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), filepath.Join(e.dir, "snapshot.json")); err != nil {
-		return err
-	}
-	d, err := os.Open(e.dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
-}
 func (s *Session) Execute(sql string) Result {
 	s.e.mu.Lock()
 	defer s.e.mu.Unlock()
@@ -113,10 +60,12 @@ func (s *Session) execute(sql string) (Result, error) {
 		if s.tx != nil {
 			return Result{}, errors.New("transaction already active")
 		}
+		s.statements = nil
 		s.tx = clone(s.e.state)
 		s.version = s.e.version
 		return Result{}, nil
 	case "ROLLBACK":
+		s.statements = nil
 		s.tx = nil
 		return Result{}, nil
 	case "COMMIT":
@@ -126,12 +75,15 @@ func (s *Session) execute(sql string) (Result, error) {
 		if s.version != s.e.version {
 			return Result{}, errors.New("transaction conflict; ROLLBACK required")
 		}
-		if err := s.e.persist(s.tx); err != nil {
+		if err := s.e.persist(s.statements); err != nil {
 			return Result{}, err
+		}
+		if len(s.statements) > 0 {
+			s.e.version++
 		}
 		s.e.state = s.tx
 		s.tx = nil
-		s.e.version++
+		s.statements = nil
 		return Result{}, nil
 	}
 	state := s.e.state
@@ -147,10 +99,11 @@ func (s *Session) execute(sql string) (Result, error) {
 		return r, nil
 	}
 	if s.tx != nil {
+		s.statements = append(s.statements, sql)
 		s.tx = next
 		return r, nil
 	}
-	if err = s.e.persist(next); err != nil {
+	if err = s.e.persist([]string{sql}); err != nil {
 		return Result{}, err
 	}
 	s.e.state = next
