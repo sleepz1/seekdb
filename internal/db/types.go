@@ -22,8 +22,11 @@ func parseVector(p string, dim int) ([]float32, error) {
 		p = v.(string)
 	}
 	var values []json.RawMessage
-	if err := json.Unmarshal([]byte(p), &values); err != nil || len(values) != dim {
-		return nil, fmt.Errorf("vector dimension or syntax mismatch (expected %d finite float32 values)", dim)
+	if err := json.Unmarshal([]byte(p), &values); err != nil {
+		return nil, fmt.Errorf("invalid vector literal (expected %d finite float32 values)", dim)
+	}
+	if len(values) != dim {
+		return nil, fmt.Errorf("vector dimension mismatch: expected %d, got %d", dim, len(values))
 	}
 	v := make([]float32, dim)
 	for i, raw := range values {
