@@ -1,0 +1,42 @@
+{
+  "milestone": "M1 MiniVectorDB scaffold",
+  "branch": "2026-competition-round2",
+  "record_type": "Continuation summary, not a verbatim conversation transcript",
+  "language": "Go",
+  "language_rationale": "Keep the working Go engine; the standard library supplies TCP, JSON and filesystem support, and a CGO-disabled build produces a standalone binary for a small scratch Docker image.",
+  "protocol": {
+    "now": "line-delimited SQL requests over TCP with one JSON response per line",
+    "later": "MySQL wire protocol TBD"
+  },
+  "persistence": {
+    "file": "snapshot.json",
+    "method": "Atomic snapshot: write temporary file, fsync, rename to snapshot.json, fsync directory; reload on startup."
+  },
+  "validation": {
+    "go_test": {
+      "command": "go test ./...",
+      "result": "PASS reported in preceding session; packages have no test files."
+    },
+    "smoke": {
+      "command": "./scripts/smoke.sh",
+      "exit_code": 0,
+      "observed_output": "PASS: build, TCP SQL, vector ranking, SIGKILL snapshot recovery, DELETE/DROP"
+    },
+    "docker": {
+      "command": "sg docker -c 'docker build -t minivectordb:m1 .'",
+      "exit_code": 0,
+      "result": "SUCCESS",
+      "image": "minivectordb:m1",
+      "image_id": "sha256:451c6f57e9eb190154036cf684b1160d45dc6ec2f1de0aebfbed6b6a2bf488b8",
+      "previous_error": "permission denied on docker.sock; resolved by running with sg docker",
+      "image_pushed": false
+    }
+  },
+  "open_items": [
+    "Official mysqltest pack location and requirements are unknown; official pack has not been run.",
+    "MySQL wire protocol implementation and compatibility are TBD; current TCP protocol is custom SQL+JSON.",
+    "Transaction stubs depth remains to be defined and validated: current BEGIN/COMMIT/ROLLBACK use session snapshots and a global version conflict check; smoke does not exercise transaction semantics."
+  ],
+  "contest_formally_submitted": false,
+  "engine_changes_in_continuation": "None"
+}
