@@ -412,3 +412,7 @@ deps/ios-build/__pycache__/
 # Local contest build and smoke artifacts
 /rust/
 /.m*-smoke.*/
+
+# MiniVectorDB build output
+/minivectordb
+/internal/engine/engine.test
