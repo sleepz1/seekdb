@@ -12,6 +12,7 @@ import (
 // Newlines terminate statements outside quotes and parentheses/brackets.
 // Semicolons terminate statements outside quotes, including malformed SQL.
 func repl(in io.Reader, out io.Writer, session *db.Session) error {
+	defer session.Execute("ROLLBACK")
 	r := bufio.NewReader(in)
 	w := bufio.NewWriter(out)
 	var sql strings.Builder

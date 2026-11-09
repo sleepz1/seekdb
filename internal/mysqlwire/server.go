@@ -196,6 +196,7 @@ func Serve(c net.Conn, e *db.Engine) {
 	}
 	c.SetDeadline(time.Time{})
 	s := e.Session()
+	defer s.Execute("ROLLBACK")
 	for {
 		p.seq = 0
 		command, err := p.read()

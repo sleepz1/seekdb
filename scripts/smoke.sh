@@ -185,3 +185,10 @@ grep -q '^OK 160$' "$tmp/m7recovered"
 [[ $(head -6 "$tmp/m7recovered") == $'OK 0\nid\n102\n101\n103\nOK 3' ]]
 printf '%s\n' 'PASS: M7 beyond-memory 512-byte cache, 160 rows, cold filtered TopK, SIGKILL + WAL/index recovery (resident bounds asserted in Go tests)'
 printf '%s\n' 'PASS: M7 ready-gate rejection/rebuild unit test, stderr ready handshake, clean stdout'
+# M8 exercises real compaction and abrupt engine abandonment under tiny budgets.
+go test -count=1 -v ./internal/db -run '^TestM8' >"$tmp/m8tests"
+grep -q -- '--- PASS: TestM8CompactionStress' "$tmp/m8tests"
+grep -q -- '--- PASS: TestM8BudgetBoundary' "$tmp/m8tests"
+grep -q -- '--- PASS: TestM8AutoCompact' "$tmp/m8tests"
+printf '%s\n' 'PASS: M8 compaction stress, automatic threshold, abrupt WAL recovery, bounded segment growth'
+printf '%s\n' 'PASS: M8 budget boundary exclude: large results, oversized uncached row, eviction'

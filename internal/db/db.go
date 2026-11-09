@@ -32,6 +32,7 @@ type Result struct {
 	Error    string   `json:"error,omitempty"`
 }
 type Engine struct {
+	activeTx   int
 	ready      bool
 	pages      *pageStore
 	mu         sync.Mutex
@@ -111,9 +112,13 @@ func (s *Session) execute(sql string) (Result, error) {
 		}
 		s.clearStatements()
 		s.tx = clone(s.e.state)
+		s.e.activeTx++
 		s.version = s.e.version
 		return Result{}, nil
 	case "ROLLBACK":
+		if s.tx != nil {
+			s.e.activeTx--
+		}
 		s.clearStatements()
 		s.tx = nil
 		return Result{}, nil
@@ -131,8 +136,10 @@ func (s *Session) execute(sql string) (Result, error) {
 			s.e.version++
 		}
 		s.e.state = s.tx
+		s.e.activeTx--
 		s.tx = nil
 		s.clearStatements()
+		s.e.maybeCompact()
 		return Result{}, nil
 	}
 	state := s.e.state
@@ -163,6 +170,7 @@ func (s *Session) execute(sql string) (Result, error) {
 	}
 	s.e.state = next
 	s.e.version++
+	s.e.maybeCompact()
 	return r, nil
 }
 

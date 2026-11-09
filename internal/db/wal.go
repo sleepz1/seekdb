@@ -102,6 +102,30 @@ func OpenWithOptions(dir string, opts OpenOptions) (engine *Engine, openErr erro
 	if err = syncDir(dir); err != nil {
 		return nil, err
 	}
+	// Finish derived segment maintenance before opening the readiness gate.
+	if e.pages != nil {
+		if err = e.compactLocked(); err != nil {
+			return nil, err
+		}
+		// One Engine owns this directory. Only after successful replay and a
+		// synced replacement may abandoned generations and spools be removed.
+		for _, pattern := range []string{"rows-*.page", "tx-*.pending"} {
+			paths, err := filepath.Glob(filepath.Join(dir, "segments", pattern))
+			if err != nil {
+				return nil, err
+			}
+			for _, path := range paths {
+				if path != e.pages.path {
+					if err = os.Remove(path); err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+		if err = syncDir(filepath.Join(dir, "segments")); err != nil {
+			return nil, err
+		}
+	}
 	if opts.AfterRecoverBeforeRebuild != nil {
 		opts.AfterRecoverBeforeRebuild(e)
 	}

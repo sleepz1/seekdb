@@ -135,10 +135,11 @@ or pending SQL. Recovery streams complete WAL batches one statement at a time an
 legacy snapshots one row at a time, reconstructing a fresh segment and page
 directory without loading all payloads together. Index rebuild scans cold pages.
 Snapshot and WAL remain the recovery authority; keep both together. Old segments
-and abandoned transaction spools are retained, and are never recovery input.
+and abandoned transaction spools are never recovery input; successful bounded
+startup compacts the recovered generation and removes abandoned generations/spools.
 
 Recovery replay cost, page/reference copying, per-row file I/O, large individual
-SQL statements/results, segment/WAL compaction, bounded disk growth, WAL checksums
+SQL statements/results, WAL compaction, bounded WAL growth, WAL checksums
 and process locking remain open work. Only one Engine/process may own a data
 directory. No automatic checkpoint rewrites the immutable legacy snapshot.
 Optional local MySQL wire helper replaces stdin mode only when explicitly set:
@@ -164,3 +165,28 @@ Docker uses CGO=0 and scratch, WORKDIR /data, ENTRYPOINT /minivectordb and CMD
 `-data /data`; no port exposure is needed. See [SELFTEST.md](SELFTEST.md).
 Exact official framing and broader contest SQL dialect remain open. No official
 contest submission or PR merge has been made.
+
+M8 adds `Engine.Compact()` for bounded storage. It copies only live page bytes
+into a new segment, fsyncs the file and directory, then publishes new references
+and removes the old segment. Row ordinals and index buckets remain unchanged.
+Active transactions pin references: explicit compaction returns an error while
+any are active. Automatic maintenance runs after writes/COMMIT when the current
+segment is at least 1 MiB and more than twice its live bytes, unless transactions
+are active. Automatic maintenance errors do not undo an acknowledged durable
+commit; explicit Compact reports errors. Unlimited `Open` is a no-op for Compact.
+Snapshot + WAL remain authoritative through interruption at any compaction stage.
+Recovery compacts before readiness; this bounds recovered segment generations,
+not WAL size or peak temporary disk usage. One Engine owns each data directory.
+Library callers must end transactions with COMMIT/ROLLBACK to release their pins.
+
+Ready framing adapter: `cmd/minivectordb/main.go:reportReady` is the single switch
+point for the interim stderr-only `minivectordb: ready`; official framing remains
+**待题包确认**. Upstream fetched for M8:
+`c842a368c3394748d0499386c18f6b465242e141` (unchanged scaffold).
+
+Budget policy is **exclude**: ResidentRowBytes/PeakResidentRowBytes meter only
+decoded row page cache contents. Active/oversized uncached rows, SQL/parser and
+copy buffers, returned result sets, schema, page references, PK validation keys,
+index buckets and ordering keys are excluded. This is not an RSS bound.
+`go test -count=1 ./internal/db -run 'M7|M8|Compact|Budget|Stress' -v` verifies
+compaction, recovery, readiness, large results, oversized rows and eviction.

@@ -10,8 +10,10 @@ import (
 	"strings"
 )
 
-// OpenOptions bounds decoded storage payloads. SQL text, result buffers, page
-// directories, index buckets and sort keys are separate from this budget.
+// OpenOptions bounds only the decoded row page cache, not process RSS.
+// Excluded: active/oversized uncached rows, SQL/parser and copy buffers, returned
+// result sets, schema, page references, PK validation keys, index buckets and
+// ordering keys. ResidentRowBytes and PeakResidentRowBytes meter cached rows only.
 type OpenOptions struct {
 	MemoryBudgetBytes         int64
 	AfterRecoverBeforeRebuild func(*Engine)

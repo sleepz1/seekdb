@@ -22,7 +22,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Fprintln(os.Stderr, "minivectordb: ready")
+	reportReady()
 	e.SetDefaultANN(*ann)
 	if addr == "" {
 		if err := repl(os.Stdin, os.Stdout, e.Session()); err != nil {
@@ -44,3 +44,7 @@ func main() {
 		go mysqlwire.Serve(c, e)
 	}
 }
+
+// reportReady is the single ready-framing adapter. Interim stderr-only signal;
+// official string/file/protocol is 待题包确认. Call only after Open completes.
+func reportReady() { fmt.Fprintln(os.Stderr, "minivectordb: ready") }

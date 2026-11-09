@@ -93,3 +93,47 @@ PASS: M7 ready-gate rejection/rebuild unit test, stderr ready handshake, clean s
 Validation: `go test ./...`, `go test -race ./internal/db/... ./cmd/minivectordb/...`,
 `./scripts/smoke.sh`, conversation byte identity/size checks and `git diff --check`.
 No Docker EXPOSE, wire expansion, external engine, formal submission or 提测.
+
+## M8 compaction, stress and budget boundary
+
+Baseline: `499c315e71d509af112fd553de9d8e137f5af76f` (M7).
+Fetched upstream `2026-competition-round2` before coding:
+`c842a368c3394748d0499386c18f6b465242e141`, unchanged scaffold.
+The **interim** stderr-only ready line remains `minivectordb: ready`;
+official framing is **待题包确认**. `cmd/minivectordb/main.go:reportReady`
+is the one-place string/file/protocol adapter. Open returns only after recovery,
+startup compaction and index rebuild. TestM7ReadyGate still tests rejection.
+
+M8 supersedes earlier segment-compaction limitations: `Engine.Compact` streams
+live page bytes to a synced replacement, publishes refs without changing index
+ordinals, removes the old file and syncs the directory. Transactions pin refs;
+Compact rejects active transactions. Automatic compaction after COMMIT/writes
+requires >=1 MiB and >50% dead bytes; it skips active transactions. Failed copy
+leaves references unchanged. Automatic errors cannot invalidate durable COMMIT;
+explicit Compact reports errors. Recovery compacts and cleans abandoned segment
+and spool generations before readiness. Snapshot + WAL stay authoritative.
+
+Budget policy **exclude**: decoded row page cache only, excluding active/oversized
+uncached rows, SQL/parser/copy buffers, returned result sets, schema, page refs,
+PK validation keys, index buckets and ordering keys. This is not process RSS.
+Tests retain 500 results while checking bounded counters, read a 4096-byte row
+uncached under 128 bytes, and verify subsequent cache reuse and scan eviction.
+
+Validation commands:
+```sh
+go test ./...
+go test -count=1 ./internal/db/ -run 'M7|M8|Compact|Budget|Stress' -v
+./scripts/smoke.sh
+git diff --check
+```
+Stress uses 1000 rows, a 256-byte budget, three UPDATE/DELETE/reinsert COMMIT
+cycles, explicit compaction, PK/count and exact/ANN filtered TopK assertions,
+and abrupt engine abandonment with an uncommitted delete followed by same-budget
+reopen. It logs elapsed time and all Resident counters. Separate tests cover the
+automatic threshold, transaction pins and failed-copy publication. Smoke retains
+all earlier PASS lines and adds M8 compaction and budget-boundary PASS lines.
+
+OPEN_ITEMS: official ready/error/result framing; WAL checkpoint/compaction and
+checksums; total RSS/large SQL/results; replay performance; process locking;
+ANN recall/performance. Segment compaction does not bound WAL or peak temporary
+disk space. No Docker changes, formal contest submit or 提测.
