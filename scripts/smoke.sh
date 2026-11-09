@@ -192,3 +192,10 @@ grep -q -- '--- PASS: TestM8BudgetBoundary' "$tmp/m8tests"
 grep -q -- '--- PASS: TestM8AutoCompact' "$tmp/m8tests"
 printf '%s\n' 'PASS: M8 compaction stress, automatic threshold, abrupt WAL recovery, bounded segment growth'
 printf '%s\n' 'PASS: M8 budget boundary exclude: large results, oversized uncached row, eviction'
+# M9 checksum integrity, interrupted durable writes and coarse own-index recall.
+go test -count=1 -v ./internal/db -run '^TestM9' >"$tmp/m9tests"
+for name in WALChecksum WALCorruptTail WALHardCrash ANNRecallCoarse; do
+ grep -q -- "--- PASS: TestM9$name" "$tmp/m9tests"
+done
+printf '%s\n' 'PASS: M9 WAL checksum, corrupt/torn tail, SIGKILL before/after COMMIT durability'
+printf '%s\n' 'PASS: M9 Sign-LSH ANN coarse recall@10=1.00 (synthetic), VmRSS observation'

@@ -66,7 +66,10 @@
     "m7_head_baseline": "f724f01d8059a1b06b7240ce94b3ae77f8f5f8ff (M6); existing head_baseline above remains historical M5 evidence context",
     "m7_scope": "M7 implementation and live local validation appended; all five prior evidence units and their source material preserved. No official contest submit/formal 提测.",
     "upstream_tip_m8": "c842a368c3394748d0499386c18f6b465242e141",
-    "m8_baseline": "499c315e71d509af112fd553de9d8e137f5af76f"
+    "m8_baseline": "499c315e71d509af112fd553de9d8e137f5af76f",
+    "m9_baseline": "69be4caa1cd6d872037abb59eca96e000e966ef0",
+    "upstream_tip_m9": "c842a368c3394748d0499386c18f6b465242e141",
+    "m9_scope": "M9 WAL CRC32 checksum + hard-crash tests, Sign-LSH ANN coarse recall@10, optional VmRSS observe; evidence append-only. No official contest submit/formal 提测."
   },
   "user_prompts": [
     {
@@ -400,6 +403,18 @@
       "role": "agent",
       "source": "This session implementation and fetched upstream",
       "content": "Fetched upstream before coding: c842a368c3394748d0499386c18f6b465242e141, unchanged scaffold. Interim stderr-only minivectordb: ready remains 待题包确认; cmd/minivectordb/main.go reportReady is the adapter. Compact streams live bytes to a new segment, syncs before publishing refs, preserves row ordinals/index buckets, removes obsolete file. Active transactions pin refs and explicit Compact rejects them. Auto threshold: >=1 MiB and >50% dead bytes after writes/COMMIT; skip pinned transactions. Startup compacts recovered data and removes abandoned generations/spools before readiness. Snapshot+WAL remain authority. Policy exclude: only decoded row page cache is metered; active/oversized rows, SQL/parser/copy buffers, returned results, schema, page refs, PK keys, index buckets and ordering keys excluded. This is not an RSS cap. Library sessions must end transactions; stdin and wire disconnect roll back."
+    },
+    {
+      "id": "M9-user-requirements",
+      "role": "user",
+      "source": "Current M9 task prompt excerpt",
+      "content": "WAL checksum / harder crash paths; ANN recall coarse measure on own Sign-LSH (no Faiss/HNSWlib/VSAG); keep reportReady adapter until official framing; optional VmRSS observe. NEVER formal 提测. Local commit + push 2026-competition-round2 only."
+    },
+    {
+      "id": "M9-agent-design",
+      "role": "agent",
+      "source": "This session implementation and fetched upstream",
+      "content": "Fetched upstream/2026-competition-round2: c842a368c3394748d0499386c18f6b465242e141 unchanged scaffold. reportReady remains TBD. WAL records gain IEEE CRC32 over LE uint64 LSN + per-statement LE len+UTF-8; recovery verifies before apply (two streaming passes); corrupt complete records fail Open without silent skip or WAL rewrite; torn tails still truncate. TestM9WALChecksum/CorruptTail/HardCrash cover bitflip, missing checksum, mid-record truncate, SIGKILL before/after COMMIT. TestM9ANNRecallCoarse: 160 deterministic 2D clustered vectors, recall@10 mean 1.00 vs exact (floor 0.10, not contest metric). VmRSS observational via /proc/self/status."
     }
   ],
   "experiments": [
@@ -538,6 +553,27 @@
       "unit_output": "=== RUN   TestM7BeyondMemory\n    m7_test.go:55: rows=160 budget=512 resident=228 peak=228 pages=1\n    m7_test.go:58: rows=160 budget=512 resident=228 peak=228 pages=1\n    m7_test.go:67: rows=160 budget=512 resident=228 peak=228 pages=1\n    m7_test.go:89: PASS: M7 beyond-memory bounded payloads, cold TopK, WAL reopen, mutations and rollback\n--- PASS: TestM7BeyondMemory (0.32s)\n=== RUN   TestM7ReadyGate\n    m7_test.go:121: PASS: M7 ready gate rejects Execute before rebuild and serves rebuilt index afterwards\n--- PASS: TestM7ReadyGate (0.01s)\n=== RUN   TestM7StreamingSnapshot\n--- PASS: TestM7StreamingSnapshot (0.01s)\n=== RUN   TestM7PageFailure\n--- PASS: TestM7PageFailure (0.01s)\n=== RUN   TestM8CompactionStress\n    m8_test.go:81: ResidentRowBytes=135 PeakResidentRowBytes=208 ResidentPages=1\n    m8_test.go:86: ResidentRowBytes=135 PeakResidentRowBytes=208 ResidentPages=1\n    m8_test.go:91: PASS: M8 compaction stress rows=1000 budget=256 segment=192260->30080 elapsed=257.27819ms; abrupt reopen discards uncommitted delete\n--- PASS: TestM8CompactionStress (0.26s)\n=== RUN   TestM8BudgetBoundary\n    m8_test.go:127: PASS: M8 budget boundary exclude results=500 oversized=4096 budget=128 ResidentRowBytes=85 PeakResidentRowBytes=85 ResidentPages=1 elapsed=18.619664ms\n--- PASS: TestM8BudgetBoundary (0.02s)\n=== RUN   TestM8CompactTransactionAndFailure\n--- PASS: TestM8CompactTransactionAndFailure (0.01s)\n=== RUN   TestM8AutoCompact\n--- PASS: TestM8AutoCompact (0.09s)\nPASS\nok  \tminivectordb/internal/db\t0.727s\n",
       "smoke_output": "minivectordb: ready\nminivectordb: ready\nminivectordb: ready\nminivectordb: ready\nminivectordb: ready\nminivectordb: ready\nminivectordb: ready\nPASS: stdin/stdout, types, vector ranking, error continuation, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/EOF isolation, DELETE/DROP\nminivectordb: ready\nminivectordb: ready\nminivectordb: ready\nPASS: M4 int64 WAL round-trip, Unicode VARCHAR, finite float32/dimensions, filter-before-TopK, PK ties, exact/ann session and CLI, ERROR continuation\nminivectordb: ready\nminivectordb: ready\nPASS: M5 Yuque 2.2 projection/distance, PK, multi-INSERT atomicity, quoted vectors, UPDATE/DELETE rollback, comparisons, index ANN/exact and WAL restart\nPASS: M7 beyond-memory 512-byte cache, 160 rows, cold filtered TopK, SIGKILL + WAL/index recovery (resident bounds asserted in Go tests)\nPASS: M7 ready-gate rejection/rebuild unit test, stderr ready handshake, clean stdout\nPASS: M8 compaction stress, automatic threshold, abrupt WAL recovery, bounded segment growth\nPASS: M8 budget boundary exclude: large results, oversized uncached row, eviction\n",
       "scope": "Stress abandons an Engine with uncommitted delete, no graceful checkpoint, then reopens at the same budget. Existing smoke additionally uses real SIGKILL. No claim of power-loss or mid-copy SIGKILL fault injection."
+    },
+    {
+      "id": "M9-local-validation",
+      "role": "tool_result",
+      "source": "Live commands in this session; /tmp/m9-gotest-{all via go test ./...}, /tmp/m9-gotest-v.log, /tmp/m9-smoke.log",
+      "commands": [
+        "go test ./...",
+        "go test -count=1 ./internal/db/ -run 'M9|WALChecksum|HardCrash|ANNRecall|Corrupt' -v",
+        "./scripts/smoke.sh",
+        "git diff --check"
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "go_test_output": "ok\tminivectordb/cmd/minivectordb\nok\tminivectordb/internal/db\nok\tminivectordb/internal/mysqlwire\n?\tminivectordb/scripts/mysqlsmoke\t[no test files]\n",
+      "unit_output": "=== RUN   TestM9WALChecksum\n--- PASS: TestM9WALChecksum (0.00s)\n=== RUN   TestM9WALCorruptTail\n=== RUN   TestM9WALCorruptTail/payload\n=== RUN   TestM9WALCorruptTail/checksum\n=== RUN   TestM9WALCorruptTail/missing\n--- PASS: TestM9WALCorruptTail (0.00s)\n    --- PASS: TestM9WALCorruptTail/payload (0.00s)\n    --- PASS: TestM9WALCorruptTail/checksum (0.00s)\n    --- PASS: TestM9WALCorruptTail/missing (0.00s)\n=== RUN   TestM9WALHardCrash\n=== RUN   TestM9WALHardCrash/before\n=== RUN   TestM9WALHardCrash/after\n--- PASS: TestM9WALHardCrash (0.01s)\n    --- PASS: TestM9WALHardCrash/before (0.00s)\n    --- PASS: TestM9WALHardCrash/after (0.00s)\n=== RUN   TestM9ANNRecallCoarse\n    m9_test.go:182: before VmRSS:\t    5800 kB (observational only)\n    m9_test.go:223: query=[10.15,10.17] recall@10=1.00\n    m9_test.go:223: query=[-10.15,10.17] recall@10=1.00\n    m9_test.go:223: query=[10.15,-10.17] recall@10=1.00\n    m9_test.go:223: query=[-10.15,-10.17] recall@10=1.00\n    m9_test.go:228: mean recall@10=1.00 rows=160 queries=4 floor=0.10 (synthetic coarse regression, not contest metrics)\n    m9_test.go:229: after VmRSS:\t    6536 kB (observational only)\n--- PASS: TestM9ANNRecallCoarse (0.00s)\n=== RUN   TestWALRejectsCorruption\n--- PASS: TestWALRejectsCorruption (0.00s)\nPASS\nok  \tminivectordb/internal/db\t0.022s\n",
+      "smoke_output": "PASS: stdin/stdout, types, vector ranking, error continuation, SIGKILL snapshot + WAL recovery, COMMIT/ROLLBACK/EOF isolation, DELETE/DROP\nPASS: M4 int64 WAL round-trip, Unicode VARCHAR, finite float32/dimensions, filter-before-TopK, PK ties, exact/ann session and CLI, ERROR continuation\nPASS: M5 Yuque 2.2 projection/distance, PK, multi-INSERT atomicity, quoted vectors, UPDATE/DELETE rollback, comparisons, index ANN/exact and WAL restart\nPASS: M7 beyond-memory 512-byte cache, 160 rows, cold filtered TopK, SIGKILL + WAL/index recovery (resident bounds asserted in Go tests)\nPASS: M7 ready-gate rejection/rebuild unit test, stderr ready handshake, clean stdout\nPASS: M8 compaction stress, automatic threshold, abrupt WAL recovery, bounded segment growth\nPASS: M8 budget boundary exclude: large results, oversized uncached row, eviction\nPASS: M9 WAL checksum, corrupt/torn tail, SIGKILL before/after COMMIT durability\nPASS: M9 Sign-LSH ANN coarse recall@10=1.00 (synthetic), VmRSS observation\n",
+      "scope": "M9 checksum/hard-crash/ANN recall coarse + VmRSS observe; prior M1–M8 PASS retained in smoke."
     }
   ],
   "retrospective": [
@@ -707,6 +743,28 @@
         "pointer": "/experiments/10/smoke_output"
       },
       "limitations": "Official framing unpublished; WAL checkpoint/compaction, checksums, process locking, RSS bounds, replay performance and ANN recall remain open. Compaction bounds live segments, not WAL or peak temporary disk space. Agent work is not attributed as student understanding. No formal submission.",
+      "score": null
+    },
+    {
+      "id": "U8-M9-wal-checksum-ann-recall",
+      "dimension": "M9 engineering evidence; no inferred student score",
+      "requirement_evidence": {
+        "pointer": "/conversations/48/content",
+        "quote": "WAL checksum / harder crash paths; ANN recall coarse measure on own Sign-LSH"
+      },
+      "design_evidence": {
+        "pointer": "/conversations/49/content",
+        "quote": "WAL records gain IEEE CRC32 over LE uint64 LSN + per-statement LE len+UTF-8; recovery verifies before apply"
+      },
+      "result_evidence": {
+        "pointer": "/experiments/11/unit_output",
+        "quote": "mean recall@10=1.00 rows=160 queries=4 floor=0.10 (synthetic coarse regression, not contest metrics)"
+      },
+      "smoke_evidence": {
+        "pointer": "/experiments/11/smoke_output",
+        "quote": "PASS: M9 WAL checksum, corrupt/torn tail, SIGKILL before/after COMMIT durability"
+      },
+      "limitations": "Official ready/error/result framing still TBD (upstream tip unchanged empty scaffold). WAL checkpoint/bounded growth and process locking remain open. Coarse ANN recall is synthetic/easy; not an official contest metric. VmRSS is observational only, not a process RSS cap. No formal submission/提测. Agent work is not attributed as student understanding.",
       "score": null
     }
   ]

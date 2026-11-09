@@ -2,9 +2,12 @@ package db
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
+	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,11 +15,22 @@ import (
 
 // A complete newline-terminated record is a committed transaction. Statements
 // are validated before logging and replayed in order under the engine mutex.
-// No active transaction is logged. The snapshot is an immutable legacy base;
-// WAL compaction/checkpointing is deliberately deferred.
+// No active transaction is logged. CRC32 IEEE covers the semantic payload:
+// little-endian uint64 LSN, then uint64 byte length + UTF-8 bytes per statement.
 type walRecord struct {
+	Checksum   uint32   `json:"checksum"`
 	LSN        uint64   `json:"lsn"`
 	Statements []string `json:"statements"`
+}
+
+func checksumUint(h hash.Hash32, n uint64) {
+	var b [8]byte
+	binary.LittleEndian.PutUint64(b[:], n)
+	h.Write(b[:])
+}
+func checksumStatement(h hash.Hash32, stmt string) {
+	checksumUint(h, uint64(len(stmt)))
+	io.WriteString(h, stmt)
 }
 
 func Open(dir string) (*Engine, error) { return OpenWithOptions(dir, OpenOptions{}) }
@@ -177,11 +191,14 @@ func (e *Engine) persistBatch(each func(func(string) error) error) error {
 		return err
 	}
 	defer f.Close()
+	h := crc32.NewIEEE()
+	checksumUint(h, e.version+1)
 	w := bufio.NewWriter(f)
 	_, err = fmt.Fprintf(w, `{"lsn":%d,"statements":[`, e.version+1)
 	if err == nil {
 		first := true
 		err = each(func(stmt string) error {
+			checksumStatement(h, stmt)
 			if !first {
 				if _, err := w.WriteString(","); err != nil {
 					return err
@@ -197,7 +214,7 @@ func (e *Engine) persistBatch(each func(func(string) error) error) error {
 		})
 	}
 	if err == nil {
-		_, err = w.WriteString("]}\n")
+		_, err = fmt.Fprintf(w, "],\"checksum\":%d}\n", h.Sum32())
 	}
 	if err == nil {
 		err = w.Flush()
@@ -211,13 +228,25 @@ func (e *Engine) persistBatch(each func(func(string) error) error) error {
 	return err
 }
 
-func (e *Engine) replayRecord(r io.Reader) error {
+// Verify before applying, with two streaming passes to bound transaction memory.
+func (e *Engine) replayRecord(r *io.SectionReader) error {
+	if err := e.readRecord(r, false); err != nil {
+		return err
+	}
+	if _, err := r.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	return e.readRecord(r, true)
+}
+func (e *Engine) readRecord(r io.Reader, apply bool) error {
 	d := json.NewDecoder(r)
 	tok, err := d.Token()
 	if err != nil || tok != json.Delim('{') {
 		return fmt.Errorf("invalid WAL object")
 	}
 	var lsn uint64
+	var checksum uint32
+	h := crc32.NewIEEE()
 	count := 0
 	seen := map[string]bool{}
 	for d.More() {
@@ -231,11 +260,19 @@ func (e *Engine) replayRecord(r io.Reader) error {
 		}
 		seen[key] = true
 		switch key {
+		case "checksum":
+			if err = d.Decode(&checksum); err != nil {
+				return err
+			}
 		case "lsn":
 			if err = d.Decode(&lsn); err != nil {
 				return err
 			}
 		case "statements":
+			if !seen["lsn"] {
+				return fmt.Errorf("WAL LSN must precede statements")
+			}
+			checksumUint(h, lsn)
 			tok, err = d.Token()
 			if err != nil || tok != json.Delim('[') {
 				return fmt.Errorf("invalid WAL statements")
@@ -245,12 +282,16 @@ func (e *Engine) replayRecord(r io.Reader) error {
 				if err = d.Decode(&stmt); err != nil {
 					return err
 				}
-				_, write, err := runStored(e.state, stmt, false, e.pages)
-				if err != nil {
-					return err
-				}
-				if !write {
-					return fmt.Errorf("non-write WAL statement")
+				checksumStatement(h, stmt)
+				if apply {
+					_, write, err := runStored(e.state, stmt, false, e.pages)
+					if err != nil {
+						return err
+					}
+					if !write {
+						return fmt.Errorf("non-write WAL statement")
+					}
+
 				}
 				count++
 			}
@@ -270,6 +311,11 @@ func (e *Engine) replayRecord(r io.Reader) error {
 	if lsn != e.version+1 || count == 0 {
 		return fmt.Errorf("invalid WAL LSN or empty batch")
 	}
-	e.version = lsn
+	if !seen["checksum"] || checksum != h.Sum32() {
+		return fmt.Errorf("WAL checksum mismatch or missing checksum")
+	}
+	if apply {
+		e.version = lsn
+	}
 	return nil
 }
