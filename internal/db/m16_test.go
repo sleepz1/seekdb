@@ -129,8 +129,15 @@ func TestM16ANNGeneralization(t *testing.T) {
 }
 
 // Shared unchanged M16 data generation and independent exact oracle.
-func testGaussian64(t *testing.T, m17 bool) {
-	const rows, dims, queries, k, seed = 2048, 64, 32, 10, 1601
+func testGaussian64(t *testing.T, strict bool) {
+	testGaussianANN(t, strict, 2048, 64, 32, 1601, false)
+}
+
+func testGaussianANN(t *testing.T, strict bool, rows, dims, queries int, seed int64, rss bool) {
+	const k = 10
+	if rss {
+		m9RSS(t, "M18 before build")
+	}
 	rng := rand.New(rand.NewSource(seed))
 	vector := func() []float32 {
 		v := make([]float32, dims)
@@ -154,9 +161,13 @@ func testGaussian64(t *testing.T, m17 bool) {
 	}
 	e := openTest(t, t.TempDir())
 	s := e.Session()
-	execTest(t, s, "CREATE TABLE t (id BIGINT PRIMARY KEY, category BIGINT, v VECTOR(64))")
+	execTest(t, s, fmt.Sprintf("CREATE TABLE t (id BIGINT PRIMARY KEY, category BIGINT, v VECTOR(%d))", dims))
 	execTest(t, s, "INSERT INTO t VALUES "+strings.Join(values, ","))
 	execTest(t, s, "CREATE VECTOR INDEX ix ON t(v)")
+	if rss {
+		m9RSS(t, "M18 after build")
+		defer m9RSS(t, "M18 after queries")
+	}
 	qs := make([][]float32, queries)
 	for i := range qs {
 		qs[i] = vector()
@@ -206,7 +217,7 @@ func testGaussian64(t *testing.T, m17 bool) {
 					}
 					want[r[0].(int64)] = true
 				}
-				if m17 {
+				if strict {
 					table := e.state["t"]
 					preds, err := parseWhere(table, strings.TrimPrefix(where, " WHERE "))
 					if err != nil {
@@ -241,7 +252,7 @@ func testGaussian64(t *testing.T, m17 bool) {
 				seen := map[int64]bool{}
 				for _, r := range ann.Rows {
 					id := r[0].(int64)
-					if id < 0 || id >= rows || seen[id] || (filtered && id%3 != 1) {
+					if id < 0 || id >= int64(rows) || seen[id] || (filtered && id%3 != 1) {
 						t.Fatal("invalid ANN ID")
 					}
 					seen[id] = true
@@ -255,13 +266,14 @@ func testGaussian64(t *testing.T, m17 bool) {
 					minimum = recall
 				}
 			}
-			mean := total / queries
-			t.Logf("M16 ANN Gaussian seed=%d dims=%d rows=%d queries=%d filtered=%t recall@10 mean=%.5f min=%.2f", seed, dims, rows, queries, filtered, mean, minimum)
-			if m17 {
-				t.Logf("M17 Gaussian64 filtered=%t mean=%.5f min=%.2f candidates min/max=%d/%d", filtered, mean, minimum, candidateMin, candidateMax)
-				// Measured .84062/.60 and .81250/.50; allow modest headroom.
+			mean := total / float64(queries)
+			t.Logf("ANN Gaussian seed=%d dims=%d rows=%d queries=%d filtered=%t recall@10 mean=%.5f min=%.2f", seed, dims, rows, queries, filtered, mean, minimum)
+			if strict {
+				t.Logf("Gaussian%d filtered=%t mean=%.5f min=%.2f candidates min/max=%d/%d", dims, filtered, mean, minimum, candidateMin, candidateMax)
+				// M17 measured .84062/.60 and .81250/.50; M18 measured
+				// .79063/.50 and .77500/.50. Floors allow modest headroom.
 				if mean < .75 || minimum < .40 {
-					t.Fatal("M17 Gaussian recall regression")
+					t.Fatal("Gaussian recall regression")
 				}
 			}
 			// Original M16 floor retained alongside the stronger M17 regression.

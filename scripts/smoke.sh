@@ -252,3 +252,8 @@ printf '%s\n' 'PASS: M16 16384-row 32D RSS/recovery, auto-checkpoint+redo, 64D G
 go test -count=1 -v ./internal/db -run '^TestM17' >"$tmp/m17tests"
 grep -q -- '--- PASS: TestM17ANNGaussian64' "$tmp/m17tests"
 printf '%s\n' 'PASS: M17 Gaussian64 recall mean>=0.75/min>=0.40, filtered/unfiltered, candidates<=75% of eligible rows'
+
+# M18 broader ANN and observational RSS; no timing or RSS caps.
+go test -count=1 -v ./internal/db -run '^TestM18' >"$tmp/m18tests"
+grep -q -- '--- PASS: TestM18ANNBroaderRSS ' "$tmp/m18tests"
+printf '%s\n' 'PASS: M18 4096-row 96D ANN recall mean>=0.75/min>=0.40, exact oracle, filtered candidates, VmRSS observation'

@@ -502,3 +502,29 @@ M1–M17 smoke, unchanged public mysqltest samples 5/5, identical conversation f
 within 128 KiB, and git diff --check. No official submit or formal 提测.
 OPEN_ITEMS: official driver/framing; broader ANN distributions and recall/cost tuning;
 larger recovery and peak RSS profiling; large statements/results.
+
+## M18 broader ANN and RSS observation
+
+Upstream checked via HTTPS ls-remote: `a3dba559c1e7ebdc48bc990ffb1a4c75d1c1075c`,
+unchanged samples-only tip. Framing remains TBD.
+
+`TestM18ANNBroaderRSS` adds seed 1801, 4096 independent Gaussian 96D rows,
+32 queries per group, K=10. It shares the independent full-sort float32 exact
+oracle with M16/M17, preserving their seeds and dimensions. Unfiltered recall
+mean/min is **0.79063/0.50**, filtered **0.77500/0.50**. Both assert mean >=0.75
+and min >=0.40, with modest headroom below measured results. Candidate counts
+are 2560–2660/4096 and 839–900/1365; every query asserts unique eligible
+candidates between K and 75% of eligible rows. IDs, cardinality and predicate
+membership are checked. No index tuning was needed; M12/M17 asserts remain.
+
+An isolated run logged Linux VmRSS before build / after build / after queries:
+**5060 / 55856 / 19468 kB**. These are phase samples via t.Logf, not a continuous
+peak measurement or memory cap; the maximum observed sample was 55856 kB.
+The process includes fixture/oracle allocations and Go GC effects. Unsupported
+systems log an observation skip. No retention change or runtime change.
+
+Validation: go test ./..., requested M18/M17/M16/M12/ANNRecall selection,
+M1–M18 smoke, unchanged public sample harness 5/5, conversation equality and
+128 KiB bound, git diff --check.
+Open: official driver/framing, broader distributions and ANN cost, continuous
+peak RSS profiling, larger recovery and large statements/results. No formal submission.
