@@ -388,43 +388,154 @@
   }
  },
  "codex_r2_next_session_2026_11_10": {
- "source": "mixed; entries explicitly labelled",
- "base": "e12768530c91fbce87a4773c75ba13666b4671fc",
- "branch": "contest/r2-next-from-e12768530",
- "entries": [
-  {
-   "source": "student",
-   "record_type": "verbatim excerpts from the actual user request, not a reconstructed dialogue",
-   "content": "Investigate first, then implement, then verify with official checkers. Commit locally if the work is sound. Do not push. Do not submit a formal tip.\nDo not invent unpublished formal-29 failures and “fix” them by guesswork."
-  },
-  {
-   "source": "agent",
-   "content": "Inspected current Go engine/parser/entry, protocol checker and public requirements. Vector index name is metadata; ANN uses exact scans. Kept performance hypothesis but rejected speculative ANN. Discarded distance-loop and worker-cap experiments after measurements failed to improve. Profile showed cmpE.eval 19.05% cumulative CPU in sequential TopK. Chose one narrow optimization: compile statically typed VARCHAR column = string constant (either operand order) into direct string equality, preserving validation and all scan/transaction/distance/durability paths."
-  },
-  {
-   "source": "tool",
-   "command": "/tmp/r2-engine.test -test.run ^$ -test.bench TopK -test.benchtime 3s -test.count 3; go test -run ^$ -bench TopK -benchtime 3s -count 3 ./internal/engine/",
-   "output": "Baseline ns/op 809057, 804941, 831608; new 638143, 643402, 635096. Median 809057 -> 638143 (21.1% less). Baseline binary built before final edits with go test -cpuprofile. Workers=1 in benchmark; Go1.27.3 linux/amd64 Intel Xeon, affinity0-7."
-  },
-  {
-   "source": "tool",
-   "command": "Alternating three runs each: taskset -c 0,1 python3 scripts/bench.py --bin /tmp/minivectordb-r2base; taskset -c 0,1 python3 scripts/bench.py --bin /tmp/minivectordb-r2next",
-   "output": "Exact, seed1, 10000x128, batches100, queries1000, K10, half filtered, legacy --format json. Baseline write ms 332/378/324; query 462/467/504; RSS MiB23.1/22.9/23.5. New write319/320/294; query416/396/420; RSS23.1/23.3/23.9. Data5.24MiB each. Query median467->416ms (10.9% less). No write-path improvement claimed; these are local indicators, not official T/B/M or scores."
-  },
-  {
-   "source": "tool",
-   "command": "Official f4d4e266 protocol_check/run.py with --command [\"/tmp/minivectordb-r2next\",\"-data\",\"{data_dir}\"]; handshake --handshake-only; public --package /workspace/ob-jiasai-prep/upstream-9f6df2ba/mysqltest",
-   "output": "Handshake PASS1/1 and public PASS20/20, both exit0 and passed=true. Outputs /workspace/ob-jiasai-prep/protocol-results/handshake-codex-20261110-str-equality-1806 and public-codex-20261110-str-equality-v4-1810. Initial default public invocation failed before any cases: f4d4e266 mysqltest manifest absent; explicit official v4 package used. Docker unavailable; local binary only."
-  },
-  {
-   "source": "tool",
-   "command": "go test ./...; go test -race ./...; python3 scripts/crash_test.py --bin /tmp/minivectordb-r2next --rounds 20",
-   "output": "PASS; PASS; PASS20 SIGKILL rounds,10262 committed rows verified. Untracked obsolete tools initially blocked ./...; temporarily moved outside repo and restored unchanged. Initial new test expected unsupported boolean comparison to succeed; corrected test to assert existing type rejection, no engine semantic change. Added generic-vs-specialized equality checks and cached/disk transaction/restart checks."
-  },
-  {
-   "source": "agent",
-   "content": "Detailed exact commands and measured outputs: R2-NEXT-RESULTS.md. This session adds real agent/tool experiment evidence, not invented student learning. Starting user reported e12768530 pending and 41352d052 execution success1/failure0 but score still unavailable; this session did not access platform or verify formal29/scoring. Formal29, Docker Go1.22 runtime and official performance/Agent scores remain unverified. Wait for e12768530 formal score and boss approval before push/tip; neither performed."
-  }
- ]
-}
+  "source": "mixed; entries explicitly labelled",
+  "base": "e12768530c91fbce87a4773c75ba13666b4671fc",
+  "branch": "contest/r2-next-from-e12768530",
+  "entries": [
+   {
+    "source": "student",
+    "record_type": "verbatim excerpts from the actual user request, not a reconstructed dialogue",
+    "content": "Investigate first, then implement, then verify with official checkers. Commit locally if the work is sound. Do not push. Do not submit a formal tip.\nDo not invent unpublished formal-29 failures and “fix” them by guesswork."
+   },
+   {
+    "source": "agent",
+    "content": "Inspected current Go engine/parser/entry, protocol checker and public requirements. Vector index name is metadata; ANN uses exact scans. Kept performance hypothesis but rejected speculative ANN. Discarded distance-loop and worker-cap experiments after measurements failed to improve. Profile showed cmpE.eval 19.05% cumulative CPU in sequential TopK. Chose one narrow optimization: compile statically typed VARCHAR column = string constant (either operand order) into direct string equality, preserving validation and all scan/transaction/distance/durability paths."
+   },
+   {
+    "source": "tool",
+    "command": "/tmp/r2-engine.test -test.run ^$ -test.bench TopK -test.benchtime 3s -test.count 3; go test -run ^$ -bench TopK -benchtime 3s -count 3 ./internal/engine/",
+    "output": "Baseline ns/op 809057, 804941, 831608; new 638143, 643402, 635096. Median 809057 -> 638143 (21.1% less). Baseline binary built before final edits with go test -cpuprofile. Workers=1 in benchmark; Go1.27.3 linux/amd64 Intel Xeon, affinity0-7."
+   },
+   {
+    "source": "tool",
+    "command": "Alternating three runs each: taskset -c 0,1 python3 scripts/bench.py --bin /tmp/minivectordb-r2base; taskset -c 0,1 python3 scripts/bench.py --bin /tmp/minivectordb-r2next",
+    "output": "Exact, seed1, 10000x128, batches100, queries1000, K10, half filtered, legacy --format json. Baseline write ms 332/378/324; query 462/467/504; RSS MiB23.1/22.9/23.5. New write319/320/294; query416/396/420; RSS23.1/23.3/23.9. Data5.24MiB each. Query median467->416ms (10.9% less). No write-path improvement claimed; these are local indicators, not official T/B/M or scores."
+   },
+   {
+    "source": "tool",
+    "command": "Official f4d4e266 protocol_check/run.py with --command [\"/tmp/minivectordb-r2next\",\"-data\",\"{data_dir}\"]; handshake --handshake-only; public --package /workspace/ob-jiasai-prep/upstream-9f6df2ba/mysqltest",
+    "output": "Handshake PASS1/1 and public PASS20/20, both exit0 and passed=true. Outputs /workspace/ob-jiasai-prep/protocol-results/handshake-codex-20261110-str-equality-1806 and public-codex-20261110-str-equality-v4-1810. Initial default public invocation failed before any cases: f4d4e266 mysqltest manifest absent; explicit official v4 package used. Docker unavailable; local binary only."
+   },
+   {
+    "source": "tool",
+    "command": "go test ./...; go test -race ./...; python3 scripts/crash_test.py --bin /tmp/minivectordb-r2next --rounds 20",
+    "output": "PASS; PASS; PASS20 SIGKILL rounds,10262 committed rows verified. Untracked obsolete tools initially blocked ./...; temporarily moved outside repo and restored unchanged. Initial new test expected unsupported boolean comparison to succeed; corrected test to assert existing type rejection, no engine semantic change. Added generic-vs-specialized equality checks and cached/disk transaction/restart checks."
+   },
+   {
+    "source": "agent",
+    "content": "Detailed exact commands and measured outputs: R2-NEXT-RESULTS.md. This session adds real agent/tool experiment evidence, not invented student learning. Starting user reported e12768530 pending and 41352d052 execution success1/failure0 but score still unavailable; this session did not access platform or verify formal29/scoring. Formal29, Docker Go1.22 runtime and official performance/Agent scores remain unverified. Wait for e12768530 formal score and boss approval before push/tip; neither performed."
+   }
+  ]
+ },
+ "claude_perf_session_2026_11_10": {
+  "source": "mixed; every entry labelled student / agent / tool",
+  "base": "4342b3693c0aadf8cc10309073c47dead8331aa4 (teammate tip, rebased onto) ; work started from e12768530c91fbce87a4773c75ba13666b4671fc",
+  "record_type": "real Claude (Anthropic) session; student messages verbatim (screenshots described, not reproduced); tool outputs are measured values",
+  "entries": [
+   {
+    "source": "student",
+    "content": "帮我优化，这是目前的分数",
+    "attachment": "screenshot of one leaderboard row: No.15 | 对不对不对 | 2240.133447 | 33"
+   },
+   {
+    "source": "agent",
+    "content": "Read the scoring rules in the task statement: total 80 = performance 40 + Agent prompt 40, each by rank (40 - 0.5*(rank-1)). 33 = rank 15. Asked for the detail page (E, T/B/M per phase, prompt raw score and report) before tuning blindly."
+   },
+   {
+    "source": "student",
+    "content": "只提供了这些",
+    "attachment": "two screenshots: overall row No.8 | 对不对不对 | 2240.133447 | 1 | 69 | 620 | 689 | 2026-11-10; detail page: MySQL 正式用例 通过; 性能原始分 E = 2240.133447; Agent Prompt 原始分 = 1.000000"
+   },
+   {
+    "source": "agent",
+    "content": "Derived: round score 69 = performance 33 (rank 15) + Agent prompt 36 (raw 1.0, about rank 9). The statement's E = (E_write + 2 E_query)/3 with f(R)=R/(1+R) cannot exceed 1, so the platform's E (2240) is not normalised as written; efficiency ratios probably enter without saturation, so every halving of T, B or M keeps paying. Asked for the top of both boards."
+   },
+   {
+    "source": "student",
+    "content": "(screenshot of the overall board, top 8)",
+    "attachment": "No.1 今晚老婆不在家 E 3815.399718 prompt 7 round 78; No.2 没有名字可取无敌了 3348.983976 / 7.5 / 77.5; No.3 KON 4017.662805 / 0.5 / 74.5; No.4 aaaaniudale 2763.928390 / 1.5 / 72.5; No.5 WDYT 2432.687188 / 4 / 72; No.6 劣等马 2272.850764 / 1 / 69.5; No.6 罗德岛制药 2681.299502 / 0 / 69.5; No.8 对不对不对 2240.133447 / 1 / 69"
+   },
+   {
+    "source": "agent",
+    "content": "Gap analysis: best E 4017.66 is 1.79x ours, so performance rank 1 (+7 points) needs about 1.8x on E; prompt rank 1 needs raw > 7.5 (+4 points) and can only come from the student's own predictions, checks and interpretations. Plan: (1) contiguous vector arena with a compact pruning copy and exact float64 re-check, (2) posting lists for column = constant filters, (3) less garbage / page cache for peak memory."
+   },
+   {
+    "source": "student",
+    "content": "优先使用提分最有效的方法"
+   },
+   {
+    "source": "agent",
+    "content": "Kept both levers in order of expected points: performance first (I can do it), and asked the student for a written prediction (which change helps E most and why) before measuring, so the prompt material contains student-made predictions compared against results."
+   }
+  ],
+  "experiments": [
+   {
+    "id": "P1",
+    "source": "tool",
+    "command": "scripts/perf_harness.py (new): memory cgroup v1 peak incl. page cache, /proc/diskstats I/O, drop_caches before each phase; 10,000 x 128, 100-row commits, 1,000 queries half filtered, K=10",
+    "output": "admitted build e1276853, median of 3: write T 447 ms, B ~6.0 MiB written, M 28.0 MiB; query T 1041 ms, M 27.1 MiB, cold data read ~5.2 MiB. Per query: pk lookup 0.05 ms (driver+protocol), vector query 0.9 ms with or without filter."
+   },
+   {
+    "id": "P2",
+    "source": "tool",
+    "command": "go test -bench TopK -cpuprofile; pprof",
+    "output": "admitted build: l2sqBounded (float64 per element) 32% flat, cmpE.eval 13%, row-cache pointer chasing; filtered and unfiltered queries cost the same because the filter is evaluated on all 10k rows."
+   },
+   {
+    "id": "P3",
+    "source": "tool",
+    "command": "arena + float32 AVX estimate + exact re-check; then posting lists; go benchmarks",
+    "output": "BenchmarkTopK 1155 us -> 362 us/op; end-to-end unfiltered 0.915 -> 0.435 ms, filtered 0.910 -> 0.217 ms."
+   },
+   {
+    "id": "P4",
+    "source": "tool",
+    "command": "kernel microbenchmarks on 10k x 128 (ns per 10k rows)",
+    "output": "float32 AVX 197-231 us, portable Go float32 482-595 us, float16 F16C 170 us (block+FMA ~150 us), int8 VPMADDWD block + float64 bound 119 us (arenaScan). Kernel throughput, not memory, was the limit; int8 also halves the copy (1.28 MiB vs 2.56 MiB)."
+   },
+   {
+    "id": "P5",
+    "source": "tool",
+    "command": "GOGC sweep with perf_harness (two runs each)",
+    "output": "GOGC 100: M 27-30 MiB; 40: 21-23 MiB with similar T; 20: ~20 MiB with ~10% slower writes; 10: ~20 MiB. Chose 40."
+   },
+   {
+    "id": "P6",
+    "source": "tool",
+    "command": "POSIX_FADV_DONTNEED after each fdatasync and during recovery; memory.stat",
+    "output": "page cache at end of load 8.2 -> 3.0 MiB (remaining is the binary); M 28.2 -> 27.0 MiB at GOGC 100."
+   },
+   {
+    "id": "P7",
+    "source": "tool",
+    "command": "compact vector encoding (24-bit decimal integers when bit-exact) ",
+    "output": "data dir 5.23 -> 4.01 MiB; bytes written 6.05 -> 4.84 MiB; cold read 5.2 -> 4.0 MiB. A first version failed its round-trip test on -0.0 (encoded as +0); fixed by excluding -0 from the scaled form."
+   },
+   {
+    "id": "P8",
+    "source": "tool",
+    "command": "fast request decoder and decimal parser with differential tests against encoding/json and strconv",
+    "output": "insert batch 3.50 -> 2.19 ms/op in the Go benchmark; 300,000 random decimals bit-identical to strconv.ParseFloat; 20,000 mutated request lines decode identically to json.Unmarshal (errors included)."
+   },
+   {
+    "id": "P9",
+    "source": "tool",
+    "command": "correctness after all changes: go test ./... and -race; differential fast-vs-reference TopK (dims 1,3,8,13,32,128,300; ints/unit/tiny/huge/near-tie data; K 1,10,37,6000; filters; updates/deletes); end-to-end 60 mixed queries vs admitted binary e1276853 with cache 0/3/1 MiB; official protocol_check; crash_test",
+    "output": "all PASS; end-to-end results identical to the admitted version (also with the arena disabled); protocol_check 20/20 passed=true; crash_test 20-25 SIGKILL rounds, 6289-7967 committed rows verified."
+   },
+   {
+    "id": "P10",
+    "source": "tool",
+    "command": "rebase onto teammate tip 4342b36 (strEqE specialisation); TestPostingPathIsUsed",
+    "output": "the new strEqE node would have bypassed the posting-list detection; detection extended and guarded by a test; protocol_check 20/20, crash_test PASS after rebase."
+   },
+   {
+    "id": "P11",
+    "source": "tool",
+    "command": "perf_harness, final build, 3 runs",
+    "output": "write T 285-309 ms, B written 4.84 MiB, M 20.5-20.6 MiB; query T 224-285 ms, M 19.9-20.9 MiB, cold data read ~4.0 MiB."
+   }
+  ],
+  "limitations": "Local numbers come from a 2-vCPU VM with cgroup v1 and /proc/diskstats, not the platform's cgroup v2 io.stat / memory.peak; the platform's exact E formula is not published (its E exceeds the formula's bound). Docker image not built here (no daemon). The student's own predictions/interpretations for this round are recorded only if and as the student wrote them."
+ }
 }
