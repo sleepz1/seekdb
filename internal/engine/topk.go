@@ -34,6 +34,9 @@ func (a l2Hit) worse(b l2Hit) bool {
 // row first, then a bounded max-heap keeps the k nearest by squared distance
 // (monotonic with distance) and primary key. No per-row allocation.
 func (s *Session) topKL2(t *Table, where sqlparse.Expr, key l2E, k int) ([]candidate, error) {
+	if out, ok, err := s.fastTopKL2(t, where, key, k); ok || err != nil {
+		return out, err
+	}
 	if out, ok, err := s.parallelTopKL2(t, where, key, k); ok || err != nil {
 		return out, err
 	}

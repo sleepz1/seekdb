@@ -104,6 +104,7 @@ func openLog(dir string, fn func(payload []byte, payloadOff int64) error) (*logF
 		}
 	}
 	lf.size = good
+	dropPageCache(f, good)
 	return lf, nil
 }
 
@@ -114,6 +115,7 @@ func scanRecords(f *os.File, start int64, fn func([]byte, int64) error) (int64, 
 	off := start
 	var hdr [recHdrSize]byte
 	var buf []byte
+	dropped := off
 	for {
 		if _, err := io.ReadFull(r, hdr[:]); err != nil {
 			return off, nil // EOF or torn header
@@ -137,6 +139,10 @@ func scanRecords(f *os.File, start int64, fn func([]byte, int64) error) (int64, 
 			return 0, err
 		}
 		off += recHdrSize + int64(n)
+		if off-dropped >= 1<<20 {
+			dropPageCache(f, off-int64(r.Buffered()))
+			dropped = off
+		}
 	}
 }
 
@@ -160,7 +166,22 @@ func (l *logFile) appendRecord(payload []byte) (int64, error) {
 		return 0, err
 	}
 	l.size = start + int64(len(buf))
+	dropPageCache(l.f, l.size)
 	return start + recHdrSize, nil
+}
+
+// dropPageCache asks the kernel to evict the clean, fully written pages of
+// the log below end. Committed data is already durable (fdatasync) and every
+// row the engine needs is in memory or re-read with pread, so keeping the
+// log in the page cache only inflates the container's memory footprint. The
+// last, partial page is kept so the next append does not have to read it
+// back. Best effort: errors are ignored.
+func dropPageCache(f *os.File, end int64) {
+	end &^= 4095
+	if end <= 0 {
+		return
+	}
+	_, _, _ = syscall.Syscall6(syscall.SYS_FADVISE64, f.Fd(), 0, uintptr(end), 4 /* POSIX_FADV_DONTNEED */, 0, 0)
 }
 
 func (l *logFile) fail(err error, keep int64) {

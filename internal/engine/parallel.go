@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,8 +17,15 @@ import (
 // from the cgroup CPU quota at startup (Go 1.22 does not do this itself).
 var Workers = 1
 
-// ConfigureCPU sets GOMAXPROCS and Workers from the container CPU quota.
+// ConfigureCPU sets GOMAXPROCS and Workers from the container CPU quota, and
+// a tighter GC target: the platform scores peak container memory, the live
+// heap is small (vector arena + cached rows) and per-request garbage is
+// modest, so collecting at +40% instead of +100% lowers the peak by ~25% for
+// a few percent of CPU. GOGC in the environment still wins.
 func ConfigureCPU() {
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(40)
+	}
 	n := runtime.NumCPU()
 	if q := cgroupCPUQuota(); q > 0 && q < n {
 		n = q
@@ -27,6 +35,9 @@ func ConfigureCPU() {
 	}
 	runtime.GOMAXPROCS(n)
 	Workers = n
+	if w, err := strconv.Atoi(os.Getenv("MVDB_WORKERS")); err == nil && w >= 1 {
+		Workers = w // experiments only
+	}
 }
 
 func cgroupCPUQuota() int {

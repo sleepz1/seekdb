@@ -97,12 +97,105 @@ func encodeRow(buf []byte, s *Schema, r Row) []byte {
 			buf = binary.AppendUvarint(buf, uint64(len(v.S)))
 			buf = append(buf, v.S...)
 		case sqlparse.TypeVector:
-			for _, f := range v.V {
-				buf = binary.LittleEndian.AppendUint32(buf, math.Float32bits(f))
-			}
+			buf = appendVector(buf, v.V)
 		}
 	}
 	return buf
+}
+
+// Vector encoding: one tag byte, then
+//
+//	tag 0:      dim little-endian float32 bit patterns (any vector);
+//	tag 1+p:    dim 24-bit little-endian signed integers k, value =
+//	            float32(float64(k) / 10^p), p in 0..7.
+//
+// The scaled form is used only when every element round-trips bit-exactly
+// through it (checked at encode time), so decoding always yields the stored
+// float32 values. Typical data with a few decimal digits (e.g. "0.123456")
+// shrinks from 4 to 3 bytes per element, cutting log size and disk I/O.
+func appendVector(buf []byte, v []float32) []byte {
+	if p, ok := decimalScale(v); ok {
+		buf = append(buf, byte(1+p))
+		sc := exactPow10[p]
+		for _, f := range v {
+			k := int32(math.Round(float64(f) * sc))
+			buf = append(buf, byte(k), byte(k>>8), byte(k>>16))
+		}
+		return buf
+	}
+	buf = append(buf, 0)
+	for _, f := range v {
+		buf = binary.LittleEndian.AppendUint32(buf, math.Float32bits(f))
+	}
+	return buf
+}
+
+// decimalScale finds the smallest p (0..7) such that every element equals
+// float32(k/10^p) bit-for-bit for an integer |k| < 2^23.
+func decimalScale(v []float32) (int, bool) {
+	if len(v) == 0 {
+		return 0, false
+	}
+	p := 0
+	for p <= 7 && !scaledExact(v[0], p) {
+		p++
+	}
+	for p <= 7 {
+		ok := true
+		for _, f := range v {
+			if !scaledExact(f, p) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return p, true
+		}
+		p++
+	}
+	return 0, false
+}
+
+func scaledExact(f float32, p int) bool {
+	if math.Float32bits(f) == 1<<31 {
+		return false // -0 has no integer representation
+	}
+	sc := exactPow10[p]
+	k := math.Round(float64(f) * sc)
+	if k >= 1<<23 || k <= -(1<<23) {
+		return false
+	}
+	return math.Float32bits(float32(k/sc)) == math.Float32bits(f)
+}
+
+// decodeVector fills v from b and returns the number of bytes consumed.
+func decodeVector(v []float32, b []byte) (int, error) {
+	if len(b) < 1 {
+		return 0, errCorrupt
+	}
+	tag := b[0]
+	switch {
+	case tag == 0:
+		if 1+4*len(v) > len(b) {
+			return 0, errCorrupt
+		}
+		for j := range v {
+			v[j] = math.Float32frombits(binary.LittleEndian.Uint32(b[1+4*j:]))
+		}
+		return 1 + 4*len(v), nil
+	case tag <= 8:
+		if 1+3*len(v) > len(b) {
+			return 0, errCorrupt
+		}
+		sc := exactPow10[tag-1]
+		q := b[1:]
+		for j := range v {
+			k := int32(uint32(q[3*j])|uint32(q[3*j+1])<<8|uint32(q[3*j+2])<<16) << 8 >> 8
+			v[j] = float32(float64(k) / sc)
+		}
+		return 1 + 3*len(v), nil
+	}
+	return 0, errCorrupt
 }
 
 func decodeRow(s *Schema, b []byte) (Row, error) {
@@ -125,14 +218,12 @@ func decodeRow(s *Schema, b []byte) (Row, error) {
 			r[i] = StrVal(string(b[p : p+int(n)]))
 			p += int(n)
 		case sqlparse.TypeVector:
-			if p+4*c.Param > len(b) {
-				return nil, errCorrupt
-			}
 			v := make([]float32, c.Param)
-			for j := range v {
-				v[j] = math.Float32frombits(binary.LittleEndian.Uint32(b[p:]))
-				p += 4
+			n, err := decodeVector(v, b[p:])
+			if err != nil {
+				return nil, err
 			}
+			p += n
 			r[i] = VecVal(v)
 		}
 	}
@@ -164,9 +255,53 @@ func parseVectorElems(elems []string, dim int) ([]float32, error) {
 	return out, nil
 }
 
+var exactPow10 = [...]float64{1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10,
+	1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22}
+
+// fastDecimal parses [+-]digits[.digits] with at most 15 significant digits
+// in total. Such a value is float64(mantissa) / 10^frac with both operands
+// exact, so the single division is correctly rounded and the result is
+// bit-identical to strconv.ParseFloat(s, 64) (which takes the same exact
+// path). ok=false means "use strconv".
+func fastDecimal(s string) (float64, bool) {
+	i, neg := 0, false
+	if i < len(s) && (s[i] == '-' || s[i] == '+') {
+		neg = s[i] == '-'
+		i++
+	}
+	var m uint64
+	digits, frac, dot := 0, 0, false
+	for ; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9':
+			m = m*10 + uint64(c-'0')
+			digits++
+			if dot {
+				frac++
+			}
+		case c == '.' && !dot:
+			dot = true
+		default:
+			return 0, false
+		}
+	}
+	if digits == 0 || digits > 15 {
+		return 0, false
+	}
+	f := float64(m) / exactPow10[frac]
+	if neg {
+		f = -f
+	}
+	return f, true
+}
+
 func parseFloat32(s string) (float32, error) {
 	if s == "" {
 		return 0, newErr(ErrVectorValue, "invalid vector element ''")
+	}
+	if f, ok := fastDecimal(s); ok {
+		return float32(f), nil // |f| < 1e15: always finite in float32
 	}
 	// Only plain decimal / exponent notation is accepted; strconv would also
 	// accept NaN, Inf, hex floats and underscores.
@@ -202,6 +337,31 @@ func parseVectorText(s string, dim int) ([]float32, error) {
 	inner := strings.TrimSpace(t[1 : len(t)-1])
 	if inner == "" {
 		return parseVectorElems(nil, dim)
+	}
+	if dim > 0 {
+		// Common case: parse in place without splitting into substrings.
+		out := make([]float32, 0, dim)
+		for rest := inner; ; {
+			e := rest
+			j := strings.IndexByte(rest, ',')
+			if j >= 0 {
+				e, rest = rest[:j], rest[j+1:]
+			}
+			if len(out) == dim {
+				break // too many elements: report via the generic path
+			}
+			f, err := parseFloat32(strings.TrimSpace(e))
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, f)
+			if j < 0 {
+				if len(out) == dim {
+					return out, nil
+				}
+				break
+			}
+		}
 	}
 	return parseVectorElems(strings.Split(inner, ","), dim)
 }

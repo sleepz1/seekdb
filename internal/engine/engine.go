@@ -41,10 +41,24 @@ type Table struct {
 	free     []int32
 	vecIndex string // vector index name, "" if none
 	live     int64  // encoded bytes of live rows
+	uncached int    // used slots whose row is not cached
+	version  uint64 // bumped by every committed change (invalidates postings)
+	postings map[int]*postingList
+
+	// vector arena (see arena.go)
+	vdim     int
+	vchunks  [][]float32
+	qchunks  [][]int8   // int8 copy of the vectors (pruning only, see q8.go)
+	mchunks  [][]q8meta // per-slot scale / square sum / residual of the copy
+	arenaOff bool
 }
 
 func newTable(s *Schema) *Table {
-	return &Table{schema: s, index: make(map[int64]int32)}
+	t := &Table{schema: s, index: make(map[int64]int32)}
+	if s.VecCol >= 0 {
+		t.vdim = s.Columns[s.VecCol].Param
+	}
+	return t
 }
 
 // Options configures an Engine.
@@ -61,6 +75,7 @@ type Engine struct {
 	log       *logFile
 	tables    map[string]*Table // lower-cased name
 	cacheUsed int64
+	arenaUsed int64
 	budget    int64
 }
 
@@ -254,7 +269,7 @@ func (e *Engine) replay(payload []byte, payloadOff int64) error {
 				return fmt.Errorf("recovery: put into unknown table %q", tname)
 			}
 			var row Row
-			if e.cacheUsed < e.budget {
+			if e.cacheUsed < e.budget || t.arenaOn() {
 				var err error
 				if row, err = decodeRow(t.schema, payload[r.pos:r.pos+n]); err != nil {
 					return fmt.Errorf("recovery: %w", err)
@@ -280,6 +295,8 @@ func (e *Engine) replay(payload []byte, payloadOff int64) error {
 // ---- committed state maintenance ---------------------------------------
 
 func (e *Engine) putSlot(t *Table, pk int64, off int64, n uint32, row Row) {
+	t.version++
+	full := row
 	if row != nil {
 		sz := row.approxSize()
 		if e.cacheUsed+sz > e.budget {
@@ -292,9 +309,15 @@ func (e *Engine) putSlot(t *Table, pk int64, off int64, n uint32, row Row) {
 		s := &t.slots[si]
 		if s.row != nil {
 			e.cacheUsed -= s.row.approxSize()
+		} else {
+			t.uncached--
 		}
 		t.live -= int64(s.n)
+		row = e.arenaPut(t, si, full, row)
 		*s = slot{off: off, pk: pk, n: n, used: true, row: row}
+		if row == nil {
+			t.uncached++
+		}
 		t.live += int64(n)
 		return
 	}
@@ -302,10 +325,14 @@ func (e *Engine) putSlot(t *Table, pk int64, off int64, n uint32, row Row) {
 	if k := len(t.free); k > 0 {
 		si = t.free[k-1]
 		t.free = t.free[:k-1]
-		t.slots[si] = slot{off: off, pk: pk, n: n, used: true, row: row}
 	} else {
 		si = int32(len(t.slots))
-		t.slots = append(t.slots, slot{off: off, pk: pk, n: n, used: true, row: row})
+		t.slots = append(t.slots, slot{})
+	}
+	row = e.arenaPut(t, si, full, row)
+	t.slots[si] = slot{off: off, pk: pk, n: n, used: true, row: row}
+	if row == nil {
+		t.uncached++
 	}
 	t.index[pk] = si
 	t.live += int64(n)
@@ -316,9 +343,12 @@ func (e *Engine) deleteSlot(t *Table, pk int64) {
 	if !ok {
 		return
 	}
+	t.version++
 	s := &t.slots[si]
 	if s.row != nil {
 		e.cacheUsed -= s.row.approxSize()
+	} else {
+		t.uncached--
 	}
 	t.live -= int64(s.n)
 	*s = slot{}
@@ -327,6 +357,7 @@ func (e *Engine) deleteSlot(t *Table, pk int64) {
 }
 
 func (e *Engine) dropCache(t *Table) {
+	e.disableArena(t)
 	for i := range t.slots {
 		if t.slots[i].row != nil {
 			e.cacheUsed -= t.slots[i].row.approxSize()
