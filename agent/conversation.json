@@ -386,5 +386,45 @@
    "pr_merged": false,
    "tokens": null
   }
- }
+ },
+ "codex_r2_next_session_2026_11_10": {
+ "source": "mixed; entries explicitly labelled",
+ "base": "e12768530c91fbce87a4773c75ba13666b4671fc",
+ "branch": "contest/r2-next-from-e12768530",
+ "entries": [
+  {
+   "source": "student",
+   "record_type": "verbatim excerpts from the actual user request, not a reconstructed dialogue",
+   "content": "Investigate first, then implement, then verify with official checkers. Commit locally if the work is sound. Do not push. Do not submit a formal tip.\nDo not invent unpublished formal-29 failures and “fix” them by guesswork."
+  },
+  {
+   "source": "agent",
+   "content": "Inspected current Go engine/parser/entry, protocol checker and public requirements. Vector index name is metadata; ANN uses exact scans. Kept performance hypothesis but rejected speculative ANN. Discarded distance-loop and worker-cap experiments after measurements failed to improve. Profile showed cmpE.eval 19.05% cumulative CPU in sequential TopK. Chose one narrow optimization: compile statically typed VARCHAR column = string constant (either operand order) into direct string equality, preserving validation and all scan/transaction/distance/durability paths."
+  },
+  {
+   "source": "tool",
+   "command": "/tmp/r2-engine.test -test.run ^$ -test.bench TopK -test.benchtime 3s -test.count 3; go test -run ^$ -bench TopK -benchtime 3s -count 3 ./internal/engine/",
+   "output": "Baseline ns/op 809057, 804941, 831608; new 638143, 643402, 635096. Median 809057 -> 638143 (21.1% less). Baseline binary built before final edits with go test -cpuprofile. Workers=1 in benchmark; Go1.27.3 linux/amd64 Intel Xeon, affinity0-7."
+  },
+  {
+   "source": "tool",
+   "command": "Alternating three runs each: taskset -c 0,1 python3 scripts/bench.py --bin /tmp/minivectordb-r2base; taskset -c 0,1 python3 scripts/bench.py --bin /tmp/minivectordb-r2next",
+   "output": "Exact, seed1, 10000x128, batches100, queries1000, K10, half filtered, legacy --format json. Baseline write ms 332/378/324; query 462/467/504; RSS MiB23.1/22.9/23.5. New write319/320/294; query416/396/420; RSS23.1/23.3/23.9. Data5.24MiB each. Query median467->416ms (10.9% less). No write-path improvement claimed; these are local indicators, not official T/B/M or scores."
+  },
+  {
+   "source": "tool",
+   "command": "Official f4d4e266 protocol_check/run.py with --command [\"/tmp/minivectordb-r2next\",\"-data\",\"{data_dir}\"]; handshake --handshake-only; public --package /workspace/ob-jiasai-prep/upstream-9f6df2ba/mysqltest",
+   "output": "Handshake PASS1/1 and public PASS20/20, both exit0 and passed=true. Outputs /workspace/ob-jiasai-prep/protocol-results/handshake-codex-20261110-str-equality-1806 and public-codex-20261110-str-equality-v4-1810. Initial default public invocation failed before any cases: f4d4e266 mysqltest manifest absent; explicit official v4 package used. Docker unavailable; local binary only."
+  },
+  {
+   "source": "tool",
+   "command": "go test ./...; go test -race ./...; python3 scripts/crash_test.py --bin /tmp/minivectordb-r2next --rounds 20",
+   "output": "PASS; PASS; PASS20 SIGKILL rounds,10262 committed rows verified. Untracked obsolete tools initially blocked ./...; temporarily moved outside repo and restored unchanged. Initial new test expected unsupported boolean comparison to succeed; corrected test to assert existing type rejection, no engine semantic change. Added generic-vs-specialized equality checks and cached/disk transaction/restart checks."
+  },
+  {
+   "source": "agent",
+   "content": "Detailed exact commands and measured outputs: R2-NEXT-RESULTS.md. This session adds real agent/tool experiment evidence, not invented student learning. Starting user reported e12768530 pending and 41352d052 execution success1/failure0 but score still unavailable; this session did not access platform or verify formal29/scoring. Formal29, Docker Go1.22 runtime and official performance/Agent scores remain unverified. Wait for e12768530 formal score and boss approval before push/tip; neither performed."
+  }
+ ]
+}
 }

@@ -19,6 +19,18 @@ type cmpE struct {
 	op   string
 	l, r cexpr
 }
+
+// strEqE avoids generic Value dispatch for the common ordinary-column filter.
+// It is only constructed for a statically typed VARCHAR column and string.
+type strEqE struct {
+	col   int
+	value string
+}
+
+func (c strEqE) eval(r Row) (Value, error) {
+	return BoolVal(r[c.col].S == c.value), nil
+}
+
 type andE struct{ l, r cexpr }
 type orE struct{ l, r cexpr }
 type notE struct{ x cexpr }
@@ -299,6 +311,18 @@ func (c *compiler) compileCmp(x *sqlparse.Binary) (cexpr, error) {
 			return nil, newErr(ErrTypeMismatch, "cannot compare %s with %s", kindName(lk), kindName(rk))
 		}
 	}
+	if x.Op == "=" {
+		if col, ok := l.(colE); ok && lk == KStr {
+			if value, ok := r.(constE); ok && value.v.K == KStr {
+				return strEqE{col: col.idx, value: value.v.S}, nil
+			}
+		}
+		if col, ok := r.(colE); ok && rk == KStr {
+			if value, ok := l.(constE); ok && value.v.K == KStr {
+				return strEqE{col: col.idx, value: value.v.S}, nil
+			}
+		}
+	}
 	return cmpE{op: x.Op, l: l, r: r}, nil
 }
 
@@ -319,7 +343,7 @@ func (c *compiler) staticKind(e cexpr) Kind {
 		}
 	case l2E, l2ColsE:
 		return KFloat
-	case cmpE, andE, orE, notE:
+	case cmpE, strEqE, andE, orE, notE:
 		return KBool
 	}
 	return KNull
