@@ -171,6 +171,22 @@ func near(src string, i int) string {
 // doubled quotes and backslash escapes.
 func lexString(src string, i int) (string, int, error) {
 	q := src[i]
+	// Fast path: no escape before the closing quote (the common case, e.g.
+	// a long vector literal) -> one memmove instead of a byte-by-byte
+	// builder. The copy matters: a substring would keep the whole statement
+	// alive in any row that stores the value.
+	for k := i + 1; k < len(src); k++ {
+		c := src[k]
+		if c == '\\' {
+			break
+		}
+		if c == q {
+			if k+1 < len(src) && src[k+1] == q {
+				break // doubled quote: needs unescaping
+			}
+			return strings.Clone(src[i+1 : k]), k + 1, nil
+		}
+	}
 	j := i + 1
 	var sb strings.Builder
 	for {
