@@ -1,9 +1,13 @@
-// Command minivectordb runs the database in the foreground. SQL arrives on
-// stdin, results go to stdout, logs go to stderr. No network listener.
+// Command minivectordb runs the database in the foreground.
+// The default mode speaks the official stdin/stdout JSONL protocol
+// (STDIO_PROTOCOL.md): one JSON object per line, a ready handshake,
+// and logs only on stderr. No network listener.
 package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -34,8 +38,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	dataDir := fs.String("data-dir", envOr("MVDB_DATA_DIR", "/data"), "data directory")
 	fs.StringVar(dataDir, "data", *dataDir, "alias of --data-dir")
 	mode := fs.String("mode", envOr("MVDB_SEARCH_MODE", "exact"), "default vector search mode: exact or ann")
-	format := fs.String("format", envOr("MVDB_FORMAT", "tsv"), "output format: tsv (default) or json")
-	ready := fs.String("ready-line", os.Getenv("MVDB_READY_LINE"), "line printed to stdout once recovery finishes (empty = none)")
+	format := fs.String("format", envOr("MVDB_FORMAT", "jsonl"), "output format: jsonl (official protocol, default), tsv, or json (legacy SQL stdin)")
+	ready := fs.String("ready-line", os.Getenv("MVDB_READY_LINE"), "legacy SQL mode only: line printed to stdout after recovery")
 	cacheMB := fs.Int64("cache-mb", 0, "row cache budget in MiB (0 = derive from cgroup limit)")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -44,8 +48,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "minivectordb: invalid --mode %q\n", *mode)
 		return 2
 	}
+
+	protocolMode := false
 	var out formatter
 	switch *format {
+	case "jsonl":
+		protocolMode = true
 	case "json":
 		out = jsonFormatter{}
 	case "tsv":
@@ -81,6 +89,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}()
 
 	fmt.Fprintln(stderr, "minivectordb: ready")
+	if protocolMode {
+		if _, err := w.WriteString("{\"type\":\"ready\"}\n"); err != nil {
+			fmt.Fprintf(stderr, "minivectordb: output error: %v\n", err)
+			return 1
+		}
+		if err := w.Flush(); err != nil {
+			fmt.Fprintf(stderr, "minivectordb: output error: %v\n", err)
+			return 1
+		}
+		return serveJSONL(sess, eng, stdin, w, stderr, &mu)
+	}
+
 	if *ready != "" {
 		fmt.Fprintln(w, *ready)
 		if err := w.Flush(); err != nil {
@@ -118,8 +138,105 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return 0
 }
 
+type protoRequest struct {
+	ID         json.RawMessage `json:"id"`
+	Op         string          `json:"op"`
+	SQL        string          `json:"sql"`
+	SearchMode string          `json:"search_mode"`
+}
+
+// serveJSONL implements the official stdin/stdout protocol. Ready has already
+// been written and flushed. On shutdown it returns the process exit code.
+func serveJSONL(sess *engine.Session, eng *engine.Engine, stdin io.Reader, w *bufio.Writer, stderr io.Writer, mu *sync.Mutex) int {
+	br := bufio.NewReaderSize(stdin, 1<<20)
+	for {
+		line, err := br.ReadBytes('\n')
+		if err != nil && err != io.EOF {
+			fmt.Fprintf(stderr, "minivectordb: input error: %v\n", err)
+			mu.Lock()
+			sess.Close()
+			_ = eng.Close()
+			return 1
+		}
+		line = bytes.TrimRight(line, "\r\n")
+		if len(bytes.TrimSpace(line)) == 0 {
+			if err == io.EOF {
+				mu.Lock()
+				sess.Close()
+				_ = eng.Close()
+				return 0
+			}
+			continue
+		}
+		mu.Lock()
+		exit, code := handleJSONL(sess, eng, line, w, stderr)
+		if ferr := w.Flush(); ferr != nil {
+			fmt.Fprintf(stderr, "minivectordb: output error: %v\n", ferr)
+			sess.Close()
+			_ = eng.Close()
+			mu.Unlock()
+			return 1
+		}
+		if exit {
+			mu.Unlock()
+			return code
+		}
+		mu.Unlock()
+		if err == io.EOF {
+			mu.Lock()
+			sess.Close()
+			_ = eng.Close()
+			return 0
+		}
+	}
+}
+
+func handleJSONL(sess *engine.Session, eng *engine.Engine, line []byte, w *bufio.Writer, stderr io.Writer) (exit bool, code int) {
+	var req protoRequest
+	if err := json.Unmarshal(line, &req); err != nil {
+		fmt.Fprintf(stderr, "minivectordb: invalid JSON request: %v\n", err)
+		writeProtoError(w, json.RawMessage("null"), "invalid_request", err.Error())
+		return false, 0
+	}
+	id := req.ID
+	if len(bytes.TrimSpace(id)) == 0 || string(id) == "null" {
+		// Still echo whatever arrived; missing id becomes null.
+		if len(bytes.TrimSpace(id)) == 0 {
+			id = json.RawMessage("null")
+		}
+	}
+	switch req.Op {
+	case "shutdown":
+		sess.Close()
+		if err := eng.Close(); err != nil {
+			fmt.Fprintf(stderr, "minivectordb: close error: %v\n", err)
+			writeProtoError(w, id, "internal_error", err.Error())
+			return true, 1
+		}
+		writeProtoShutdown(w, id)
+		return true, 0
+	case "execute":
+		if req.SearchMode == "ann" {
+			sess.Mode = "ann"
+		} else {
+			sess.Mode = "exact"
+		}
+		res, err := sess.ExecSQL(req.SQL)
+		if err != nil {
+			se := engine.AsSQLError(err)
+			writeProtoError(w, id, se.Name(), se.Msg)
+			return false, 0
+		}
+		writeProtoResult(w, id, res)
+		return false, 0
+	default:
+		writeProtoError(w, id, "unsupported_op", "unsupported operation")
+		return false, 0
+	}
+}
+
 // execOne runs a statement and writes its response. It reports whether the
-// statement asked the process to exit.
+// statement asked the process to exit. Used only by legacy SQL stdin modes.
 func execOne(sess *engine.Session, sql string, out formatter, w *bufio.Writer) bool {
 	st, err := sqlparse.Parse(sql)
 	if err != nil {

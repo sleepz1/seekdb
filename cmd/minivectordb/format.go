@@ -213,3 +213,112 @@ func tsvCell(v engine.Value) string {
 var tsvEscaper = strings.NewReplacer("\\", `\\`, "\t", `\t`, "\n", `\n`, "\r", `\r`)
 
 func escapeTSV(s string) string { return tsvEscaper.Replace(s) }
+
+// Official JSONL protocol writers (STDIO_PROTOCOL.md). Each call emits one
+// JSON object and a trailing newline; the caller must flush immediately.
+
+func writeProtoMsg(w *bufio.Writer, msg any) {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(msg); err != nil {
+		// A well-formed protocol struct should always encode. If it does
+		// not, writing a fallback would risk a second broken line; leave
+		// the error to the next flush / process failure path.
+		return
+	}
+}
+
+func writeProtoShutdown(w *bufio.Writer, id json.RawMessage) {
+	writeProtoMsg(w, struct {
+		ID json.RawMessage `json:"id"`
+		OK bool            `json:"ok"`
+	}{ID: id, OK: true})
+}
+
+func writeProtoError(w *bufio.Writer, id json.RawMessage, code, message string) {
+	if code == "" {
+		code = "internal_error"
+	}
+	writeProtoMsg(w, struct {
+		ID    json.RawMessage `json:"id"`
+		OK    bool            `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}{
+		ID: id,
+		OK: false,
+		Error: struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}{Code: code, Message: message},
+	})
+}
+
+func writeProtoResult(w *bufio.Writer, id json.RawMessage, r *engine.Result) {
+	if r.IsQuery {
+		cols := r.Columns
+		if cols == nil {
+			cols = []string{}
+		}
+		rows := make([][]any, len(r.Rows))
+		for i, row := range r.Rows {
+			rows[i] = rowToJSON(row)
+		}
+		if rows == nil {
+			rows = [][]any{}
+		}
+		writeProtoMsg(w, struct {
+			ID      json.RawMessage `json:"id"`
+			OK      bool            `json:"ok"`
+			Columns []string        `json:"columns"`
+			Rows    [][]any         `json:"rows"`
+		}{ID: id, OK: true, Columns: cols, Rows: rows})
+		return
+	}
+	writeProtoMsg(w, struct {
+		ID           json.RawMessage `json:"id"`
+		OK           bool            `json:"ok"`
+		AffectedRows int64           `json:"affected_rows"`
+	}{ID: id, OK: true, AffectedRows: r.Affected})
+}
+
+func rowToJSON(row []engine.Value) []any {
+	out := make([]any, len(row))
+	for i, v := range row {
+		out[i] = valueToJSON(v)
+	}
+	return out
+}
+
+func valueToJSON(v engine.Value) any {
+	switch v.K {
+	case engine.KInt:
+		return v.I
+	case engine.KBool:
+		return v.I != 0
+	case engine.KFloat:
+		if math.IsNaN(v.F) || math.IsInf(v.F, 0) {
+			return nil
+		}
+		return v.F
+	case engine.KStr:
+		return v.S
+	case engine.KVec:
+		arr := make([]float64, len(v.V))
+		for i, f := range v.V {
+			x := float64(f)
+			if math.IsNaN(x) || math.IsInf(x, 0) {
+				// Protocol forbids NaN/Infinity; a non-finite component
+				// should not have reached here, but keep the array finite.
+				arr[i] = 0
+			} else {
+				arr[i] = x
+			}
+		}
+		return arr
+	default:
+		return nil
+	}
+}

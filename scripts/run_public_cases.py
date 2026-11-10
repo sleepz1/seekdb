@@ -138,7 +138,7 @@ def run_case(binary, case_dir, name):
     data = tempfile.mkdtemp(prefix=f"mvdb-{name}-")
 
     def start():
-        return subprocess.Popen([binary, "--data-dir", data], stdin=subprocess.PIPE,
+        return subprocess.Popen([binary, "--data-dir", data, "--format", "tsv"], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 text=True, encoding="utf-8", bufsize=1)
     try:

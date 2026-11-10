@@ -23,51 +23,48 @@ go build -o minivectordb ./cmd/minivectordb
 ./minivectordb --data-dir /tmp/mvdb
 ```
 
-The process runs in the foreground, reads SQL from **stdin**, writes one
-response line per statement to **stdout** and logs to **stderr**. It opens no
-network port.
+The process runs in the foreground. The Docker default (`-data /data`, no
+extra flags) speaks the official stdin/stdout **JSONL** protocol. Logs go to
+**stderr**. It opens no network port.
 
 | Flag / env | Default | Meaning |
 | --- | --- | --- |
-| `--data-dir` / `MVDB_DATA_DIR` | `/data` | data directory (log file lives here) |
-| `--mode` / `MVDB_SEARCH_MODE` | `exact` | default vector search mode, `exact` or `ann` |
-| `--format` / `MVDB_FORMAT` | `tsv` | response format, `tsv` (default) or `json` |
-| `--ready-line` / `MVDB_READY_LINE` | empty | line printed to stdout after recovery (none by default) |
+| `--data-dir` / `-data` / `MVDB_DATA_DIR` | `/data` | data directory (log file lives here) |
+| `--mode` / `MVDB_SEARCH_MODE` | `exact` | default vector search mode, `exact` or `ann` (overridden per official request by `search_mode`) |
+| `--format` / `MVDB_FORMAT` | `jsonl` | `jsonl` = official protocol (default); `tsv` / `json` = legacy SQL-on-stdin modes |
+| `--ready-line` / `MVDB_READY_LINE` | empty | legacy SQL modes only: optional stdout ready line |
 | `--cache-mb` | auto | decoded-row cache budget; auto = 1/4 of the cgroup memory limit |
 
 ### Protocol
 
-* **Statement boundaries**: a statement ends at `;` outside quotes/comments,
-  or at a newline outside quotes when parentheses/brackets are balanced, so
-  one statement per line works with or without `;`.
-* **Responses** (default `--format tsv`; byte-compatible with the framing the
-  team's earlier submission used, which the official driver ran to completion):
-  * query: column names joined by TAB, one TAB-separated line per row, then
-    `OK <row count>` (also for empty results: header line, then `OK 0`)
-  * other success: `OK <affected rows>` (DDL and transaction control: `OK 0`)
-  * error: `ERROR <code> <message>`, where `<code>` is a semantic name as used by
-    the public pack (`duplicate_key`, `unsupported_sql`, `dimension_mismatch`,
-    `invalid_vector`, `table_not_found`, ...)
+The default, and the Docker entrypoint with only `-data /data`, is the official
+JSON Lines protocol:
 
-  Strings escape backslash, TAB, LF and CR as `\\`, `\t`, `\n`, `\r`.
-  Numbers and vectors use Go `encoding/json` rendering, e.g. a distance of
-  5.0 prints `5`, a vector prints `[3,4]`. Output is flushed after every
-  statement. `--format json` prints one JSON object per statement instead
-  (`{"columns":...,"rows":...}`, `{"affected_rows":n}`, `{"error":{...}}`).
-* **Ready**: the database only starts reading stdin after recovery has
-  finished. `minivectordb: ready` is written to stderr; an optional stdout
-  ready line can be configured with `--ready-line`.
-* **Exact / ANN**: default `exact`. `SET search_mode = ann` / `exact` changes
-  the session mode, `--mode ann` sets the default, and `ORDER BY ... APPROXIMATE`
-  is accepted. ANN currently runs the same exact search (recall 1.0).
-* **Driver directives**: lines starting with `--` (`--restart`, `--mode ann`)
-  are ignored and produce no output if a driver forwards them on stdin.
-* **Shutdown**: EOF on stdin, `EXIT;`/`QUIT;`, SIGTERM or SIGINT. An open
-  transaction is rolled back; committed data is already durable.
+* After opening `/data` and finishing recovery, and **before** reading the
+  first request, stdout gets exactly `{"type":"ready"}` and is flushed.
+  Every start, including a recovery restart, emits this once. Logs stay on stderr.
+* Each stdin line is one JSON request; each stdout line is one JSON response,
+  flushed immediately. The request `id` is echoed with its original JSON type.
+* Execute: `{"id":1,"op":"execute","sql":"...","search_mode":"exact"}`. The
+  process parses the JSON first, then runs the `sql` field. `search_mode` is
+  taken from the request, not from leftover SQL or `--mode` flags.
+* Query success: `{"id":1,"ok":true,"columns":["id"],"rows":[[1],[2]]}`. An
+  empty result still includes column names and `"rows":[]`.
+* Other success: `{"id":2,"ok":true,"affected_rows":n}` (`ok` is a JSON boolean).
+* Failure: `{"id":3,"ok":false,"error":{"code":"duplicate_key","message":"..."}}`.
+  `error.code` is a non-empty semantic name. The process stays up.
+* Shutdown: `{"id":4,"op":"shutdown"}` rolls back an open transaction, persists
+  committed state, replies `{"id":4,"ok":true}`, flushes, and exits 0. Nothing
+  is written to stdout after that.
+* BIGINT values are JSON integers; SQL NULL is JSON `null`; vectors are JSON
+  arrays of finite numbers.
 
-> The official test driver framing is not public. A submission using one JSON
-> line per statement ended as "执行失败/未完成", while the earlier submission
-> with this TSV + `OK n` framing ran to completion, so TSV is the default.
+`--format tsv` and `--format json` keep the older SQL-on-stdin framing for
+local scripts (`scripts/run_public_cases.py`, `scripts/crash_test.py`,
+`scripts/bench.py`). They are not the official contest protocol.
+
+* **Exact / ANN**: official requests set `search_mode` per statement. `SET search_mode = ann` / `exact` still works in SQL, `--mode ann` sets the session default, and `ORDER BY ... APPROXIMATE` is accepted. ANN currently runs the same exact search (recall 1.0).
+* **Signals**: SIGTERM, SIGINT or SIGHUP roll back an open transaction and exit. Committed data is already durable and does not depend on a graceful shutdown.
 
 ## Example (empty data directory)
 
@@ -192,9 +189,8 @@ Local results on a 2-vCPU sandbox:
 
 ## Known limitations
 
-* The official driver protocol (response framing, error codes, ready marker,
-  mode parameter) is not public. The TSV framing is inferred from which
-  earlier submission the driver ran to completion, not from a specification.
+* Official error-code mapping is not yet frozen (`config.json` has an empty
+  `error_codes` object). Failures return a non-empty semantic `error.code`.
 * ANN mode is exact search, so it is correct but not faster.
 * The primary-key index and slot table stay in memory (about 70 bytes per
   row). Very large tables are bounded by that, not by row size.
