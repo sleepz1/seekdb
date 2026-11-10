@@ -122,9 +122,15 @@ behaviour).
 structure. Every committed transaction, autocommit statement or DDL statement
 is one record: `u32 length | u32 CRC32C | payload`, where the payload is a
 list of ops (create/drop table, create/drop index, put row, delete row). Rows
-use a compact binary encoding (8-byte BIGINT, varint-prefixed UTF-8, raw
-little-endian float32 vectors). COMMIT writes the record and calls
-`fdatasync` before the response is printed.
+use a compact binary encoding (8-byte BIGINT, varint-prefixed UTF-8; a vector
+is a tag byte followed either by raw little-endian float32 values or, when
+every element round-trips bit-exactly through `float32(k / 10^p)`, by 24-bit
+integers `k`, which shrinks typical "0.123456"-style data from 4 to 3 bytes
+per element). COMMIT writes the record and calls `fdatasync` before the
+response is printed; the clean pages below the last partial page are then
+dropped from the page cache (`POSIX_FADV_DONTNEED`), since the container's
+memory is measured including page cache and every row is already in memory or
+re-read with `pread`.
 
 **In-memory state.** Per table: a primary-key hash index pointing to slots
 that hold the row's file offset and length, plus the decoded row while the
@@ -152,13 +158,35 @@ are rewritten into `mvdb.log.compact`, which is fsynced and atomically renamed
 over the log. A leftover temporary file from a killed compaction is deleted on
 startup.
 
-**Vector search.** Exact search only. The TopK path scans the slot array
-linearly (sequential memory), applies the filter, computes float64 L2 with a
-4-way unrolled loop and early termination against the current K-th distance
-(with a safety margin so primary-key tie-breaks are unaffected), and keeps a
-bounded max-heap. On tables of 4096 rows or more with no pending transaction
-changes, the scan is split across `min(NumCPU, cgroup CPU quota)` goroutines
-and merged in the same (distance, pk) order. `CREATE VECTOR INDEX` is
+**Vector search.** Exact search only, with two layers of pruning that never
+change the result:
+
+* *Vector arena.* While it fits in half of the cache budget, every table keeps
+  its committed vectors contiguously by slot (1024-slot float32 chunks, no
+  pointers for the GC to scan); cached rows point into it instead of holding a
+  second copy. Next to it is an int8 copy with a per-row scale `s`, the exact
+  code square sum and a residual bound `r >= ||x - s*c||`.
+* *Lower-bound pruning.* The query is quantised to int16 (scale `t`, residual
+  `rho`). AVX2 `VPMOVSXBW`/`VPMADDWD` compute the exact integer dot product of
+  256 rows per call, from which `||s*c - t*e||^2` follows in float64 (with an
+  explicit rounding allowance). By the triangle inequality,
+  `||x - q|| >= ||s*c - t*e|| - r - rho`; a row is skipped only when this
+  bound is strictly above the current K-th exact distance. Every other row is
+  recomputed exactly in float64 (`l2sqBounded`), ranked by (distance, pk) in
+  a bounded max-heap. Without AVX2, a float32 AVX (or portable) estimate with
+  a proven relative-error margin plays the same role.
+* *Equality filters.* For `column = constant` on a BIGINT/VARCHAR column, a
+  per-column posting list (slot numbers per value) is built lazily and
+  discarded by any commit to the table, so only the matching rows are scanned.
+  Other filters are evaluated on every row before it can enter the heap.
+
+On tables of 4096 rows or more with no pending transaction changes, the scan
+is split across `min(NumCPU, cgroup CPU quota)` goroutines and merged in the
+same (distance, pk) order. Transactions with pending changes on the table,
+uncached rows or an over-budget arena fall back to the original row scan.
+Differential tests compare the fast path with the reference scan bit for bit
+(7 dimensions, 5 value distributions including near-ties, exact ties, float32
+overflow and subnormals, every K, filters, updates and deletes). `CREATE VECTOR INDEX` is
 persisted and validated; since the search is exact, index maintenance after
 inserts, updates and deletes is correct by construction.
 
@@ -170,6 +198,7 @@ go build -o minivectordb ./cmd/minivectordb
 python3 scripts/run_public_cases.py # 20/20 public mysqltest cases (minivectordb-public-v4)
 python3 scripts/crash_test.py       # SIGKILL loop: acknowledged commits kept, no partial txns
 python3 scripts/bench.py            # 10k x 128 workload
+sudo python3 scripts/perf_harness.py  # platform-like T / B / M per phase (cgroup v1 memory peak incl. page cache, diskstats I/O)
 ```
 
 The engine tests cover restart and simulated crash, torn tails cut at every
@@ -179,7 +208,22 @@ filter-before-TopK, randomized comparison against a brute-force model in
 fully cached and fully on-disk modes, compaction with crash, and
 parallel-vs-sequential equality.
 
-Local results on a 2-vCPU sandbox:
+Performance round (local `perf_harness.py`, 10,000 × 128, 100-row commits,
+1,000 queries half filtered, median of 3; I/O excludes reading the binary):
+
+| | admitted version | optimized |
+| --- | --- | --- |
+| write T | 447 ms | ~320 ms |
+| query T | 1041 ms | ~230 ms |
+| write M (cgroup peak incl. page cache) | 28.0 MiB | ~21 MiB |
+| query M | 27.1 MiB | ~20 MiB |
+| data written | 6.0 MiB | 4.8 MiB |
+| cold-start data read | 5.2 MiB | 4.0 MiB |
+
+End-to-end results of 60 mixed queries are identical to the admitted version,
+also with the arena disabled by a 1 MiB / 3 MiB cache.
+
+Earlier local results on a 2-vCPU sandbox:
 
 * 20/20 public cases (minivectordb-public-v4, incl. `--restart`) pass.
 * `crash_test.py`: 40 SIGKILL rounds, 11,405 committed rows verified.
