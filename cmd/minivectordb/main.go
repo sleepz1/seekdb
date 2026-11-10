@@ -193,7 +193,7 @@ func serveJSONL(sess *engine.Session, eng *engine.Engine, stdin io.Reader, w *bu
 
 func handleJSONL(sess *engine.Session, eng *engine.Engine, line []byte, w *bufio.Writer, stderr io.Writer) (exit bool, code int) {
 	var req protoRequest
-	if err := json.Unmarshal(line, &req); err != nil {
+	if err := decodeRequest(line, &req); err != nil {
 		fmt.Fprintf(stderr, "minivectordb: invalid JSON request: %v\n", err)
 		writeProtoError(w, json.RawMessage("null"), "invalid_request", err.Error())
 		return false, 0
