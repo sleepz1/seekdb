@@ -12,6 +12,7 @@ import (
 // is that of json.Unmarshal.
 func decodeRequest(line []byte, req *protoRequest) error {
 	if fastDecode(line, req) {
+		req.fast = true
 		return nil
 	}
 	*req = protoRequest{}

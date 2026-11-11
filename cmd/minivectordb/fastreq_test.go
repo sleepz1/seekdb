@@ -59,6 +59,7 @@ func TestFastDecodeMatchesJSON(t *testing.T) {
 		var a, b protoRequest
 		errA := decodeRequest([]byte(c), &a)
 		errB := json.Unmarshal([]byte(c), &b)
+		a.fast = false // which decoder ran is not part of the request
 		if fmt.Sprint(errA) != fmt.Sprint(errB) || !reflect.DeepEqual(a, b) && errB == nil {
 			t.Fatalf("%q:\n fast %+v %v\n json %+v %v", c, a, errA, b, errB)
 		}

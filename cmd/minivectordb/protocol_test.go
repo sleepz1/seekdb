@@ -283,3 +283,53 @@ func numberAsInt(t *testing.T, v any) int64 {
 		return 0
 	}
 }
+
+// A request line longer than the reader's buffer, the normal lines after it,
+// and a last line without a newline must all be handled.
+func TestProtocolLongLineAndEOF(t *testing.T) {
+	dir := t.TempDir()
+	var in bytes.Buffer
+	in.WriteString(`{"id":1,"op":"execute","sql":"CREATE TABLE t (id BIGINT PRIMARY KEY, s VARCHAR(8))","search_mode":"exact"}` + "\n")
+	// ~3 MiB: one INSERT with 150k short rows
+	in.WriteString(`{"id":2,"op":"execute","sql":"INSERT INTO t VALUES `)
+	for i := 0; i < 150000; i++ {
+		if i > 0 {
+			in.WriteByte(',')
+		}
+		in.WriteString("(")
+		in.WriteString(itoa(i))
+		in.WriteString(", 'abcdefgh')")
+	}
+	in.WriteString(`","search_mode":"exact"}` + "\n")
+	in.WriteString(`{"id":3,"op":"execute","sql":"SELECT id FROM t WHERE id = 149999","search_mode":"exact"}` + "\n")
+	in.WriteString(`{"id":"last","op":"execute","sql":"SELECT s FROM t WHERE id = 7","search_mode":"exact"}`) // no newline, then EOF
+	if in.Len() < 2<<20 {
+		t.Fatalf("test line too short: %d", in.Len())
+	}
+	var out, stderr bytes.Buffer
+	if code := run([]string{"-data", dir}, &in, &out, &stderr); code != 0 {
+		t.Fatalf("exit %d, stderr %s", code, stderr.String())
+	}
+	want := `{"type":"ready"}` + "\n" +
+		`{"id":1,"ok":true,"affected_rows":0}` + "\n" +
+		`{"id":2,"ok":true,"affected_rows":150000}` + "\n" +
+		`{"id":3,"ok":true,"columns":["id"],"rows":[[149999]]}` + "\n" +
+		`{"id":"last","ok":true,"columns":["s"],"rows":[["abcdefgh"]]}` + "\n"
+	if out.String() != want {
+		t.Fatalf("got  %q\nwant %q", out.String(), want)
+	}
+}
+
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var b [20]byte
+	p := len(b)
+	for i > 0 {
+		p--
+		b[p] = byte('0' + i%10)
+		i /= 10
+	}
+	return string(b[p:])
+}

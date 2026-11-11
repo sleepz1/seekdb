@@ -143,6 +143,8 @@ type protoRequest struct {
 	Op         string          `json:"op"`
 	SQL        string          `json:"sql"`
 	SearchMode string          `json:"search_mode"`
+
+	fast bool // decoded by fastDecode: id is a scalar copied verbatim
 }
 
 // serveJSONL implements the official stdin/stdout protocol. Ready has already
@@ -150,7 +152,16 @@ type protoRequest struct {
 func serveJSONL(sess *engine.Session, eng *engine.Engine, stdin io.Reader, w *bufio.Writer, stderr io.Writer, mu *sync.Mutex) int {
 	br := bufio.NewReaderSize(stdin, 1<<20)
 	for {
-		line, err := br.ReadBytes('\n')
+		// The line is only read during this iteration (the decoder copies
+		// what it keeps), so a view into the reader's buffer is enough;
+		// lines longer than the buffer are assembled on the heap.
+		line, err := br.ReadSlice('\n')
+		if err == bufio.ErrBufferFull {
+			long := append([]byte(nil), line...)
+			var rest []byte
+			rest, err = br.ReadBytes('\n')
+			line = append(long, rest...)
+		}
 		if err != nil && err != io.EOF {
 			fmt.Fprintf(stderr, "minivectordb: input error: %v\n", err)
 			mu.Lock()
@@ -227,7 +238,11 @@ func handleJSONL(sess *engine.Session, eng *engine.Engine, line []byte, w *bufio
 			writeProtoError(w, id, se.Name(), se.Msg)
 			return false, 0
 		}
-		writeProtoResult(w, id, res)
+		if req.fast {
+			fastWriteResult(w, id, res)
+		} else {
+			writeProtoResult(w, id, res)
+		}
 		return false, 0
 	default:
 		writeProtoError(w, id, "unsupported_op", "unsupported operation")
