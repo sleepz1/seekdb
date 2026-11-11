@@ -386,8 +386,9 @@ func TestParallelMatchesSequential(t *testing.T) {
 		d.exec("INSERT INTO v VALUES " + strings.Join(vals, ","))
 	}
 	d.exec("DELETE FROM v WHERE id < 2000") // leave free slots in the array
-	old := Workers
-	defer func() { Workers = old }()
+	old, oldMin := Workers, parallelMinWork
+	defer func() { Workers = old; parallelMinWork = oldMin }()
+	parallelMinWork = 1 // exercise the split scan on this small table
 	for q := 0; q < 40; q++ {
 		where := ""
 		if q%2 == 1 {

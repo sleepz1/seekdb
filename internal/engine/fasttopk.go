@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/binary"
 	"math"
 	"sort"
 	"sync"
@@ -58,8 +59,11 @@ func (s *Session) fastTopKL2(t *Table, where sqlparse.Expr, key l2E, k int) ([]c
 	if list != nil {
 		n = len(list)
 	}
+	// Splitting the scan across workers pays only when one worker's share
+	// takes clearly longer than waking the others (tens of microseconds);
+	// the kernels need well under 10 ns per row of 128 dimensions.
 	nw := Workers
-	if n < parallelMinRows {
+	if n*t.vdim < parallelMinWork {
 		nw = 1
 	}
 	chunk := (n + nw - 1) / nw
@@ -134,8 +138,13 @@ func arenaScan(t *Table, list []int32, lo, hi int, filter func(Row) (bool, error
 		sc.qq = prepQ8(q)
 	}
 	if list == nil && sc.q8 {
-		// Block kernel: int8 dot products for up to 256 consecutive slots.
+		// Block kernel: int8 dot products for up to 256 consecutive slots,
+		// then the prune test for four rows at a time. The kernel uses the
+		// k-th distance at the start of the block; a row it lets through is
+		// tested again with the current one, so exactly the rows that the
+		// row-by-row test would visit are visited.
 		var dots [256]int32
+		var mask [64]byte
 		dim := t.vdim
 		for base := lo; base < hi; {
 			m := hi - base
@@ -145,25 +154,52 @@ func arenaScan(t *Table, list []int32, lo, hi int, filter func(Row) (bool, error
 			if c := arenaChunkSlots - base&(arenaChunkSlots-1); m > c {
 				m = c
 			}
-			ch := t.qchunks[base>>arenaChunkShift]
-			o := (base & (arenaChunkSlots - 1)) * dim
-			dotQ8Block(ch[o:o+m*dim], sc.qq.e, dots[:m])
-			ms := t.mchunks[base>>arenaChunkShift][base&(arenaChunkSlots-1):]
+			ci, off := base>>arenaChunkShift, base&(arenaChunkSlots-1)
+			dotQ8Block(t.qchunks[ci][off*dim:(off+m)*dim], &sc.qq, dots[:m])
+			ms, mc, mr := t.msc[ci][off:off+m], t.mc2[ci][off:off+m], t.mre[ci][off:off+m]
 			var seeded [256]bool
-			if base == lo && k <= 32 && m >= 8*k {
+			first := base == lo && k <= 32 && m >= 8*k
+			if first {
 				// Seed the heap with the k rows of the first block that look
 				// closest by the int8 estimate, so that the bound is tight
 				// from the start and far fewer rows need an exact check.
 				// Order of visits does not affect the result.
-				for _, j := range sc.qq.closest(ms[:m], dots[:m], k) {
+				for _, j := range sc.qq.closest(ms, mc, dots[:m], k) {
 					seeded[j] = true
 					if err := sc.visit(base+j, false); err != nil {
 						return nil, err
 					}
 				}
 			}
-			for j := 0; j < m; j++ {
-				if seeded[j] || sc.qq.prune(ms[j], dots[j], sc.kth) {
+			m4 := 0
+			if !math.IsInf(sc.kth, 1) {
+				m4 = m &^ 3
+				kc := sc.qq.consts(sc.kth)
+				pruneMask(ms[:m4], mc[:m4], mr[:m4], dots[:m4], &kc, mask[:m4/4])
+				ng := m4 / 4
+				for g := 0; g < ng; g++ {
+					if g&7 == 0 && g+8 <= ng && binary.LittleEndian.Uint64(mask[g:]) == 0x0f0f0f0f0f0f0f0f {
+						g += 7 // 32 rows, all pruned
+						continue
+					}
+					bm := mask[g]
+					if bm == 0xf {
+						continue
+					}
+					for bit := 0; bit < 4; bit++ {
+						j := g*4 + bit
+						if bm&(1<<bit) != 0 || (first && seeded[j]) ||
+							sc.qq.prune(q8meta{s: ms[j], c2: mc[j], r: mr[j]}, dots[j], sc.kth) {
+							continue
+						}
+						if err := sc.visit(base+j, false); err != nil {
+							return nil, err
+						}
+					}
+				}
+			}
+			for j := m4; j < m; j++ { // rows the kernel did not cover
+				if (first && seeded[j]) || sc.qq.prune(q8meta{s: ms[j], c2: mc[j], r: mr[j]}, dots[j], sc.kth) {
 					continue
 				}
 				if err := sc.visit(base+j, false); err != nil {
@@ -171,6 +207,47 @@ func arenaScan(t *Table, list []int32, lo, hi int, filter func(Row) (bool, error
 				}
 			}
 			base += m
+		}
+		return sc.h, nil
+	}
+	if list != nil && sc.q8 {
+		// Posting list: dot products for the listed rows of one chunk at a
+		// time (no per-row call, slot or chunk lookups), then the same test.
+		var dots, idx [256]int32
+		var ss [256]float32
+		var cc [256]int32
+		for j := lo; j < hi; {
+			ci := list[j] >> arenaChunkShift
+			m := 0
+			for j+m < hi && m < len(idx) && list[j+m]>>arenaChunkShift == ci {
+				idx[m] = list[j+m] & (arenaChunkSlots - 1)
+				m++
+			}
+			dotQ8Rows(t.qchunks[ci], idx[:m], &sc.qq, dots[:m])
+			ms, mc, mr := t.msc[ci], t.mc2[ci], t.mre[ci]
+			var seeded [256]bool
+			first := j == lo && k <= 32 && m >= 8*k
+			if first {
+				for x := 0; x < m; x++ {
+					ss[x], cc[x] = ms[idx[x]], mc[idx[x]]
+				}
+				for _, x := range sc.qq.closest(ss[:m], cc[:m], dots[:m], k) {
+					seeded[x] = true
+					if err := sc.visit(int(list[j+x]), false); err != nil {
+						return nil, err
+					}
+				}
+			}
+			for x := 0; x < m; x++ {
+				o := idx[x]
+				if (first && seeded[x]) || sc.qq.prune(q8meta{s: ms[o], c2: mc[o], r: mr[o]}, dots[x], sc.kth) {
+					continue
+				}
+				if err := sc.visit(int(list[j+x]), false); err != nil {
+					return nil, err
+				}
+			}
+			j += m
 		}
 		return sc.h, nil
 	}
@@ -216,15 +293,17 @@ func (sc *scanState) visit(i int, prune bool) error {
 	if prune && sc.q8 {
 		// Lower bound from the int8 copy (see q8.go); skip only rows
 		// strictly farther than the current k-th exact distance.
-		if !math.IsInf(sc.kth, 1) && sc.qq.prune(t.meta8(int32(i)), dotQ8(t.region8(int32(i)), sc.qq.e), sc.kth) {
+		if !math.IsInf(sc.kth, 1) && sc.qq.prune(t.meta8(int32(i)), dotQ8(t.region8(int32(i)), &sc.qq), sc.kth) {
 			return nil
 		}
 	}
 	v := t.region(int32(i))
-	if prune && !sc.q8 {
-		if est := float64(l2sq32(v, sc.q)); est > sc.approxBound && !math.IsInf(est, 1) {
-			return nil // provably farther than the k-th hit
-		}
+	// float32 SIMD estimate of the squared distance (8 lanes, ~10x cheaper
+	// than the exact float64 sum): rows it proves farther than the k-th hit
+	// would be rejected by l2sqBounded as well. For int8-pruned rows this
+	// is the second, much tighter filter.
+	if est := float64(l2sq32(v, sc.q)); est > sc.approxBound && !math.IsInf(est, 1) {
+		return nil // provably farther than the k-th hit
 	}
 	sq, full := l2sqBounded(v, sc.q, sc.bound)
 	if !full {

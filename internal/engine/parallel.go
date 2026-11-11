@@ -4,7 +4,6 @@ import (
 	"math"
 	"os"
 	"runtime"
-	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,15 +16,10 @@ import (
 // from the cgroup CPU quota at startup (Go 1.22 does not do this itself).
 var Workers = 1
 
-// ConfigureCPU sets GOMAXPROCS and Workers from the container CPU quota, and
-// a tighter GC target: the platform scores peak container memory, the live
-// heap is small (vector arena + cached rows) and per-request garbage is
-// modest, so collecting at +40% instead of +100% lowers the peak by ~25% for
-// a few percent of CPU. GOGC in the environment still wins.
+// ConfigureCPU sets GOMAXPROCS and Workers from the container CPU quota and
+// starts the GC pacing (see gctune.go). GOGC in the environment still wins.
 func ConfigureCPU() {
-	if os.Getenv("GOGC") == "" {
-		debug.SetGCPercent(40)
-	}
+	startGCTuning()
 	n := runtime.NumCPU()
 	if q := cgroupCPUQuota(); q > 0 && q < n {
 		n = q
@@ -37,6 +31,9 @@ func ConfigureCPU() {
 	Workers = n
 	if w, err := strconv.Atoi(os.Getenv("MVDB_WORKERS")); err == nil && w >= 1 {
 		Workers = w // experiments only
+	}
+	if w, err := strconv.Atoi(os.Getenv("MVDB_PARMIN")); err == nil && w >= 1 {
+		parallelMinWork = w // experiments only
 	}
 }
 
@@ -58,6 +55,10 @@ func cgroupCPUQuota() int {
 }
 
 const parallelMinRows = 4096
+
+// parallelMinWork is the number of code bytes (rows x dimensions) from which
+// the arena scan is split across workers.
+var parallelMinWork = 8 << 20
 
 // parallelTopKL2 splits the slot array across workers when every row is
 // cached and no uncommitted changes touch the table. Each worker keeps its

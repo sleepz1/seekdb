@@ -111,7 +111,12 @@ func openLog(dir string, fn func(payload []byte, payloadOff int64) error) (*logF
 // scanRecords reads records from start and returns the end offset of the last
 // complete valid record.
 func scanRecords(f *os.File, start int64, fn func([]byte, int64) error) (int64, error) {
-	r := bufio.NewReaderSize(io.NewSectionReader(f, start, 1<<62), 1<<20)
+	// Small read window, no kernel readahead, and the page cache of what has
+	// been replayed is dropped every 256 KiB: the log passes through memory
+	// once, and none of it stays charged to the container while the tables
+	// are being built.
+	_, _, _ = syscall.Syscall6(syscall.SYS_FADVISE64, f.Fd(), 0, 0, 1 /* POSIX_FADV_RANDOM */, 0, 0)
+	r := bufio.NewReaderSize(io.NewSectionReader(f, start, 1<<62), 64<<10)
 	off := start
 	var hdr [recHdrSize]byte
 	var buf []byte
@@ -139,7 +144,7 @@ func scanRecords(f *os.File, start int64, fn func([]byte, int64) error) (int64, 
 			return 0, err
 		}
 		off += recHdrSize + int64(n)
-		if off-dropped >= 1<<20 {
+		if off-dropped >= 256<<10 {
 			dropPageCache(f, off-int64(r.Buffered()))
 			dropped = off
 		}

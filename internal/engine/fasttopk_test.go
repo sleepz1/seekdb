@@ -14,9 +14,10 @@ import (
 // reference scan (arena path disabled) on varied dimensions, value scales,
 // near-ties, exact ties, filters, deletes and updates, for every K.
 func TestFastTopKMatchesReference(t *testing.T) {
-	old := Workers
-	defer func() { Workers = old; fastPath = true }()
-	for _, dim := range []int{1, 3, 8, 13, 32, 128, 300} {
+	old, oldMin := Workers, parallelMinWork
+	defer func() { Workers = old; fastPath = true; parallelMinWork = oldMin }()
+	parallelMinWork = 1 // exercise the split scan on these small tables
+	for _, dim := range []int{1, 3, 8, 13, 32, 48, 128, 300} {
 		for _, scale := range []string{"ints", "unit", "tiny", "huge", "near"} {
 			d := newTDB(t, Options{})
 			d.exec(fmt.Sprintf("CREATE TABLE v (id BIGINT PRIMARY KEY, cat VARCHAR(4), n BIGINT, emb VECTOR(%d))", dim))

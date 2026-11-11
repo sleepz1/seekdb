@@ -42,7 +42,7 @@ func (e *Engine) disableArena(t *Table) {
 			t.uncached++
 		}
 	}
-	t.vchunks, t.qchunks, t.mchunks = nil, nil, nil
+	t.vchunks, t.qchunks, t.msc, t.mc2, t.mre = nil, nil, nil, nil, nil
 }
 
 func (t *Table) chunkBytes() int64 {
@@ -60,7 +60,8 @@ func (t *Table) region8(si int32) []int8 {
 }
 
 func (t *Table) meta8(si int32) q8meta {
-	return t.mchunks[si>>arenaChunkShift][si&(arenaChunkSlots-1)]
+	c, o := si>>arenaChunkShift, si&(arenaChunkSlots-1)
+	return q8meta{s: t.msc[c][o], c2: t.mc2[c][o], r: t.mre[c][o]}
 }
 
 // arenaStore copies the vector of the committed row full into slot si of
@@ -78,16 +79,21 @@ func (e *Engine) arenaStore(t *Table, si int32, full Row) bool {
 			return false
 		}
 		e.arenaUsed += sz
+		tuneGC()
 		t.vchunks = append(t.vchunks, make([]float32, arenaChunkSlots*t.vdim))
 		if t.useQ8() {
 			t.qchunks = append(t.qchunks, make([]int8, arenaChunkSlots*t.vdim))
-			t.mchunks = append(t.mchunks, make([]q8meta, arenaChunkSlots))
+			t.msc = append(t.msc, make([]float32, arenaChunkSlots))
+			t.mc2 = append(t.mc2, make([]int32, arenaChunkSlots))
+			t.mre = append(t.mre, make([]float32, arenaChunkSlots))
 		}
 	}
 	reg := t.region(si)
 	copy(reg, full[t.schema.VecCol].V)
 	if t.useQ8() {
-		t.mchunks[si>>arenaChunkShift][si&(arenaChunkSlots-1)] = encodeQ8(t.region8(si), reg)
+		m := encodeQ8(t.region8(si), reg)
+		c, o := si>>arenaChunkShift, si&(arenaChunkSlots-1)
+		t.msc[c][o], t.mc2[c][o], t.mre[c][o] = m.s, m.c2, m.r
 	}
 	return true
 }

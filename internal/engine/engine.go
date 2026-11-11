@@ -61,10 +61,14 @@ type Table struct {
 	postings map[int]*postingList
 
 	// vector arena (see arena.go)
-	vdim     int
-	vchunks  [][]float32
-	qchunks  [][]int8   // int8 copy of the vectors (pruning only, see q8.go)
-	mchunks  [][]q8meta // per-slot scale / square sum / residual of the copy
+	vdim    int
+	vchunks [][]float32
+	qchunks [][]int8 // int8 copy of the vectors (pruning only, see q8.go)
+	// per-slot metadata of the int8 copy, one array per field so that the
+	// prune kernel can load four rows at a time
+	msc      [][]float32 // scale
+	mc2      [][]int32   // sum of c^2
+	mre      [][]float32 // residual bound
 	arenaOff bool
 }
 

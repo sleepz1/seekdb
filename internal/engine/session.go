@@ -46,6 +46,7 @@ func (s *Session) Close() {
 
 // ExecSQL parses and executes one statement.
 func (s *Session) ExecSQL(sql string) (*Result, error) {
+	tuneGCEvery()
 	st, err := sqlparse.Parse(sql)
 	if err != nil {
 		return nil, AsSQLError(err)
