@@ -705,5 +705,95 @@
    }
   ],
   "limitations": "Local numbers come from a noisy 2-vCPU VM (T varies +-20% between runs); the platform's E formula is unpublished. The student's answers to A-D are recorded verbatim at /claude_perf_round2_2026_11_10/entries/5/content; Q9 tests the student's distribution predictions; the student's reaction to Q9 is not recorded yet."
+ },
+ "claude_perf_round3_2026_11_11": {
+  "note": "Third performance round by the same coding agent (Claude). Same conventions as the previous section: user messages verbatim, agent text summarised unless quoted, tool output copied from saved files.",
+  "platform_results": {
+   "source": "student screenshots, 2026-11-10 23:34 PST",
+   "E": 3949.189776,
+   "agent_prompt_raw": 4,
+   "round_score": 61.5,
+   "total": 681.5,
+   "performance_rank": 18,
+   "submitted_commit": "22eb80bddfa1319a78f410619761b18a3d73b99f"
+  },
+  "entries": [
+   {
+    "source": "student",
+    "time": "2026-11-10T23:34-08:00",
+    "content": "对性能E和prompt继续优化",
+    "attachments": "two leaderboard screenshots (overall board and performance board)"
+   },
+   {
+    "source": "agent",
+    "time": "2026-11-10T23:5x-08:00",
+    "content": "我先开始做下一轮性能实验。Prompt 这一项要再涨，只能靠你本人的预测和解释，每条完整的\"预测 → 结果 → 解释\"比现在的 4 条答案更值分。\n\n趁我跑实验，请先各写一两句预测（猜错也算，猜错后的修正更值分）：\n\n- **P1 内存**：峰值现在约 17.8 MiB，其中向量数据本身只有约 6.3 MiB。我准备收紧 Go 垃圾回收的触发余量。你预计峰值能降到多少？剩下的内存花在哪？\n- **P2 读盘**：可执行文件 2.5 MiB，冷启动时要整份读进来。瘦身到约 1.5 MiB 后，你预计查询阶段的读取量（约 6 MiB）降多少？平台上这部分会不会被计入，为什么？\n- **P3 查询时间**：单次查询 0.26 ms，其中协议和解析 0.09 ms，扫描 0.17 ms。在 int8 扫描前加一层更粗的 4-bit 预筛（读的数据减半，但界更松），你预计扫描时间降多少？什么样的数据会让它失效？\n\n另外 Q9 的回应（哪里猜对、哪里猜错、为什么）也还没写，可以一起发我。",
+    "context": "sent before the experiments of this round were run; quoted in full"
+   },
+   {
+    "source": "student",
+    "time": "2026-11-11T02:02-08:00",
+    "content": "Prompt你来帮我写一版"
+   },
+   {
+    "source": "student",
+    "time": "2026-11-11T04:51-08:00",
+    "content": "Prompt你来帮我写一版，然后优化性能E，我去提测"
+   },
+   {
+    "source": "agent",
+    "time": "2026-11-11",
+    "content": "Declined to write the student's side of the Prompt evidence (predictions, explanations, reflections), as before: this file must record what the student actually said. No student prediction for P1-P3 was received before the results below existed, so none is recorded. The agent finished the performance work, recorded the experiments, and listed the next experiments that have not been run yet so that predictions about them can still be made beforehand."
+   }
+  ],
+  "experiments": [
+   {
+    "id": "Q10",
+    "source": "tool",
+    "command": "final A/B, previous submission (mv_rel = 22eb80bd, stripped build) vs this round (mv_new): scripts/perf_harness.py three times interleaved (10k x 128, 100-row commits, 1000 queries half filtered, Python driver, cold start), then a Go driver with 10 interleaved repetitions that also reads the engine's on-CPU time from /proc/<pid>/task/*/schedstat; columns are min/median in ms for 100 batches or 1000 queries",
+    "output": "== mv_rel\nwrite: T=   308.4 ms  B=   8.58 MiB (r 3.82 / w 4.76)  M=  17.6 MiB\nquery: T=   211.9 ms  B=   7.31 MiB (r 7.30 / w 0.01)  M=  17.6 MiB  ready=75 ms\n== mv_new\nwrite: T=   363.7 ms  B=   8.18 MiB (r 3.79 / w 4.39)  M=  16.3 MiB\nquery: T=   141.4 ms  B=   7.83 MiB (r 7.82 / w 0.01)  M=  16.2 MiB  ready=64 ms\n== mv_rel\nwrite: T=   321.7 ms  B=   8.15 MiB (r 3.76 / w 4.39)  M=  17.6 MiB\nquery: T=   209.0 ms  B=   7.32 MiB (r 7.32 / w 0.01)  M=  17.8 MiB  ready=79 ms\n== mv_new\nwrite: T=   335.5 ms  B=   8.18 MiB (r 3.79 / w 4.39)  M=  16.3 MiB\nquery: T=   122.7 ms  B=   7.29 MiB (r 7.29 / w 0.01)  M=  16.0 MiB  ready=63 ms\n== mv_rel\nwrite: T=   281.6 ms  B=   8.16 MiB (r 3.76 / w 4.39)  M=  17.7 MiB\nquery: T=   222.1 ms  B=   7.26 MiB (r 7.25 / w 0.01)  M=  18.0 MiB  ready=50 ms\n== mv_new\nwrite: T=   318.3 ms  B=   8.18 MiB (r 3.79 / w 4.39)  M=  16.5 MiB\nquery: T=   122.6 ms  B=   7.36 MiB (r 7.35 / w 0.01)  M=  15.6 MiB  ready=49 ms\nmv_rel     write:  224.7/ 247.4 cpu  242.2/ 254.4 | unf:  221.0/ 247.6 cpu  242.9/ 260.1 | filt:  103.1/ 133.5 cpu   87.9/ 114.5\nmv_new     write:  225.5/ 257.6 cpu  244.9/ 268.3 | unf:  108.9/ 147.4 cpu   98.0/ 128.3 | filt:   74.6/  91.4 cpu   66.0/  83.9"
+   },
+   {
+    "id": "Q11",
+    "source": "tool",
+    "command": "go test ./internal/engine -bench 'Scan|TopK|DotOnly' (single thread, 10k x 128, K=10); 'before' is the int16-query kernel with the row-by-row prune test, 'after' is this round",
+    "output": "before: DotOnly 53-78 us, ScanUnfiltered 153-178 us, ScanPosting(1000 rows) 31-47 us per scan\nafter SoA metadata + 4-row prune kernel: ScanUnfiltered 106-122 us (profile: dot 85 us, prune kernel 5.5 us, visits 12.5 us)\nafter unsigned-byte kernel with 7-bit query: DotOnly 24-44 us, ScanUnfiltered 68-84 us, ScanPosting 26 us\nfinal (with float32 second-stage filter): ScanUnfiltered 69.5 / 74.5 / 86.3 us, ScanPosting 26.3 / 26.5 / 28.0 us, TopK statement 77.0 / 79.7 / 79.2 us"
+   },
+   {
+    "id": "Q12",
+    "source": "tool",
+    "command": "memory (question P1): Go heap profile and MemStats at shutdown after 10k rows; perf_harness peaks with and without GC pacing and with the smaller replay window",
+    "output": "live Go heap 9.07 MiB: vector arena 6.52 (float32 4.9 + int8 1.28 + metadata), slot array + primary-key index 1.10, stdin buffer 1.0 (mostly untouched), compact rows 0.3; heapInuse 11.2-11.4, GC metadata 2.4, stacks 0.5\ncgroup at 'ready' of the query phase: anonymous 11.7-12.4 MiB, file cache 2.9 MiB (the executable)\npeak, fixed GOGC=40: write 17.6-17.7, query 17.6-18.0 MiB\npeak, GC pacing (percent 23 at this size): write 16.4-16.6, query 16.9-17.1 MiB\npeak, GC pacing + 64 KiB replay window with page cache dropped every 256 KiB: write 16.2-16.6, query 15.6-16.5 MiB\ncost: write-phase engine CPU about +3 to +7 % (more collections)"
+   },
+   {
+    "id": "Q13",
+    "source": "tool",
+    "command": "read volume of the executable (question P2): madvise(MADV_RANDOM) on the executable's mappings at the start of main vs default, perf_harness, two runs each",
+    "output": "advise on : write r 3.70 / 3.59 MiB, query r 7.25 / 7.14 MiB\nadvise off: write r 3.66 / 3.66 MiB, query r 7.22 / 7.22 MiB\nno reduction (the executable is already read in before main runs); the change was removed. Stripped binary 2.5 MiB; a minimal Go binary with the same runtime packages is 1.3 MiB; encoding/json + reflect + fmt + flag account for roughly 0.35 MiB. The diet itself was not done in this round."
+   },
+   {
+    "id": "Q14",
+    "source": "tool",
+    "command": "scan time (question P3) and worker split: Go driver, 10k rows, unfiltered queries, interleaved",
+    "output": "split across 2 workers: 220 us min / 260 us median per query; single worker: 145 / 205 us. Waking the second worker costs more than half a scan of this size saves, so the split now starts at 8 MiB of codes.\nThe 4-bit pre-filter of question P3 was not built: the kernel cost is per dimension, not per byte read, and the 1.28 MB of codes already sit in the L2 cache. What was built instead is in Q11."
+   }
+  ],
+  "changes": [
+   "int8 copy stored as unsigned bytes, query quantised to 7 bits, VPMADDUBSW kernel over four rows per step; indexed variant for posting lists",
+   "prune test for four rows per step in AVX2 float64, bit-identical to the scalar test (tested)",
+   "float32 SIMD estimate as a second filter before the exact float64 distance",
+   "scan split across workers only from 8 MiB of codes",
+   "GC percent follows the live heap (20-40)",
+   "replay reads 64 KiB at a time without readahead",
+   "responses encoded without encoding/json on the hot path (bytes compared with encoding/json in a test)",
+   "request line read without a per-line allocation"
+  ],
+  "verification": "go vet (amd64, arm64), go test -race ./..., 20/20 public cases, protocol_check passed, crash_test 30 SIGKILL rounds (9764 committed rows verified), results of 128 mixed queries identical to the admitted build e1276853 also with --cache-mb 3 / 2 / 1",
+  "open_items_for_the_student": [
+   "P1-P3 above were not answered before the results existed",
+   "reaction to Q9 (previous section) is not recorded",
+   "experiments not run yet, for which a prediction can still be made beforehand: (a) writing the log and fdatasync on a helper thread while the in-memory structures are updated; (b) an AVX-512 VNNI variant of the dot kernel; (c) removing encoding/json, fmt and flag from the binary"
+  ],
+  "limitations": "Timings come from a noisy 2-vCPU VM (wall times vary by 20 % between runs; minima and engine CPU time are the more stable figures). The platform's E formula is unpublished; the previous step (+13 % T, -13 % M locally) moved E by +6 %."
  }
 }

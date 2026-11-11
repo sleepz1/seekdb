@@ -166,23 +166,28 @@ change the result:
   pointers for the GC to scan); cached rows point into it instead of holding a
   second copy. Next to it is an int8 copy with a per-row scale `s`, the exact
   code square sum and a residual bound `r >= ||x - s*c||`.
-* *Lower-bound pruning.* The query is quantised to int16 (scale `t`, residual
-  `rho`). AVX2 `VPMOVSXBW`/`VPMADDWD` compute the exact integer dot product of
-  256 rows per call, from which `||s*c - t*e||^2` follows in float64 (with an
-  explicit rounding allowance). By the triangle inequality,
-  `||x - q|| >= ||s*c - t*e|| - r - rho`; a row is skipped only when this
-  bound is strictly above the current K-th exact distance. Every other row is
-  recomputed exactly in float64 (`l2sqBounded`), ranked by (distance, pk) in
-  a bounded max-heap. Without AVX2, a float32 AVX (or portable) estimate with
-  a proven relative-error margin plays the same role.
+* *Lower-bound pruning.* The query is quantised to 7 bits (`|e| <= 63`, scale
+  `t`, residual `rho`); the int8 copy is stored with the sign bit flipped, so
+  AVX2 `VPMADDUBSW`/`VPMADDWD` compute the exact integer dot product of four
+  rows per step (32 dimensions per instruction, no saturation possible). From
+  it `||s*c - t*e||^2` follows in float64 with an explicit rounding
+  allowance, for four rows at a time (`pruneMask`). By the triangle
+  inequality, `||x - q|| >= ||s*c - t*e|| - r - rho`; a row is skipped only
+  when this bound is strictly above the current K-th exact distance. Rows
+  that pass get a float32 SIMD estimate with a proven relative-error margin,
+  and what passes that is recomputed exactly in float64 (`l2sqBounded`) and
+  ranked by (distance, pk) in a bounded max-heap. Without AVX2 only the
+  float32 estimate is used.
 * *Equality filters.* For `column = constant` on a BIGINT/VARCHAR column, a
   per-column posting list (slot numbers per value) is built lazily and
-  discarded by any commit to the table, so only the matching rows are scanned.
+  discarded by any commit to the table, so only the matching rows are scanned
+  (their dot products come from an indexed variant of the same kernel).
   Other filters are evaluated on every row before it can enter the heap.
 
-On tables of 4096 rows or more with no pending transaction changes, the scan
-is split across `min(NumCPU, cgroup CPU quota)` goroutines and merged in the
-same (distance, pk) order. Transactions with pending changes on the table,
+With no pending transaction changes and at least 8 MiB of codes to scan
+(about 65,000 rows of 128 dimensions; below that waking the workers costs
+more than it saves), the scan is split across `min(NumCPU, cgroup CPU quota)`
+goroutines and merged in the same (distance, pk) order. Transactions with pending changes on the table,
 uncached rows or an over-budget arena fall back to the original row scan.
 Differential tests compare the fast path with the reference scan bit for bit
 (7 dimensions, 5 value distributions including near-ties, exact ties, float32
@@ -222,6 +227,15 @@ Performance round (local `perf_harness.py`, 10,000 × 128, 100-row commits,
 
 End-to-end results of 60 mixed queries are identical to the admitted version,
 also with the arena disabled by a 1 MiB / 3 MiB cache.
+
+Third round (same harness, three interleaved runs each; previous submission
+-> this one): query T 209-222 ms -> 123-141 ms, engine CPU per unfiltered
+query about 243 us -> 98 us and per filtered query 88 us -> 66 us (best of
+10), peak memory 17.6-18.0 MiB -> 15.6-16.5 MiB (GC pacing in `gctune.go`,
+smaller replay window), write T and I/O unchanged within noise. Results of
+128 mixed queries are identical to the admitted version, also with a 3 / 2 /
+1 MiB cache. Responses are encoded directly (`protoenc.go`); a test compares
+the bytes with `encoding/json` on 20,000 random results.
 
 Earlier local results on a 2-vCPU sandbox:
 
