@@ -2,9 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"math/rand"
-	"reflect"
 	"testing"
 )
 
@@ -56,12 +54,34 @@ func TestFastDecodeMatchesJSON(t *testing.T) {
 		cases = append(cases, string(base))
 	}
 	for _, c := range cases {
-		var a, b protoRequest
-		errA := decodeRequest([]byte(c), &a)
-		errB := json.Unmarshal([]byte(c), &b)
-		a.fast = false // which decoder ran is not part of the request
-		if fmt.Sprint(errA) != fmt.Sprint(errB) || !reflect.DeepEqual(a, b) && errB == nil {
-			t.Fatalf("%q:\n fast %+v %v\n json %+v %v", c, a, errA, b, errB)
-		}
+		checkDecode(t, []byte(c))
+	}
+}
+
+// refRequest is protoRequest as encoding/json saw it before the server
+// stopped linking encoding/json.
+type refRequest struct {
+	ID         json.RawMessage `json:"id"`
+	Op         string          `json:"op"`
+	SQL        string          `json:"sql"`
+	SearchMode string          `json:"search_mode"`
+}
+
+// checkDecode compares decodeRequest with json.Unmarshal: same success or
+// failure, and on success the same fields. (Error texts differ.)
+func checkDecode(t *testing.T, line []byte) {
+	t.Helper()
+	var a protoRequest
+	var b refRequest
+	errA := decodeRequest(line, &a)
+	errB := json.Unmarshal(line, &b)
+	if (errA == nil) != (errB == nil) {
+		t.Fatalf("%q: decodeRequest error %v, json.Unmarshal error %v", line, errA, errB)
+	}
+	if errB != nil {
+		return
+	}
+	if string(a.ID) != string(b.ID) || (a.ID == nil) != (b.ID == nil) || a.Op != b.Op || a.SQL != b.SQL || a.SearchMode != b.SearchMode {
+		t.Fatalf("%q:\n got  %q %q %q %q\n json %q %q %q %q", line, a.ID, a.Op, a.SQL, a.SearchMode, b.ID, b.Op, b.SQL, b.SearchMode)
 	}
 }

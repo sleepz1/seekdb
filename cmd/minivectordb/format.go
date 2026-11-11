@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"math"
 	"strconv"
 	"strings"
@@ -195,17 +194,28 @@ func tsvCell(v engine.Value) string {
 		}
 		return "false"
 	case engine.KFloat:
-		b, err := json.Marshal(v.F)
-		if err != nil {
+		// encoding/json rendering: shortest float64 form, NaN/Inf -> null
+		if math.IsNaN(v.F) || math.IsInf(v.F, 0) {
 			return "null"
 		}
-		return string(b)
+		return string(appendJSONFloatBits(nil, v.F, 64))
 	case engine.KVec:
-		b, err := json.Marshal(v.V)
-		if err != nil {
+		// encoding/json rendering of a []float32
+		if v.V == nil {
 			return "null"
 		}
-		return string(b)
+		b := []byte{'['}
+		for i, f := range v.V {
+			x := float64(f)
+			if math.IsNaN(x) || math.IsInf(x, 0) {
+				return "null"
+			}
+			if i > 0 {
+				b = append(b, ',')
+			}
+			b = appendJSONFloatBits(b, x, 32)
+		}
+		return string(append(b, ']'))
 	}
 	return "null"
 }
@@ -215,110 +225,34 @@ var tsvEscaper = strings.NewReplacer("\\", `\\`, "\t", `\t`, "\n", `\n`, "\r", `
 func escapeTSV(s string) string { return tsvEscaper.Replace(s) }
 
 // Official JSONL protocol writers (STDIO_PROTOCOL.md). Each call emits one
-// JSON object and a trailing newline; the caller must flush immediately.
+// JSON object and a trailing newline, byte for byte what encoding/json's
+// Encoder (HTML escaping off) produced for the same structs; the caller must
+// flush immediately. ids are valid JSON (from the request) and are written
+// compacted, as encoding/json does with a RawMessage.
 
-func writeProtoMsg(w *bufio.Writer, msg any) {
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(msg); err != nil {
-		// A well-formed protocol struct should always encode. If it does
-		// not, writing a fallback would risk a second broken line; leave
-		// the error to the next flush / process failure path.
-		return
-	}
+func writeProtoShutdown(w *bufio.Writer, id []byte) {
+	b := append(protoBuf[:0], `{"id":`...)
+	b = appendCompactJSON(b, id)
+	b = append(b, `,"ok":true}`+"\n"...)
+	w.Write(b)
+	protoBuf = b
 }
 
-func writeProtoShutdown(w *bufio.Writer, id json.RawMessage) {
-	writeProtoMsg(w, struct {
-		ID json.RawMessage `json:"id"`
-		OK bool            `json:"ok"`
-	}{ID: id, OK: true})
-}
-
-func writeProtoError(w *bufio.Writer, id json.RawMessage, code, message string) {
+func writeProtoError(w *bufio.Writer, id []byte, code, message string) {
 	if code == "" {
 		code = "internal_error"
 	}
-	writeProtoMsg(w, struct {
-		ID    json.RawMessage `json:"id"`
-		OK    bool            `json:"ok"`
-		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}{
-		ID: id,
-		OK: false,
-		Error: struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		}{Code: code, Message: message},
-	})
+	b := append(protoBuf[:0], `{"id":`...)
+	b = appendCompactJSON(b, id)
+	b = append(b, `,"ok":false,"error":{"code":`...)
+	b = appendJSONString(b, code)
+	b = append(b, `,"message":`...)
+	b = appendJSONString(b, message)
+	b = append(b, "}}\n"...)
+	w.Write(b)
+	protoBuf = b
 }
 
-func writeProtoResult(w *bufio.Writer, id json.RawMessage, r *engine.Result) {
-	if r.IsQuery {
-		cols := r.Columns
-		if cols == nil {
-			cols = []string{}
-		}
-		rows := make([][]any, len(r.Rows))
-		for i, row := range r.Rows {
-			rows[i] = rowToJSON(row)
-		}
-		if rows == nil {
-			rows = [][]any{}
-		}
-		writeProtoMsg(w, struct {
-			ID      json.RawMessage `json:"id"`
-			OK      bool            `json:"ok"`
-			Columns []string        `json:"columns"`
-			Rows    [][]any         `json:"rows"`
-		}{ID: id, OK: true, Columns: cols, Rows: rows})
-		return
-	}
-	writeProtoMsg(w, struct {
-		ID           json.RawMessage `json:"id"`
-		OK           bool            `json:"ok"`
-		AffectedRows int64           `json:"affected_rows"`
-	}{ID: id, OK: true, AffectedRows: r.Affected})
-}
-
-func rowToJSON(row []engine.Value) []any {
-	out := make([]any, len(row))
-	for i, v := range row {
-		out[i] = valueToJSON(v)
-	}
-	return out
-}
-
-func valueToJSON(v engine.Value) any {
-	switch v.K {
-	case engine.KInt:
-		return v.I
-	case engine.KBool:
-		return v.I != 0
-	case engine.KFloat:
-		if math.IsNaN(v.F) || math.IsInf(v.F, 0) {
-			return nil
-		}
-		return v.F
-	case engine.KStr:
-		return v.S
-	case engine.KVec:
-		arr := make([]float64, len(v.V))
-		for i, f := range v.V {
-			x := float64(f)
-			if math.IsNaN(x) || math.IsInf(x, 0) {
-				// Protocol forbids NaN/Infinity; a non-finite component
-				// should not have reached here, but keep the array finite.
-				arr[i] = 0
-			} else {
-				arr[i] = x
-			}
-		}
-		return arr
-	default:
-		return nil
-	}
+func writeProtoResult(w *bufio.Writer, id []byte, r *engine.Result) {
+	fastWriteResult(w, appendCompactJSON(nil, id), r)
 }

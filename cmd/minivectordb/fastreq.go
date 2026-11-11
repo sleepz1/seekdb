@@ -1,22 +1,22 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/binary"
 	"unicode/utf8"
 )
 
 // decodeRequest decodes one protocol request. The common shape (a flat
 // object whose keys are exactly id/op/sql/search_mode, string values without
 // escapes, a scalar id) is scanned directly; anything else, including every
-// malformed line, goes through encoding/json, so behaviour (and error text)
-// is that of json.Unmarshal.
+// malformed line, goes through parseRequest (json.Unmarshal semantics, see
+// jsonreq.go).
 func decodeRequest(line []byte, req *protoRequest) error {
 	if fastDecode(line, req) {
 		req.fast = true
 		return nil
 	}
 	*req = protoRequest{}
-	return json.Unmarshal(line, req)
+	return parseRequest(line, req)
 }
 
 func isWS(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
@@ -34,6 +34,18 @@ func fastDecode(b []byte, req *protoRequest) bool {
 			return "", false
 		}
 		j := i + 1
+		// eight bytes at a time while none of them is '"', '\\' or a
+		// control character
+		for j+8 <= len(b) {
+			x := binary.LittleEndian.Uint64(b[j:])
+			ctl := (x - 0x2020202020202020) &^ x
+			q := x ^ 0x2222222222222222
+			bs := x ^ 0x5c5c5c5c5c5c5c5c
+			if (ctl|(q-0x0101010101010101)&^q|(bs-0x0101010101010101)&^bs)&0x8080808080808080 != 0 {
+				break
+			}
+			j += 8
+		}
 		for j < len(b) {
 			c := b[j]
 			if c == '"' {
@@ -103,10 +115,10 @@ func fastDecode(b []byte, req *protoRequest) bool {
 					}
 				}
 				raw := b[start:i]
-				if len(raw) == 0 || raw[0] == '{' || raw[0] == '[' || !json.Valid(raw) {
+				if !validJSONScalar(raw) {
 					return false
 				}
-				req.ID = append(json.RawMessage(nil), raw...)
+				req.ID = append([]byte(nil), raw...)
 			} else {
 				v, ok := str()
 				if !ok {
