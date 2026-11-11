@@ -2,7 +2,7 @@
 package sqlparse
 
 import (
-	"fmt"
+	"minivectordb/internal/xfmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -33,7 +33,7 @@ type SyntaxError struct{ Msg string }
 func (e *SyntaxError) Error() string { return e.Msg }
 
 func syntaxErr(format string, a ...any) error {
-	return &SyntaxError{Msg: fmt.Sprintf(format, a...)}
+	return &SyntaxError{Msg: xfmt.Sprintf(format, a...)}
 }
 
 func lex(src string) ([]token, error) {
@@ -175,15 +175,9 @@ func lexString(src string, i int) (string, int, error) {
 	// a long vector literal) -> one memmove instead of a byte-by-byte
 	// builder. The copy matters: a substring would keep the whole statement
 	// alive in any row that stores the value.
-	for k := i + 1; k < len(src); k++ {
-		c := src[k]
-		if c == '\\' {
-			break
-		}
-		if c == q {
-			if k+1 < len(src) && src[k+1] == q {
-				break // doubled quote: needs unescaping
-			}
+	if k := strings.IndexByte(src[i+1:], q); k >= 0 {
+		k += i + 1
+		if strings.IndexByte(src[i+1:k], '\\') < 0 && !(k+1 < len(src) && src[k+1] == q) {
 			return strings.Clone(src[i+1 : k]), k + 1, nil
 		}
 	}
