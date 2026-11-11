@@ -237,6 +237,20 @@ smaller replay window), write T and I/O unchanged within noise. Results of
 1 MiB cache. Responses are encoded directly (`protoenc.go`); a test compares
 the bytes with `encoding/json` on 20,000 random results.
 
+Fourth round: the executable no longer links `encoding/json`, `fmt` or
+`flag` (2.55 MB -> 2.02 MB): requests are parsed by `jsonreq.go` with the
+semantics of `json.Unmarshal`, responses and errors are written directly,
+flags are parsed by hand and messages are formatted by `internal/xfmt`.
+Differential tests compare each with the standard package (60,000 generated
+and mutated requests, every writer, every flag form, and every message
+formatted during the engine and parser tests). Every cold start reads about
+0.5 MiB less (query phase 7.22 -> 6.71 MiB, write phase 3.66 -> 3.15 MiB
+locally). The vector encoder computes the scaled integers in one pass (same
+bytes, 3.3 -> 1.5 us per 128-d vector), the literal parser handles the
+common form in one pass (same values and errors, 4.9 -> 3.5 us), and string
+scans look at eight bytes at a time; write-phase engine CPU fell from about
+249 / 310 ms to 222 / 241 ms (min / median of 10).
+
 Earlier local results on a 2-vCPU sandbox:
 
 * 20/20 public cases (minivectordb-public-v4, incl. `--restart`) pass.
