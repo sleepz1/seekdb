@@ -744,6 +744,12 @@
     "source": "agent",
     "time": "2026-11-11",
     "content": "Declined to write the student's side of the Prompt evidence (predictions, explanations, reflections), as before: this file must record what the student actually said. No student prediction for P1-P3 was received before the results below existed, so none is recorded. The agent finished the performance work, recorded the experiments, and listed the next experiments that have not been run yet so that predictions about them can still be made beforehand."
+   },
+   {
+    "source": "student",
+    "time": "2026-11-11T05:15-08:00",
+    "content": "P1 内存：收紧 GC 余量后的预期与内存去向\n\n* 预计峰值降到多少：预计从 17.8 MiB 降至 11~13 MiB 左右（降幅约 4~6 MiB），不可能无限逼近 6.3 MiB。\n* 剩下的内存花在哪：\n   1. Go Runtime 固定开销（约 2~3 MiB）：Go 运行时自身的页分配器元数据（mspan/mheap/mcentral）、调度器（G/M/P 结构）、Goroutine 初始栈以及全局变量/代码段映射。\n   2. 解析与序列化活跃缓冲区（约 1~2 MiB）：查询/写入并发执行时的网络 I/O 读写 Buffer、SQL 解析生成的 AST 临时节点、量化/反量化中间数组（これらは存活对象，GC 无法回收）。\n   3. 索引与元数据开销（约 1~1.5 MiB）：除 6.3 MiB 原始向量外，簇中心（Centroids）、分块边界（Min/Max 或量化参数）、Slice Header 及内存对齐（Alignment Padding）产生的内部碎片。\n\nP2 读盘：二进制瘦身对查询读取量的影响\n\n* 查询阶段读取量降多少：降 0 MiB（几乎不变，仍为约 6 MiB）。可执行文件瘦身减少的是进程冷启动阶段加载二进制代码段（`.text`、`.rodata`）和符号表的磁盘读取；而查询阶段的 6 MiB 读取是引擎加载向量数据文件和索引文件，两者完全独立。\n* 平台上会不会被计入及原因：\n   * 若平台统计“全生命周期容器/进程总块设备 I/O”（如 cgroup `blkio` 统计冷启动+运行全过程）：会被计入，总读盘量会从约 8.5 MiB 降到 7.5 MiB。\n   * 若平台仅在“连接就绪（Ready）后”对查询阶段打点计费，或可执行文件已在宿主机 Page Cache 中预热：不会被计入。通常评测平台的 I/O 指标如果绑在进程级 cgroup 且包含冷启动，瘦身就能直接省下这 1 MiB 的冷启动读盘配额。\n\nP3 查询时间：4-bit 预筛的收益与失效场景\n\n* 预计扫描时间降多少：扫描时间预计从 0.17 ms 降至 0.11~0.13 ms（降幅约 25%~35%，即省下 0.04~0.06 ms），不会减半。\n   * 原因：虽然 4-bit 预筛使内存带宽读取量减半，但它引入了两阶段开销——位运算解包（Bit Unpacking / Shift & Mask）的指令开销，以及“界更松”导致的假阳性（False Positives）回流到 int8 精扫的二次随机访问开销。综合算下来净收益通常在 30% 左右，总查询时间预计从 0.26 ms 降至 0.20~0.22 ms。\n* 什么样的数据会让它失效（甚至负优化）：\n   1. 高维各向同性/距离高度集中的数据（“维度灾难”典型分布）：所有候选向量与查询向量的距离极其接近（集中在狭窄区间内），4-bit 松弛下界无法安全淘汰几乎任何候选，预筛通过率接近 100%，白白多跑了一遍 4-bit 扫描。\n   2. 强聚簇且查询落入密集簇中心的数据：簇内向量高度相似，松弛边界全部重叠，导致预筛完全无法剪枝，退化为“4-bit 全扫 + int8 全扫”的双倍开销。\n   3. 存在极端离群值（Outliers）导致量化跨度被拉大的数据：若采用全局或粗粒度非对称量化，单个极大/极小离群值会撑大 `scale` 步长，导致绝大多数正常数值在 4-bit（仅 16 个桶）下坍缩进同一个桶内，丧失区分度。",
+    "context": "answers to P1-P3. Timing: received after the agent had reported the results of this round in chat and after commit 1aa26993 (which contains Q10-Q14) was pushed, so they are recorded as the student's statements, not as predictions made before Q12-Q14. The failure cases listed under P3 had not been measured by anyone when this was sent; Q15 was run afterwards."
    }
   ],
   "experiments": [
@@ -776,6 +782,12 @@
     "source": "tool",
     "command": "scan time (question P3) and worker split: Go driver, 10k rows, unfiltered queries, interleaved",
     "output": "split across 2 workers: 220 us min / 260 us median per query; single worker: 145 / 205 us. Waking the second worker costs more than half a scan of this size saves, so the split now starts at 8 MiB of codes.\nThe 4-bit pre-filter of question P3 was not built: the kernel cost is per dimension, not per byte read, and the 1.28 MB of codes already sit in the L2 cache. What was built instead is in Q11."
+   },
+   {
+    "id": "Q15",
+    "source": "tool",
+    "command": "run after the student's P3 answer, to test its failure cases on the filter that exists (int8 codes with a per-row scale; the 4-bit pre-filter was never built): instrumented copy of commit 1aa26993 counting, per TopK query, the rows that pass the int8 lower-bound test and the exact float64 distances computed; 10,000 rows, K=10, 300 queries, exact mode, 1 worker. Script: outlier_exp.py, not committed",
+    "output": "A uniform 128-d, uniform queries: rows past the int8 test 72.7/query (0.73% of rows), exact checks 47.9/query\nB every row has one +-50 component, uniform queries: rows past the int8 test 6392.0/query (63.92% of rows), exact checks 48.9/query\nC every row has one +-50 component, queries have one too: rows past the int8 test 2531.6/query (25.32% of rows), exact checks 51.9/query\nD 10% of rows have one +-50 component, uniform queries: rows past the int8 test 71.1/query (0.71% of rows), exact checks 47.2/query\nE isotropic Gaussian 512-d, Gaussian queries: rows past the int8 test 194.8/query (1.95% of rows), exact checks 46.6/query"
    }
   ],
   "changes": [
@@ -790,10 +802,57 @@
   ],
   "verification": "go vet (amd64, arm64), go test -race ./..., 20/20 public cases, protocol_check passed, crash_test 30 SIGKILL rounds (9764 committed rows verified), results of 128 mixed queries identical to the admitted build e1276853 also with --cache-mb 3 / 2 / 1",
   "open_items_for_the_student": [
-   "P1-P3 above were not answered before the results existed",
-   "reaction to Q9 (previous section) is not recorded",
+   "reaction to Q9 (previous section) and to Q15 is not recorded",
    "experiments not run yet, for which a prediction can still be made beforehand: (a) writing the log and fdatasync on a helper thread while the in-memory structures are updated; (b) an AVX-512 VNNI variant of the dot kernel; (c) removing encoding/json, fmt and flag from the binary"
   ],
-  "limitations": "Timings come from a noisy 2-vCPU VM (wall times vary by 20 % between runs; minima and engine CPU time are the more stable figures). The platform's E formula is unpublished; the previous step (+13 % T, -13 % M locally) moved E by +6 %."
+  "limitations": "Timings come from a noisy 2-vCPU VM (wall times vary by 20 % between runs; minima and engine CPU time are the more stable figures). The platform's E formula is unpublished; the previous step (+13 % T, -13 % M locally) moved E by +6 %.",
+  "evidence_index": [
+   {
+    "chain": "outliers and the quantisation step (P3, failure case 3)",
+    "student_contribution": {
+     "pointer": "/claude_perf_round3_2026_11_11/entries/5/content",
+     "quote": "单个极大/极小离群值会撑大 `scale` 步长，导致绝大多数正常数值在 4-bit（仅 16 个桶）下坍缩进同一个桶内，丧失区分度。"
+    },
+    "actual_result": {
+     "pointer": "/claude_perf_round3_2026_11_11/experiments/5/output",
+     "what": "rows B, C, D: share of rows that pass the int8 test when rows carry one +-50 component"
+    },
+    "agent_note": "written by the agent, not student evidence: the statement is about a 4-bit pre-filter; Q15 checks the same mechanism at 8 bits with the per-row scale this engine uses. When every row has one +-50 component, 64 % of rows pass the int8 test (0.73 % on uniform data), 25 % when the query has such a component too; with only 10 % of such rows the share is unchanged (0.71 %), because those rows are far from the query and are rejected even by a loose bound. Exact checks stay at 47-52 per query in all cases: the float32 second filter added in this round rejects what the int8 test lets through."
+   },
+   {
+    "chain": "distance concentration (P3, failure case 1)",
+    "student_contribution": {
+     "pointer": "/claude_perf_round3_2026_11_11/entries/5/content",
+     "quote": "4-bit 松弛下界无法安全淘汰几乎任何候选，预筛通过率接近 100%"
+    },
+    "actual_result": {
+     "pointer": "/claude_perf_round3_2026_11_11/experiments/5/output",
+     "what": "rows A and E: uniform 128-d vs isotropic Gaussian 512-d"
+    },
+    "agent_note": "written by the agent, not student evidence: measured for the int8 filter only. The share of rows that pass rises from 0.73 % (uniform, 128-d) to 1.95 % (Gaussian, 512-d). Whether a 4-bit bound would pass nearly all rows was not measured."
+   },
+   {
+    "chain": "where the memory goes (P1) and what the query phase reads (P2); answered after the results",
+    "student_contribution": {
+     "pointer": "/claude_perf_round3_2026_11_11/entries/5/content",
+     "quote": "预计从 17.8 MiB 降至 11~13 MiB 左右"
+    },
+    "actual_results": [
+     {
+      "pointer": "/claude_perf_round3_2026_11_11/experiments/2/output",
+      "what": "Q12: heap breakdown and peaks"
+     },
+     {
+      "pointer": "/claude_perf_round3_2026_11_11/experiments/3/output",
+      "what": "Q13: reads of the executable"
+     },
+     {
+      "pointer": "/claude_perf_round3_2026_11_11/experiments/0/output",
+      "what": "Q10: final peaks and read volumes"
+     }
+    ],
+    "agent_note": "written by the agent, not student evidence: measured peak after GC pacing and the smaller replay window is 15.6-16.5 MiB, not 11-13. Of it about 2.9 MiB is page cache of the executable, which the answer does not list; the engine has no cluster centres or per-block min/max, and it talks over stdin/stdout, not a network. On P2: the query phase is a fresh process after a cache drop, so its 7.2-7.3 MiB of reads in the harness include the executable again (data 3.57 MiB + executable about 2.5 MiB + filesystem metadata); a smaller binary would lower it locally. Whether the platform counts those reads is not known, as the answer says."
+   }
+  ]
  }
 }
