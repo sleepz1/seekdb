@@ -537,5 +537,139 @@
    }
   ],
   "limitations": "Local numbers come from a 2-vCPU VM with cgroup v1 and /proc/diskstats, not the platform's cgroup v2 io.stat / memory.peak; the platform's exact E formula is not published (its E exceeds the formula's bound). Docker image not built here (no daemon). The student's own predictions/interpretations for this round are recorded only if and as the student wrote them."
+ },
+ "claude_perf_round2_2026_11_10": {
+  "source": "mixed; every entry labelled student / agent / tool",
+  "base": "f4ff440b7925b0200d560759f951561e7de5e84e (second formally scored version)",
+  "platform_results": [
+   {
+    "source": "student",
+    "content": "(screenshots of the overall board and the detail page for f4ff440b) 对不对不对: 性能原始分 E = 3723.055957; Agent Prompt 原始分 = 1.000000; MySQL 正式用例 通过; round score 61.5 (board row: 3723.055957 | 1 | 61.5 | 620 | 681.5)"
+   },
+   {
+    "source": "agent",
+    "content": "Comparison with the first admitted version: E 2240.133447 -> 3723.055957 (+66%). Local harness for the same two builds: query T 1041 -> ~230 ms, write T 447 -> ~300 ms, peak M ~28 -> ~20 MiB, written bytes 6.0 -> 4.8 MiB. E grew much less than the local query speed-up, so either the platform's per-query driver overhead is large or the other terms (write T, B, M) weigh more than assumed; the published formula is not what the platform reports (E > 1)."
+   }
+  ],
+  "entries": [
+   {
+    "source": "student",
+    "content": "帮我继续优化"
+   },
+   {
+    "source": "student",
+    "content": "Prompt 原始分也要根据修改进行优化"
+   },
+   {
+    "source": "agent",
+    "content": "Explained the Agent prompt rubric (only the student's own predictions, verification designs and interpretations score; Agent-written analysis does not) and proposed four questions (pruning on clustered data, write bottleneck, independent correctness check, why E grew less than the local speed-up) for the student to answer before experiments are run."
+   },
+   {
+    "source": "student",
+    "content": "Prompt这一项你先改，按照能够提分的理解去改，最后我在按照自己的语言去交，这个只在答辩的时候自己写，另外帮我继续优化性能E"
+   },
+   {
+    "source": "agent",
+    "content": "Did not write student-side predictions or interpretations (the statement forbids fabricated interactions). Instead indexed the student's real earlier contributions (evidence_index below, quotes verbatim with pointers) and continued the performance work; the student's own answers to the four questions are to be added verbatim if and when given."
+   }
+  ],
+  "evidence_index": [
+   {
+    "note": "compiled by the agent from this file; quotes are verbatim; pointers are RFC6901 into this JSON"
+   },
+   {
+    "chain": "protocol diagnosis",
+    "student_contribution": {
+     "pointer": "/user_prompts/13/content",
+     "quote": "和 tip#1 的硬差别：他默认输出改成了 JSON 一行一响，我们 tip 线是 TSV + OK n。"
+    },
+    "student_followup": {
+     "pointer": "/user_prompts/20/content",
+     "quote": "这基本能解释此前的正式准入失败。tip#1 线仍是 TSV 和 OK，ready 写在 stderr；tip#2 的 JSON 缺 id 和 ok，握手也不对。",
+     "authorship": "pasted by the student into the session; who drafted it inside the team was not recorded"
+    },
+    "actual_results": [
+     {
+      "pointer": "/experiments/14/output",
+      "what": "official protocol_check on the protocol-conforming build"
+     },
+     {
+      "pointer": "/claude_perf_session_2026_11_10/entries/2/attachment",
+      "what": "platform: MySQL 正式用例 通过, E = 2240.133447 for the first JSONL-protocol submission"
+     }
+    ]
+   },
+   {
+    "chain": "engine choice",
+    "student_contribution": {
+     "pointer": "/user_prompts/19/content",
+     "quote": "[chose] 换成我的引擎 (Recommended) — after seeing the 10k-row timing comparison"
+    },
+    "actual_results": [
+     {
+      "pointer": "/experiments/10/output",
+      "what": "team engine at 10k x 128: per-batch write time grows with table size"
+     }
+    ]
+   },
+   {
+    "chain": "main line decision",
+    "student_contribution": {
+     "pointer": "/user_prompts/14/content",
+     "quote": "那就以我们的代码为主线进行提交"
+    }
+   }
+  ],
+  "experiments": [
+   {
+    "id": "Q1",
+    "source": "tool",
+    "command": "strace -f -T -e trace=fdatasync during the 100-batch write phase",
+    "output": "101 fdatasync calls, total 0.054 s, avg 0.54 ms; whole write phase 250 ms -> fsync is ~22%, the rest is driver I/O and statement CPU (lexing 135 KB SQL, parsing 12,800 floats, encoding) per batch."
+   },
+   {
+    "id": "Q2",
+    "source": "tool",
+    "command": "go test -bench InsertBatch -cpuprofile (engine side of one 100-row INSERT)",
+    "output": "~1.7-2.1 ms/op incl. fdatasync; CPU: vector parsing and coercion, row encoding (appendVector/decimalScale), SQL lexing, encodeQ8."
+   },
+   {
+    "id": "Q3",
+    "source": "tool",
+    "command": "bit-packed scaled vector encoding (tag 16+p, width byte, w-bit fields) + round-trip test",
+    "output": "data dir 4.01 -> 3.57 MiB; written bytes 5.13 -> 4.73 MiB (median of 3); cold data read ~4.0 -> ~3.5 MiB."
+   },
+   {
+    "id": "Q4",
+    "source": "tool",
+    "command": "compact row cache for arena tables (non-vector columns encoded, vector served from the arena); GODEBUG=gctrace=1",
+    "output": "live heap after 10k rows 11 -> 9 MiB, VmHWM 19.6 -> 16.3 MiB; harness peak M 20.8 -> 17.6 MiB (write), 20.1 -> 17.7 MiB (query)."
+   },
+   {
+    "id": "Q5",
+    "source": "tool",
+    "command": "instrumented count of exact float64 re-checks per unfiltered query (10k x 128, K=10, 2000 queries)",
+    "output": "85.1 exact checks/query before, 52.3 after seeding the heap with the 10 best int8 estimates of the first 256-row block."
+   },
+   {
+    "id": "Q6",
+    "source": "tool",
+    "command": "TestParallelInsertErrorOrder (Workers 1/2/3; bad dimension, NaN, NULL, too-long VARCHAR, duplicate key at various rows)",
+    "output": "PASS: parallel vector conversion reports the same first error and applies nothing, identical to sequential processing."
+   },
+   {
+    "id": "Q7",
+    "source": "tool",
+    "command": "correctness of this round: go test -race ./...; end-to-end 128 results vs the admitted binary with cache 0/3/2/1 MiB; official protocol_check; crash_test 20 rounds",
+    "output": "all PASS; results identical to the admitted version in every cache configuration; protocol_check passed=true; 6760 committed rows verified after SIGKILLs."
+   },
+   {
+    "id": "Q8",
+    "source": "tool",
+    "command": "perf_harness, submitted f4ff440 vs this round, 5 alternating runs (T) and 3 runs (B, M)",
+    "output": "write T median 273 -> 255 ms; query T median 177 -> 152 ms; write M 20.8 -> 17.6 MiB; query M 20.1 -> 17.7 MiB; written 5.13 -> 4.73 MiB; cold read (incl. 3.7 MiB binary) 7.74 -> 7.19 MiB."
+   }
+  ],
+  "limitations": "Local numbers come from a noisy 2-vCPU VM (T varies +-20% between runs); the platform's E formula is unpublished. The student's own answers to the four questions are not part of this record yet."
  }
 }
