@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"hash/crc32"
 	"io"
+	"minivectordb/internal/xfmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -86,7 +86,7 @@ func openLog(dir string, fn func(payload []byte, payloadOff int64) error) (*logF
 	magic := make([]byte, len(logMagic))
 	if _, err := f.ReadAt(magic, 0); err != nil || string(magic) != logMagic {
 		f.Close()
-		return nil, fmt.Errorf("%s: bad log header", path)
+		return nil, xfmt.Errorf("%s: bad log header", path)
 	}
 	good, err := scanRecords(f, int64(len(logMagic)), fn)
 	if err != nil {
@@ -155,7 +155,7 @@ func scanRecords(f *os.File, start int64, fn func([]byte, int64) error) (int64, 
 // offset of the payload.
 func (l *logFile) appendRecord(payload []byte) (int64, error) {
 	if l.failed != nil {
-		return 0, fmt.Errorf("storage unavailable after earlier I/O failure: %w", l.failed)
+		return 0, xfmt.Errorf("storage unavailable after earlier I/O failure: %w", l.failed)
 	}
 	buf := make([]byte, recHdrSize+len(payload))
 	binary.LittleEndian.PutUint32(buf[0:], uint32(len(payload)))

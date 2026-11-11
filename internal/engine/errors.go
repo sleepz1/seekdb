@@ -2,7 +2,7 @@ package engine
 
 import (
 	"errors"
-	"fmt"
+	"minivectordb/internal/xfmt"
 
 	"minivectordb/internal/sqlparse"
 )
@@ -154,7 +154,7 @@ func (e *SQLError) SQLState() string {
 }
 
 func newErr(k ErrKind, format string, a ...any) *SQLError {
-	return &SQLError{Kind: k, Msg: fmt.Sprintf(format, a...)}
+	return &SQLError{Kind: k, Msg: xfmt.Sprintf(format, a...)}
 }
 
 // AsSQLError converts any error to a *SQLError.
