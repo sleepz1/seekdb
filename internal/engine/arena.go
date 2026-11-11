@@ -4,8 +4,9 @@ package engine
 // slot number in fixed-size chunks of float32 (pointer-free, so the GC never
 // scans it, and the TopK scan walks memory sequentially).
 //
-// Cached rows do not keep a second copy of their vector: their vector value
-// is re-pointed at the slot's arena region. A region is only overwritten when
+// Cached rows of an arena table are kept compactly (non-vector columns only,
+// see encodeCompact); their decoded vector value points at the slot's arena
+// region. A region is only overwritten when
 // a new committed version is put into that slot; a single session commits,
 // and no SQL statement copies one row's vector into another row, so no live
 // row ever observes a region change for a different version.
@@ -32,6 +33,15 @@ func (e *Engine) disableArena(t *Table) {
 	}
 	t.arenaOff = true
 	e.arenaUsed -= int64(len(t.vchunks)) * t.chunkBytes()
+	// Compact cached rows need the arena for their vectors: drop them (they
+	// are re-read from the log on demand, like any uncached row).
+	for i := range t.slots {
+		if sl := &t.slots[i]; sl.crow != nil {
+			e.cacheUsed -= sl.cacheSize()
+			sl.crow = nil
+			t.uncached++
+		}
+	}
 	t.vchunks, t.qchunks, t.mchunks = nil, nil, nil
 }
 
@@ -53,22 +63,19 @@ func (t *Table) meta8(si int32) q8meta {
 	return t.mchunks[si>>arenaChunkShift][si&(arenaChunkSlots-1)]
 }
 
-// arenaPut stores the vector of row (the full committed row, never nil when
-// the arena is on) into slot si and returns the row to cache, re-pointed at
-// the arena (a shallow copy; the caller's row is not modified).
-func (e *Engine) arenaPut(t *Table, si int32, full Row, cache Row) Row {
+// arenaStore copies the vector of the committed row full into slot si of
+// the arena (growing it by a chunk when needed) and refreshes the int8 copy.
+// It returns false when the table has no arena, or when the arena had to be
+// disabled because it no longer fits its budget.
+func (e *Engine) arenaStore(t *Table, si int32, full Row) bool {
 	if !t.arenaOn() {
-		return cache
-	}
-	if full == nil {
-		e.disableArena(t)
-		return cache
+		return false
 	}
 	for int(si>>arenaChunkShift) >= len(t.vchunks) {
 		sz := t.chunkBytes()
 		if e.arenaUsed+sz > e.budget/2 {
 			e.disableArena(t)
-			return cache
+			return false
 		}
 		e.arenaUsed += sz
 		t.vchunks = append(t.vchunks, make([]float32, arenaChunkSlots*t.vdim))
@@ -77,17 +84,10 @@ func (e *Engine) arenaPut(t *Table, si int32, full Row, cache Row) Row {
 			t.mchunks = append(t.mchunks, make([]q8meta, arenaChunkSlots))
 		}
 	}
-	vc := t.schema.VecCol
 	reg := t.region(si)
-	copy(reg, full[vc].V)
+	copy(reg, full[t.schema.VecCol].V)
 	if t.useQ8() {
 		t.mchunks[si>>arenaChunkShift][si&(arenaChunkSlots-1)] = encodeQ8(t.region8(si), reg)
 	}
-	if cache == nil {
-		return nil
-	}
-	r := make(Row, len(cache))
-	copy(r, cache)
-	r[vc].V = reg
-	return r
+	return true
 }

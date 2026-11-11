@@ -168,3 +168,31 @@ func scanTopK(slots []slot, filter cexpr, key l2E, k int) ([]l2Hit, error) {
 	}
 	return h, nil
 }
+
+// parallelFor splits [0,n) into Workers contiguous ranges and runs fn on them
+// concurrently, returning when all are done.
+func parallelFor(n int, fn func(lo, hi int)) {
+	nw := Workers
+	if nw > n {
+		nw = n
+	}
+	if nw <= 1 {
+		fn(0, n)
+		return
+	}
+	chunk := (n + nw - 1) / nw
+	var wg sync.WaitGroup
+	for lo := chunk; lo < n; lo += chunk {
+		hi := lo + chunk
+		if hi > n {
+			hi = n
+		}
+		wg.Add(1)
+		go func(lo, hi int) {
+			defer wg.Done()
+			fn(lo, hi)
+		}(lo, hi)
+	}
+	fn(0, chunk)
+	wg.Wait()
+}

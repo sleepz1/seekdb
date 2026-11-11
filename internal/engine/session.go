@@ -269,6 +269,22 @@ func (s *Session) matching(t *Table, where sqlparse.Expr, sc map[int64]change, f
 
 // ---- INSERT / UPDATE / DELETE -------------------------------------------
 
+// cellValue converts one INSERT literal to the value stored in column col.
+func cellValue(lit *sqlparse.Literal, col Column) (Value, error) {
+	if lit.Kind == sqlparse.LitVector && col.Type == sqlparse.TypeVector {
+		vec, err := parseVectorElems(lit.Vec, col.Param)
+		if err != nil {
+			return Value{}, err
+		}
+		return VecVal(vec), nil
+	}
+	lv, err := literalValue(lit)
+	if err != nil {
+		return Value{}, err
+	}
+	return coerce(col, lv)
+}
+
 func (s *Session) insert(t *Table, x *sqlparse.Insert, sc map[int64]change) (int64, error) {
 	sch := t.schema
 	order := make([]int, len(sch.Columns))
@@ -305,6 +321,37 @@ func (s *Session) insert(t *Table, x *sqlparse.Insert, sc map[int64]change) (int
 			order[j] = i
 		}
 	}
+	// Convert the vector values of large multi-row INSERTs in parallel up
+	// front; results and errors are consumed below in the original order, so
+	// the statement behaves exactly as with sequential conversion.
+	type cell struct {
+		v   Value
+		err error
+		ok  bool
+	}
+	var pre [][]cell
+	if Workers > 1 && len(x.Rows) >= 32 {
+		pre = make([][]cell, len(x.Rows))
+		parallelFor(len(x.Rows), func(lo, hi int) {
+			for ri := lo; ri < hi; ri++ {
+				vals := x.Rows[ri]
+				if len(vals) != len(sch.Columns) {
+					continue
+				}
+				out := make([]cell, len(vals))
+				for j, ex := range vals {
+					lit, ok := ex.(*sqlparse.Literal)
+					col := sch.Columns[order[j]]
+					if !ok || lit.Kind == sqlparse.LitNull || col.Type != sqlparse.TypeVector {
+						continue
+					}
+					out[j].v, out[j].err = cellValue(lit, col)
+					out[j].ok = true
+				}
+				pre[ri] = out
+			}
+		})
+	}
 	for ri, vals := range x.Rows {
 		if len(vals) != len(sch.Columns) {
 			return 0, newErr(ErrValueCount, "Column count doesn't match value count at row %d", ri+1)
@@ -320,20 +367,14 @@ func (s *Session) insert(t *Table, x *sqlparse.Insert, sc map[int64]change) (int
 				return 0, newErr(ErrNullValue, "Column '%s' cannot be null", col.Name)
 			}
 			var v Value
-			if lit.Kind == sqlparse.LitVector && col.Type == sqlparse.TypeVector {
-				vec, err := parseVectorElems(lit.Vec, col.Param)
-				if err != nil {
-					return 0, err
-				}
-				v = VecVal(vec)
+			var err error
+			if pre != nil && pre[ri][j].ok {
+				v, err = pre[ri][j].v, pre[ri][j].err
 			} else {
-				lv, err := literalValue(lit)
-				if err != nil {
-					return 0, err
-				}
-				if v, err = coerce(col, lv); err != nil {
-					return 0, err
-				}
+				v, err = cellValue(lit, col)
+			}
+			if err != nil {
+				return 0, err
 			}
 			row[order[j]] = v
 		}

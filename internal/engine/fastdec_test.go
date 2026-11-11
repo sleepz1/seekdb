@@ -65,12 +65,18 @@ func TestVectorEncodingRoundTrip(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	gens := []func() float32{
 		func() float32 { return float32(rng.Float64()*2 - 1) },
-		func() float32 { f, _ := strconv.ParseFloat(fmt.Sprintf("%.6f", rng.Float64()*2-1), 64); return float32(f) },
-		func() float32 { f, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", rng.NormFloat64()*100), 64); return float32(f) },
+		func() float32 {
+			f, _ := strconv.ParseFloat(fmt.Sprintf("%.6f", rng.Float64()*2-1), 64)
+			return float32(f)
+		},
+		func() float32 {
+			f, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", rng.NormFloat64()*100), 64)
+			return float32(f)
+		},
 		func() float32 { return float32(rng.Intn(5)) },
 		func() float32 { return float32(math.Copysign(0, -1)) },
 		func() float32 { return float32(rng.NormFloat64() * 1e30) },
-		func() float32 { return math.Float32frombits(rng.Uint32() &^ (0xff << 23) | uint32(rng.Intn(254)+1)<<23) },
+		func() float32 { return math.Float32frombits(rng.Uint32()&^(0xff<<23) | uint32(rng.Intn(254)+1)<<23) },
 	}
 	scaled := 0
 	for it := 0; it < 20000; it++ {

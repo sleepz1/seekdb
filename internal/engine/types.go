@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/bits"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -115,11 +116,37 @@ func encodeRow(buf []byte, s *Schema, r Row) []byte {
 // shrinks from 4 to 3 bytes per element, cutting log size and disk I/O.
 func appendVector(buf []byte, v []float32) []byte {
 	if p, ok := decimalScale(v); ok {
-		buf = append(buf, byte(1+p))
+		// Bit-packed scaled integers: tag 16+p, width byte w, then the
+		// values k + 2^(w-1) as w-bit little-endian fields. "0.123456"-style
+		// data needs 21 bits instead of 24 (or 32 for raw float32).
 		sc := exactPow10[p]
+		var maxAbs uint32
 		for _, f := range v {
 			k := int32(math.Round(float64(f) * sc))
-			buf = append(buf, byte(k), byte(k>>8), byte(k>>16))
+			if k < 0 {
+				k = -k
+			}
+			if uint32(k) > maxAbs {
+				maxAbs = uint32(k)
+			}
+		}
+		w := uint(bits.Len32(maxAbs)) + 1
+		buf = append(buf, byte(16+p), byte(w))
+		off := uint64(1) << (w - 1)
+		var acc uint64
+		var nacc uint
+		for _, f := range v {
+			k := int64(math.Round(float64(f) * sc))
+			acc |= uint64(k+int64(off)) << nacc
+			nacc += w
+			for nacc >= 8 {
+				buf = append(buf, byte(acc))
+				acc >>= 8
+				nacc -= 8
+			}
+		}
+		if nacc > 0 {
+			buf = append(buf, byte(acc))
 		}
 		return buf
 	}
@@ -194,6 +221,37 @@ func decodeVector(v []float32, b []byte) (int, error) {
 			v[j] = float32(float64(k) / sc)
 		}
 		return 1 + 3*len(v), nil
+	case tag >= 16 && tag <= 23:
+		if len(b) < 2 {
+			return 0, errCorrupt
+		}
+		w := uint(b[1])
+		if w < 1 || w > 24 {
+			return 0, errCorrupt
+		}
+		n := 2 + (len(v)*int(w)+7)/8
+		if n > len(b) {
+			return 0, errCorrupt
+		}
+		sc := exactPow10[tag-16]
+		off := int64(1) << (w - 1)
+		mask := uint64(1)<<w - 1
+		q := b[2:n]
+		var acc uint64
+		var nacc uint
+		i := 0
+		for j := range v {
+			for nacc < w {
+				acc |= uint64(q[i]) << nacc
+				i++
+				nacc += 8
+			}
+			k := int64(acc&mask) - off
+			acc >>= w
+			nacc -= w
+			v[j] = float32(float64(k) / sc)
+		}
+		return n, nil
 	}
 	return 0, errCorrupt
 }
@@ -234,6 +292,54 @@ func decodeRow(s *Schema, b []byte) (Row, error) {
 }
 
 var errCorrupt = fmt.Errorf("corrupt row encoding")
+
+// encodeCompact encodes the non-vector columns of r (row encoding, vector
+// columns omitted) for the in-memory row cache of arena tables.
+func encodeCompact(s *Schema, r Row) []byte {
+	var buf []byte
+	for i, c := range s.Columns {
+		v := r[i]
+		switch c.Type {
+		case sqlparse.TypeBigint:
+			buf = binary.LittleEndian.AppendUint64(buf, uint64(v.I))
+		case sqlparse.TypeVarchar:
+			buf = binary.AppendUvarint(buf, uint64(len(v.S)))
+			buf = append(buf, v.S...)
+		}
+	}
+	return buf
+}
+
+// decodeCompact rebuilds a row from encodeCompact output; the vector column
+// takes vec (the arena region, not copied).
+func decodeCompact(s *Schema, b []byte, vec []float32) (Row, error) {
+	r := make(Row, len(s.Columns))
+	p := 0
+	for i, c := range s.Columns {
+		switch c.Type {
+		case sqlparse.TypeBigint:
+			if p+8 > len(b) {
+				return nil, errCorrupt
+			}
+			r[i] = IntVal(int64(binary.LittleEndian.Uint64(b[p:])))
+			p += 8
+		case sqlparse.TypeVarchar:
+			n, k := binary.Uvarint(b[p:])
+			if k <= 0 || p+k+int(n) > len(b) {
+				return nil, errCorrupt
+			}
+			p += k
+			r[i] = StrVal(string(b[p : p+int(n)]))
+			p += int(n)
+		case sqlparse.TypeVector:
+			r[i] = VecVal(vec)
+		}
+	}
+	if p != len(b) {
+		return nil, errCorrupt
+	}
+	return r, nil
+}
 
 // parseVector parses a vector literal given as element texts and validates it
 // against dim (dim <= 0 skips the dimension check).

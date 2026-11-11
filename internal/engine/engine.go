@@ -31,6 +31,21 @@ type slot struct {
 	n    uint32 // encoded length
 	used bool   // false for free slots
 	row  Row    // cached decoded row, nil when not cached
+	crow []byte // compact cached row (arena tables): non-vector columns, encoded
+}
+
+// cached reports whether the slot's row is held in memory (decoded or compact).
+func (s *slot) cached() bool { return s.row != nil || s.crow != nil }
+
+// cacheSize is what the slot's cached row counts against the cache budget.
+func (s *slot) cacheSize() int64 {
+	if s.row != nil {
+		return s.row.approxSize()
+	}
+	if s.crow != nil {
+		return int64(len(s.crow)) + 32
+	}
+	return 0
 }
 
 // Table is the committed state of a table.
@@ -296,44 +311,42 @@ func (e *Engine) replay(payload []byte, payloadOff int64) error {
 
 func (e *Engine) putSlot(t *Table, pk int64, off int64, n uint32, row Row) {
 	t.version++
-	full := row
-	if row != nil {
-		sz := row.approxSize()
-		if e.cacheUsed+sz > e.budget {
-			row = nil
-		} else {
-			e.cacheUsed += sz
-		}
-	}
-	if si, ok := t.index[pk]; ok {
+	si, ok := t.index[pk]
+	if ok {
 		s := &t.slots[si]
-		if s.row != nil {
-			e.cacheUsed -= s.row.approxSize()
+		if s.cached() {
+			e.cacheUsed -= s.cacheSize()
 		} else {
 			t.uncached--
 		}
 		t.live -= int64(s.n)
-		row = e.arenaPut(t, si, full, row)
-		*s = slot{off: off, pk: pk, n: n, used: true, row: row}
-		if row == nil {
-			t.uncached++
-		}
-		t.live += int64(n)
-		return
-	}
-	var si int32
-	if k := len(t.free); k > 0 {
+	} else if k := len(t.free); k > 0 {
 		si = t.free[k-1]
 		t.free = t.free[:k-1]
 	} else {
 		si = int32(len(t.slots))
 		t.slots = append(t.slots, slot{})
 	}
-	row = e.arenaPut(t, si, full, row)
-	t.slots[si] = slot{off: off, pk: pk, n: n, used: true, row: row}
-	if row == nil {
+	ns := slot{off: off, pk: pk, n: n, used: true}
+	t.slots[si] = ns // the arena may be disabled below and must see a consistent slot
+	if row != nil && e.arenaStore(t, si, row) {
+		// Arena tables cache only the non-vector columns, compactly; the
+		// vector is served from the arena (see cachedRow).
+		c := encodeCompact(t.schema, row)
+		if sz := int64(len(c)) + 32; e.cacheUsed+sz <= e.budget {
+			ns.crow = c
+			e.cacheUsed += sz
+		}
+	} else if row != nil {
+		if sz := row.approxSize(); e.cacheUsed+sz <= e.budget {
+			ns.row = row
+			e.cacheUsed += sz
+		}
+	}
+	if !ns.cached() {
 		t.uncached++
 	}
+	t.slots[si] = ns
 	t.index[pk] = si
 	t.live += int64(n)
 }
@@ -345,8 +358,8 @@ func (e *Engine) deleteSlot(t *Table, pk int64) {
 	}
 	t.version++
 	s := &t.slots[si]
-	if s.row != nil {
-		e.cacheUsed -= s.row.approxSize()
+	if s.cached() {
+		e.cacheUsed -= s.cacheSize()
 	} else {
 		t.uncached--
 	}
@@ -359,17 +372,32 @@ func (e *Engine) deleteSlot(t *Table, pk int64) {
 func (e *Engine) dropCache(t *Table) {
 	e.disableArena(t)
 	for i := range t.slots {
-		if t.slots[i].row != nil {
-			e.cacheUsed -= t.slots[i].row.approxSize()
+		e.cacheUsed -= t.slots[i].cacheSize()
+	}
+}
+
+// cachedRow returns the in-memory committed row of slot i, or nil when the
+// row is not cached. Compact rows are decoded on demand; their vector value
+// aliases the arena region of the slot.
+func (t *Table) cachedRow(i int) Row {
+	sl := &t.slots[i]
+	if sl.row != nil {
+		return sl.row
+	}
+	if sl.crow != nil {
+		r, err := decodeCompact(t.schema, sl.crow, t.region(int32(i)))
+		if err == nil {
+			return r
 		}
 	}
+	return nil
 }
 
 // loadRow returns the committed row stored in slot si.
 func (e *Engine) loadRow(t *Table, si int32) (Row, error) {
 	s := &t.slots[si]
-	if s.row != nil {
-		return s.row, nil
+	if r := t.cachedRow(int(si)); r != nil {
+		return r, nil
 	}
 	b, err := e.log.readAt(s.off, s.n)
 	if err != nil {
@@ -396,7 +424,7 @@ func (e *Engine) scanCommitted(t *Table, skip func(pk int64) bool, fn func(pk in
 		if skip != nil && skip(sl.pk) {
 			continue
 		}
-		if r := sl.row; r != nil {
+		if r := t.cachedRow(i); r != nil {
 			if err := fn(sl.pk, r); err != nil {
 				return err
 			}
@@ -460,7 +488,21 @@ func (e *Engine) commitChanges(changes map[string]map[int64]change) error {
 			pks = append(pks, pk)
 		}
 		sort.Slice(pks, func(i, j int) bool { return pks[i] < pks[j] })
-		for _, pk := range pks {
+		// Encode the rows (pure work) in parallel for large commits.
+		encs := make([][]byte, len(pks))
+		encode := func(lo, hi int) {
+			for i := lo; i < hi; i++ {
+				if c := m[pks[i]]; !c.deleted {
+					encs[i] = encodeRow(nil, t.schema, c.row)
+				}
+			}
+		}
+		if Workers > 1 && len(pks) >= 32 {
+			parallelFor(len(pks), encode)
+		} else {
+			encode(0, len(pks))
+		}
+		for pi, pk := range pks {
 			c := m[pk]
 			if c.deleted {
 				if _, ok := t.index[pk]; !ok {
@@ -475,7 +517,7 @@ func (e *Engine) commitChanges(changes map[string]map[int64]change) error {
 			p.byte(opPut)
 			p.str(t.schema.Name)
 			p.i64(pk)
-			enc := encodeRow(nil, t.schema, c.row)
+			enc := encs[pi]
 			p.uvar(uint64(len(enc)))
 			pos := len(p.b)
 			p.b = append(p.b, enc...)

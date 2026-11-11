@@ -128,6 +128,39 @@ func (qq *q8query) prune(m q8meta, d int32, kth float64) bool {
 	return val > 0 && val > thr*thr && !math.IsInf(thr, 1)
 }
 
+// closest returns the indices of the (at most) k rows with the smallest
+// estimated squared distance ||s*c - t*e||^2 (selection only; not a bound).
+func (qq *q8query) closest(ms []q8meta, dots []int32, k int) []int {
+	type cand struct {
+		est float64
+		j   int
+	}
+	best := make([]cand, 0, k+1)
+	c := qq.t * qq.t * qq.e2
+	for j := range dots {
+		s := float64(ms[j].s)
+		est := s*s*float64(ms[j].c2) - 2*s*qq.t*float64(dots[j]) + c
+		if len(best) == k && est >= best[k-1].est {
+			continue
+		}
+		i := len(best)
+		best = append(best, cand{})
+		for i > 0 && best[i-1].est > est {
+			best[i] = best[i-1]
+			i--
+		}
+		best[i] = cand{est, j}
+		if len(best) > k {
+			best = best[:k]
+		}
+	}
+	out := make([]int, len(best))
+	for i, b := range best {
+		out[i] = b.j
+	}
+	return out
+}
+
 func dotQ8Go(c []int8, e []int16) int32 {
 	var s int32
 	for i := range c {

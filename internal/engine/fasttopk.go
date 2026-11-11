@@ -149,8 +149,21 @@ func arenaScan(t *Table, list []int32, lo, hi int, filter func(Row) (bool, error
 			o := (base & (arenaChunkSlots - 1)) * dim
 			dotQ8Block(ch[o:o+m*dim], sc.qq.e, dots[:m])
 			ms := t.mchunks[base>>arenaChunkShift][base&(arenaChunkSlots-1):]
+			var seeded [256]bool
+			if base == lo && k <= 32 && m >= 8*k {
+				// Seed the heap with the k rows of the first block that look
+				// closest by the int8 estimate, so that the bound is tight
+				// from the start and far fewer rows need an exact check.
+				// Order of visits does not affect the result.
+				for _, j := range sc.qq.closest(ms[:m], dots[:m], k) {
+					seeded[j] = true
+					if err := sc.visit(base+j, false); err != nil {
+						return nil, err
+					}
+				}
+			}
 			for j := 0; j < m; j++ {
-				if sc.qq.prune(ms[j], dots[j], sc.kth) {
+				if seeded[j] || sc.qq.prune(ms[j], dots[j], sc.kth) {
 					continue
 				}
 				if err := sc.visit(base+j, false); err != nil {
@@ -195,7 +208,7 @@ func (sc *scanState) visit(i int, prune bool) error {
 		return nil
 	}
 	if sc.filter != nil {
-		ok, err := sc.filter(sl.row)
+		ok, err := sc.filter(t.cachedRow(i))
 		if err != nil || !ok {
 			return err
 		}
@@ -322,7 +335,7 @@ func (t *Table) posting(col int, v Value) []int32 {
 			if !sl.used {
 				continue
 			}
-			x := sl.row[col]
+			x := t.cachedRow(i)[col]
 			if p.str != nil {
 				p.str[x.S] = append(p.str[x.S], int32(i))
 			} else {
