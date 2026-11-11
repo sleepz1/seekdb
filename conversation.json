@@ -571,6 +571,12 @@
    {
     "source": "agent",
     "content": "Did not write student-side predictions or interpretations (the statement forbids fabricated interactions). Instead indexed the student's real earlier contributions (evidence_index below, quotes verbatim with pointers) and continued the performance work; the student's own answers to the four questions are to be added verbatim if and when given."
+   },
+   {
+    "source": "student",
+    "time": "2026-11-10T18:12-08:00",
+    "content": "数据成簇时，剪枝还有效吗？\n\n* 原本预期：预期复核次数降 80% 以上（降至 15 次以内），实测仅降约 38.5%（85.1 次降到 52.3 次）。\n* 成簇变弱原因：成簇导致局部密度与元数据包围盒（Min/Max、Zone Map）重叠度剧增，目标区域边界模糊，索引无法整块跳过，只能深入逐项扫描。\n* 其他分布表现：\n   * 均匀分布：效果最好，各块边界清晰且稀疏，剪枝率通常达 85%~95% 以上。\n   * 长尾/倾斜分布：严重两极分化，冷数据命中能近 100% 剪枝，但命中热点聚类时几乎完全失效。\n\nB：写入的瓶颈在哪？\n\n* 原先假设：原以为磁盘 I/O 与 WAL 下刷（`fsync`/`fdatasync`）是绝对瓶颈（预估占 70%~80%）。\n* 改进方案：实测 I/O 仅占 22%，近 78% 在前端解析与编码。后续转向：\n   1. 预编译与计划缓存（Prepared Statement）：跳过重复 SQL 语法解析。\n   2. 零拷贝序列化与内存池（Arena）：减少内存分配与跨区复制。\n   3. 解析流水线并发化：多核并行处理解析编码，仅在提交时做轻量批处理。\n\nC：怎样独立确认结果是对的？\n\n* 信任理由：\n   * 对照测试（Differential Testing）：与 Golden Master 版本逐行比对，能自动捕获未预期的逻辑回归。\n   * 故障恢复验证（Crash Recovery）：高频并发下直接 `kill -9` 强杀，闭环验证了 WAL 重放与原子性持久化。\n* 会漏掉的错误：\n   * 小概率并发竞态（Race Condition）：单次重放未触发出错时序即被掩盖。\n   * 静默数据损坏（Silent Bit Rot/Torn Page）：若未校验全量物理块 CRC，无法发现损坏的无效页。\n   * 资源泄漏与读写放大：只验逻辑结果，无法检测内存泄漏或长期空间劣化。\n\nD：为什么本地快 4.5 倍，平台 E 只涨了 66%？\n\n* 核心解释：\n   * 固定基础开销稀释：平台 E 存在网络 RTT、网关代理、容器调度与虚拟化云盘延迟。根据阿姆达尔定律，内核优化再快，也会被这些未缩短的固定耗时稀释。\n   * 资源限流：云端存在严格的 cgroup / vCPU 节流与多租户干扰。\n* 验证步骤：\n   1. 分段耗时打点（Trace Profiling）：拆解客户端网络、网关、引擎执行三段耗时，确认优化是否全被网络/网关吞掉。\n   2. 同机/Pod 内压测：绕过网络直接在平台 E 宿主机跑本地回环，看倍率是否逼近本地。\n   3. 系统指标监控：排查平台 E 运行时的 CPU Steal Time 与 cgroup throttled 比例。",
+    "context": "answers to the four open questions A-D the agent listed (pruning on clustered data, write bottleneck, independent correctness check, why E rose less than local query speed)"
    }
   ],
   "evidence_index": [
@@ -618,6 +624,28 @@
      "pointer": "/user_prompts/14/content",
      "quote": "那就以我们的代码为主线进行提交"
     }
+   },
+   {
+    "chain": "pruning across data distributions (answer A)",
+    "student_contribution": {
+     "pointer": "/claude_perf_round2_2026_11_10/entries/5/content",
+     "quote": "均匀分布：效果最好，各块边界清晰且稀疏，剪枝率通常达 85%~95% 以上。"
+    },
+    "student_prediction_2": {
+     "pointer": "/claude_perf_round2_2026_11_10/entries/5/content",
+     "quote": "冷数据命中能近 100% 剪枝，但命中热点聚类时几乎完全失效。"
+    },
+    "actual_results": [
+     {
+      "pointer": "/claude_perf_round2_2026_11_10/experiments/8/output",
+      "what": "exact checks per query by distribution, with and without heap seeding"
+     },
+     {
+      "pointer": "/claude_perf_round2_2026_11_10/experiments/4/output",
+      "what": "Q5, the 85.1 -> 52.3 measurement quoted in answer A"
+     }
+    ],
+    "agent_note": "comparison written by the agent, not student evidence: Q5 used the harness data, uniform U(-1,1), not clustered data. Pruning in this engine is per row (int8 lower bound against the current k-th distance), with no per-block min/max. In every distribution tested, 98.7-99.5% of rows skip the exact check; uniform data needs the fewest checks (0.53%), hot-cluster queries on skewed data the most (0.98%), and cold-region queries behave like uniform data (0.50%). Direction of the student's prediction (hot clusters worst, cold region best) matches; the size (85-95% pruning for uniform, near-total failure for hot clusters) does not."
    }
   ],
   "experiments": [
@@ -668,8 +696,14 @@
     "source": "tool",
     "command": "perf_harness, submitted f4ff440 vs this round, 5 alternating runs (T) and 3 runs (B, M)",
     "output": "write T median 273 -> 255 ms; query T median 177 -> 152 ms; write M 20.8 -> 17.6 MiB; query M 20.1 -> 17.7 MiB; written 5.13 -> 4.73 MiB; cold read (incl. 3.7 MiB binary) 7.74 -> 7.19 MiB."
+   },
+   {
+    "id": "Q9",
+    "source": "tool",
+    "command": "testing the student's distribution predictions in answer A: instrumented copy of this round's engine (counter of exact float64 checks; MVDB_NOSEED switches heap seeding off), 10k x 128 rows, K=10, 300 queries per query set, 1 worker; uniform U(-1,1), 20 Gaussian clusters (sigma 0.1), skewed (80% of rows in 2 hot clusters, 20% uniform). Script: dist_exp.py, not committed",
+    "output": "uniform | uniform queries: exact checks/query no-seed 88.2 (0.88% of rows) -> seeded 53.2 (0.53%); reduction 39.7%\nclustered (20 clusters, sigma 0.1) | queries from the clusters: exact checks/query no-seed 101.7 (1.02% of rows) -> seeded 70.7 (0.71%); reduction 30.4%\nclustered (20 clusters, sigma 0.1) | uniform queries: exact checks/query no-seed 103.4 (1.03% of rows) -> seeded 72.7 (0.73%); reduction 29.7%\nskewed (80% in 2 hot clusters, 20% uniform) | queries near hot clusters: exact checks/query no-seed 131.7 (1.32% of rows) -> seeded 97.7 (0.98%); reduction 25.9%\nskewed (80% in 2 hot clusters, 20% uniform) | queries in the cold uniform region: exact checks/query no-seed 83.1 (0.83% of rows) -> seeded 50.4 (0.50%); reduction 39.3%"
    }
   ],
-  "limitations": "Local numbers come from a noisy 2-vCPU VM (T varies +-20% between runs); the platform's E formula is unpublished. The student's own answers to the four questions are not part of this record yet."
+  "limitations": "Local numbers come from a noisy 2-vCPU VM (T varies +-20% between runs); the platform's E formula is unpublished. The student's answers to A-D are recorded verbatim at /claude_perf_round2_2026_11_10/entries/5/content; Q9 tests the student's distribution predictions; the student's reaction to Q9 is not recorded yet."
  }
 }
