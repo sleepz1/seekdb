@@ -854,5 +854,82 @@
     "agent_note": "written by the agent, not student evidence: measured peak after GC pacing and the smaller replay window is 15.6-16.5 MiB, not 11-13. Of it about 2.9 MiB is page cache of the executable, which the answer does not list; the engine has no cluster centres or per-block min/max, and it talks over stdin/stdout, not a network. On P2: the query phase is a fresh process after a cache drop, so its 7.2-7.3 MiB of reads in the harness include the executable again (data 3.57 MiB + executable about 2.5 MiB + filesystem metadata); a smaller binary would lower it locally. Whether the platform counts those reads is not known, as the answer says."
    }
   ]
+ },
+ "claude_perf_round4_2026_11_11": {
+  "note": "Fourth performance round by the coding agent (Claude). User messages verbatim; agent messages quoted in full where they were sent to the user; tool output copied from saved files.",
+  "platform_results": {
+   "source": "student screenshot, 2026-11-11 05:42 PST",
+   "E": 4094.46324,
+   "agent_prompt_raw": 6,
+   "round_score": 62,
+   "total": 682,
+   "rank": 11,
+   "submitted_commit": "not stated by the student; 1aa26993 and 44b2c92b contain the same code"
+  },
+  "entries": [
+   {
+    "source": "student",
+    "time": "2026-11-11T05:42-08:00",
+    "content": "帮我继续优化性能E和prompt，根据你性能E的优化思路来写prompt",
+    "attachments": "leaderboard screenshot"
+   },
+   {
+    "source": "student",
+    "time": "2026-11-11T05:42-08:00",
+    "content": "继续"
+   },
+   {
+    "source": "agent",
+    "time": "2026-11-11T05:45-08:00",
+    "content": "这一轮 E 3949 → 4094、Prompt 原始分 4 → 6，说明你自己写的回答在起作用。我这边的优化思路、每步的原因和实验数据，会照常以我的名义完整写进记录。但学生那一栏仍然只能是你的原话，我不能替你写。\n\n最划算的做法：我每做一个实验，你先用一两句话预测结果，我测完你再解释为什么对或不对。两轮就够，每轮几句话。\n\n接下来要做的两件事，请先预测：\n\n- **E1 可执行文件瘦身**：去掉 encoding/json、reflect、fmt、flag，文件约 2.55 MB，预计减到 2.0 MB 左右。你在 P2 里说过\"查询阶段读盘降 0\"，这次正好实测检验。也可以说说内存峰值会不会跟着降、降多少。\n- **E2 写入路径**：现在每批 INSERT 的数字文本要被处理好几遍：JSON 解码、SQL 词法、解析成 float32、编码时再从 float32 反推十进制。我打算把解析时得到的十进制尾数和位数直接交给编码，省掉\"反推\"这一步。你预计写入阶段的 CPU 时间降多少？会不会影响写盘量？\n\n我先动手做 E1，你的预测随时发。在我公布结果之前收到的，都记为\"实验前预测\"。",
+    "context": "sent before E1 and E2 were built; quoted in full"
+   }
+  ],
+  "experiments": [
+   {
+    "id": "Q16",
+    "source": "tool",
+    "command": "E1, binary diet: perf_harness.py three times interleaved, submitted code (mv_strip, 2,547,896 bytes) vs the same code without encoding/json, fmt and flag (mv_diet, 2,019,512 bytes); r = bytes read by the cgroup in that phase (cold start after drop_caches), M = cgroup memory peak",
+    "output": "== mv_strip\nwrite: T=   332.0 ms  B=   8.10 MiB (r 3.70 / w 4.39)  M=  16.5 MiB\nquery: T=   140.2 ms  B=   7.27 MiB (r 7.26 / w 0.01)  M=  16.0 MiB  ready=77 ms\n== mv_diet\nwrite: T=   339.5 ms  B=   7.55 MiB (r 3.16 / w 4.39)  M=  15.9 MiB\nquery: T=   134.3 ms  B=   6.72 MiB (r 6.71 / w 0.01)  M=  15.6 MiB  ready=66 ms\n== mv_strip\nwrite: T=   349.2 ms  B=   8.05 MiB (r 3.66 / w 4.39)  M=  16.6 MiB\nquery: T=   173.5 ms  B=   7.23 MiB (r 7.22 / w 0.01)  M=  16.1 MiB  ready=63 ms\n== mv_diet\nwrite: T=   339.5 ms  B=   7.55 MiB (r 3.16 / w 4.39)  M=  15.9 MiB\nquery: T=   160.7 ms  B=   6.72 MiB (r 6.71 / w 0.01)  M=  14.9 MiB  ready=61 ms\n== mv_strip\nwrite: T=   280.2 ms  B=   8.54 MiB (r 4.14 / w 4.39)  M=  16.6 MiB\nquery: T=   171.1 ms  B=   7.23 MiB (r 7.23 / w 0.01)  M=  16.3 MiB  ready=64 ms\n== mv_diet\nwrite: T=   360.2 ms  B=   7.54 MiB (r 3.15 / w 4.39)  M=  15.6 MiB\nquery: T=   187.2 ms  B=   6.73 MiB (r 6.72 / w 0.01)  M=  16.3 MiB  ready=66 ms"
+   },
+   {
+    "id": "Q17",
+    "source": "tool",
+    "command": "E2: go test -bench (single thread, 256 vectors of 128 decimals with 6 places) and the Go driver (10 interleaved repetitions, min/median ms, engine on-CPU time from schedstat)",
+    "output": "BenchmarkAppendVectorRef (old encoder): 3157-3723 ns/op\nBenchmarkAppendVector (single pass): 1356-1565 ns/op\nBenchmarkParseVectorText old: 4831-5149 ns/op; single-pass parser: 3404-3494 ns/op\nmv_diet    write:  254.6/ 286.6 cpu  264.0/ 298.0 | unf:  109.1/ 157.8 cpu   96.9/ 137.5 | filt:   78.3/ 101.6 cpu   67.5/  90.5\nmv_e2      write:  237.5/ 255.8 cpu  228.5/ 262.9 | unf:  114.4/ 155.6 cpu   99.7/ 136.8 | filt:   93.9/ 117.4 cpu   80.8/  99.8"
+   },
+   {
+    "id": "Q18",
+    "source": "tool",
+    "command": "final A/B, submitted code (mv_strip) vs this round (mv_e3 = E1 + E2 + eight-byte string scans): perf_harness three times interleaved, then the Go driver with 10 interleaved repetitions",
+    "output": "== mv_strip\nwrite: T=   368.0 ms  B=   8.06 MiB (r 3.66 / w 4.39)  M=  16.4 MiB\nquery: T=   171.4 ms  B=   7.23 MiB (r 7.22 / w 0.01)  M=  16.0 MiB  ready=62 ms\n== mv_e3\nwrite: T=   305.4 ms  B=   7.54 MiB (r 3.15 / w 4.39)  M=  15.9 MiB\nquery: T=   132.4 ms  B=   6.72 MiB (r 6.71 / w 0.01)  M=  16.1 MiB  ready=69 ms\n== mv_strip\nwrite: T=   357.9 ms  B=   8.06 MiB (r 3.66 / w 4.39)  M=  16.3 MiB\nquery: T=   177.3 ms  B=   7.23 MiB (r 7.23 / w 0.01)  M=  16.0 MiB  ready=58 ms\n== mv_e3\nwrite: T=   269.5 ms  B=   7.54 MiB (r 3.15 / w 4.39)  M=  15.8 MiB\nquery: T=   119.3 ms  B=   6.72 MiB (r 6.71 / w 0.01)  M=  15.8 MiB  ready=76 ms\n== mv_strip\nwrite: T=   360.0 ms  B=   8.05 MiB (r 3.66 / w 4.39)  M=  16.6 MiB\nquery: T=   158.2 ms  B=   7.17 MiB (r 7.16 / w 0.01)  M=  15.5 MiB  ready=69 ms\n== mv_e3\nwrite: T=   259.8 ms  B=   7.54 MiB (r 3.15 / w 4.39)  M=  15.8 MiB\nquery: T=   196.0 ms  B=   6.73 MiB (r 6.73 / w 0.01)  M=  15.6 MiB  ready=65 ms\nmv_strip   write:  238.8/ 295.1 cpu  249.4/ 310.0 | unf:  116.7/ 148.8 cpu  103.7/ 130.7 | filt:   86.0/ 110.5 cpu   73.5/  96.7\nmv_e3      write:  213.8/ 235.0 cpu  221.5/ 241.4 | unf:  107.1/ 177.3 cpu   95.2/ 152.0 | filt:   82.9/ 109.1 cpu   73.3/  93.4"
+   }
+  ],
+  "evidence_index": [
+   {
+    "chain": "does a smaller executable lower the query-phase reads? (student's P2, said before the diet was built)",
+    "student_contribution": {
+     "pointer": "/claude_perf_round3_2026_11_11/entries/5/content",
+     "quote": "查询阶段读取量降多少：降 0 MiB（几乎不变，仍为约 6 MiB）"
+    },
+    "actual_result": {
+     "pointer": "/claude_perf_round4_2026_11_11/experiments/0/output",
+     "what": "query-phase reads 7.16-7.26 MiB before, 6.71-6.73 MiB after (-0.51 MiB); write-phase reads 3.66-4.14 -> 3.15-3.16 MiB"
+    },
+    "agent_note": "written by the agent, not student evidence: the prediction (no change) was made on 2026-11-11 05:15, before E1 existed; the agent had written in the round-3 record that a smaller binary would lower the reads locally. Locally each phase starts a new process after a cache drop, so the executable is read again in the query phase. Whether the platform counts these reads is still unknown."
+   }
+  ],
+  "changes": [
+   "no encoding/json, fmt or flag in the executable: jsonreq.go (request parsing with json.Unmarshal semantics), direct writers for errors and shutdown, hand-written flag parsing, internal/xfmt for messages",
+   "single-pass vector encoder (same bytes)",
+   "single-pass decimal-list parser for vector literals (same values and errors)",
+   "IndexByte scan for SQL string literals, eight-byte scan for JSON strings"
+  ],
+  "verification": "go vet (amd64, arm64), go test -race ./..., differential tests against encoding/json (60,000 requests, writers, TSV cells), flag (23 argument lists) and fmt (every message formatted in the engine and parser tests), 20/20 public cases, protocol_check passed, crash_test 30 SIGKILL rounds (8097 committed rows verified), results of 128 mixed queries identical to the admitted build e1276853 also with --cache-mb 3 / 2 / 1",
+  "open_items_for_the_student": [
+   "no prediction for E1 or E2 was received before the results above existed",
+   "reaction to Q15 and to Q16 is not recorded"
+  ],
+  "limitations": "Local timings vary by 20 % between runs (2-vCPU VM). E rose by 3.7 % in the previous round although local query time fell by about 40 %; the platform's formula is unpublished."
  }
 }
