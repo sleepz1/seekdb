@@ -4,7 +4,7 @@ package engine
 import (
 	"encoding/binary"
 	"errors"
-	"minivectordb/internal/xfmt"
+	"fmt"
 	"os"
 	"runtime/debug"
 	"sort"
@@ -281,17 +281,17 @@ func (e *Engine) replay(payload []byte, payloadOff int64) error {
 			tname, pk := r.str(), r.i64()
 			n := int(r.uvar())
 			if r.err != nil || r.pos+n > len(payload) {
-				return xfmt.Errorf("recovery: corrupt put record at offset %d", payloadOff)
+				return fmt.Errorf("recovery: corrupt put record at offset %d", payloadOff)
 			}
 			t := e.tables[strings.ToLower(tname)]
 			if t == nil {
-				return xfmt.Errorf("recovery: put into unknown table %q", tname)
+				return fmt.Errorf("recovery: put into unknown table %q", tname)
 			}
 			var row Row
 			if e.cacheUsed < e.budget || t.arenaOn() {
 				var err error
 				if row, err = decodeRow(t.schema, payload[r.pos:r.pos+n]); err != nil {
-					return xfmt.Errorf("recovery: %w", err)
+					return fmt.Errorf("recovery: %w", err)
 				}
 			}
 			e.putSlot(t, pk, payloadOff+int64(r.pos), uint32(n), row)
@@ -302,11 +302,11 @@ func (e *Engine) replay(payload []byte, payloadOff int64) error {
 				e.deleteSlot(t, pk)
 			}
 		default:
-			return xfmt.Errorf("recovery: unknown op %d at offset %d", op, payloadOff)
+			return fmt.Errorf("recovery: unknown op %d at offset %d", op, payloadOff)
 		}
 	}
 	if r.err != nil {
-		return xfmt.Errorf("recovery: corrupt record at offset %d", payloadOff)
+		return fmt.Errorf("recovery: corrupt record at offset %d", payloadOff)
 	}
 	return nil
 }
@@ -572,7 +572,7 @@ func (e *Engine) maybeCompact() {
 		return
 	}
 	if err := e.Compact(); err != nil {
-		os.Stderr.WriteString("minivectordb: compaction skipped: " + err.Error() + "\n")
+		fmt.Fprintf(os.Stderr, "minivectordb: compaction skipped: %v\n", err)
 	}
 }
 

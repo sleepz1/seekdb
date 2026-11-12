@@ -2,7 +2,7 @@ package engine
 
 import (
 	"encoding/binary"
-	"errors"
+	"fmt"
 	"math"
 	"math/bits"
 	"strconv"
@@ -314,7 +314,7 @@ func decodeRow(s *Schema, b []byte) (Row, error) {
 	return r, nil
 }
 
-var errCorrupt = errors.New("corrupt row encoding")
+var errCorrupt = fmt.Errorf("corrupt row encoding")
 
 // encodeCompact encodes the non-vector columns of r (row encoding, vector
 // columns omitted) for the in-memory row cache of arena tables.
