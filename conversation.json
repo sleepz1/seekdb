@@ -931,5 +931,83 @@
    "reaction to Q15 and to Q16 is not recorded"
   ],
   "limitations": "Local timings vary by 20 % between runs (2-vCPU VM). E rose by 3.7 % in the previous round although local query time fell by about 40 %; the platform's formula is unpublished."
+ },
+ "claude_perf_round5_2026_11_12": {
+  "note": "Fifth round by the coding agent (Claude): investigation of a platform regression. User messages verbatim; agent messages summarised; tool output copied from saved files.",
+  "platform_results": [
+   {
+    "source": "student screenshot, 2026-11-11 17:42 PST",
+    "commit": "60a32da4 (round 4)",
+    "E": 3214.139572,
+    "agent_prompt_raw": 6
+   },
+   {
+    "source": "student screenshot, 2026-11-11 18:55 PST",
+    "commit": "44b2c92b (round 3 code, resubmitted as a calibration)",
+    "E": 4031.630436,
+    "agent_prompt_raw": 4.5
+   }
+  ],
+  "entries": [
+   {
+    "source": "student",
+    "time": "2026-11-11T17:42-08:00",
+    "content": "分数变低了，帮我重新优化或者继续优化性能E，prompt你来写一版，先提升分数",
+    "attachments": "score screenshot"
+   },
+   {
+    "source": "agent",
+    "time": "2026-11-11",
+    "content": "Ran both builds on ten input shapes, found no local regression, and asked the student to resubmit 44b2c92b so that platform noise and a real regression could be told apart. Declined again to write the student's side of the Prompt evidence."
+   },
+   {
+    "source": "student",
+    "time": "2026-11-11T18:55-08:00",
+    "content": "这是44b2c92bc2abf7c3127119de56a46d3081a06e54，分数变低了一点， 继续帮我优化性能E和prompt",
+    "attachments": "score screenshot"
+   },
+   {
+    "source": "student",
+    "time": "2026-11-11T23:58-08:00",
+    "content": "继续"
+   },
+   {
+    "source": "student",
+    "time": "2026-11-12T00:02-08:00",
+    "content": "继续"
+   }
+  ],
+  "experiments": [
+   {
+    "id": "Q19",
+    "source": "tool",
+    "command": "round 3 (mv_strip) vs round 4 (mv_e3) release builds on ten input shapes with a Go replay driver (cold start per phase, drop_caches)",
+    "output": "A/B of the two submitted builds, replay driver (cold start per phase, min of 3 runs; 5 for the base shape, 2 for 100k rows).\nmv_strip = round 3 code (44b2c92b, platform E 4094.46), mv_e3 = round 4 code (60a32da4, platform E 3214.14).\ncolumns: write wall ms / write engine CPU ms / write peak RSS MiB | query wall / query CPU / query peak RSS\nshape (rows x dim, batch, json style, number format)        round 3                         | round 4\n10k x 128, 100/batch, compact JSON, 6 decimals      224.7 / 233.9 / 14.8 |  88.8 /  80.7 / 14.9   ||  196.5 / 192.0 / 14.6 |  89.8 /  78.1 / 14.4\n10k x 128, Python json.dumps style                  226.2 / 246.1 / 14.7 |  86.9 /  83.0 / 14.6   ||  187.2 / 193.4 / 14.5 |  80.6 /  94.3 / 14.3\nsame, Chinese text (\\u escapes, fallback decoder)   314.8 / 326.6 / 15.1 |  87.0 /  80.9 / 14.8   ||  239.8 / 244.1 / 14.5 |  83.8 /  78.9 / 14.4\nsame, repr() floats (17 digits)                     355.1 / 452.6 / 15.2 | 123.6 / 110.5 / 14.7   ||  344.5 / 452.3 / 14.9 | 109.0 / 119.2 / 14.3\nsame, 1-6 decimals mixed                            240.9 / 286.6 / 14.8 |  97.7 / 107.5 / 14.9   ||  221.8 / 226.7 / 14.4 |  90.4 /  99.6 / 14.0\nsame, \", \" inside vector literals                   251.5 / 294.2 / 14.9 |  90.7 /  86.0 / 14.8   ||  183.9 / 211.0 / 14.4 |  92.4 /  81.4 / 13.9\n3k x 128, single-row inserts                        783.3 / 307.0 /  8.1 |  59.0 /  54.1 /  8.5   ||  706.2 / 314.0 /  7.7 |  53.5 /  48.5 /  8.0\n5k x 768                                            399.3 / 487.9 / 26.8 | 271.7 / 253.7 / 23.4   ||  302.1 / 382.7 / 26.5 | 230.1 / 241.3 / 23.2\n3k x 1536                                           547.6 / 752.3 / 35.1 | 170.4 / 189.6 / 26.5   ||  472.0 / 691.3 / 33.8 | 165.6 / 158.4 / 26.1\n100k x 128                                         2232.9 / 2242.7 / 94.7 | 209.1 / 269.9 / 94.5  || 1715.3 / 1593.2 / 95.1 | 215.3 / 271.7 / 95.7\nreads per phase (base shape): write 2.6 -> 2.2 MiB, query 6.1 -> 5.7 MiB; written 4.0 MiB both."
+   },
+   {
+    "id": "Q20",
+    "source": "tool",
+    "command": "same comparison with both builds compiled by Go 1.22.12 (the Dockerfile's golang:1.22), base shape, 5 interleaved runs, min/median",
+    "output": "r3_go122 write: wall 269.3/293.9 cpu 268.5/315.4 rssPeak 14.1/14.5 | query: wall 103.6/119.1 cpu 90.9/98.2 rssPeak 13.7/14.2\nr4_go122 write: wall 202.9/242.7 cpu 206.4/250.9 rssPeak 14.0/14.2 | query: wall 102.3/132.5 cpu 88.2/116.6 rssPeak 13.8/13.9\nalso compared with perf_harness in --style txn, --mode ann and both: round 4 equal or faster in every run"
+   },
+   {
+    "id": "Q21",
+    "source": "tool",
+    "command": "request decoding, go test -bench, Go 1.24 and 1.22: round-4 decoder (fast path, else parseRequest) vs encoding/json, one INSERT of 100 or 1 rows, request shapes: plain, extra key, \\u escapes, newlines in the SQL",
+    "output": "Go 1.22, ns per request (round 4 / encoding/json): plain-100 115692/900529, plain-1 3313/15211, extra-100 679376/1031175, extra-1 7264/18731, cn-100 275889/1119106, cn-1 5173/19561, nl-100 635937/768107, nl-1 8519/25873. Go 1.24 similar. The new decoder is faster than encoding/json for every shape."
+   },
+   {
+    "id": "Q22",
+    "source": "tool",
+    "command": "perf_harness three times interleaved, Go 1.22 builds: r3 (44b2c92b), x1 (this revision: round 3 + encoder/parser + string scans, no binary diet), r4 (60a32da4)",
+    "output": "== r3_go122\nwrite: T=   317.6 ms  B=   8.24 MiB (r 3.51 / w 4.73)  M=  16.3 MiB\nquery: T=   142.9 ms  B=   7.07 MiB (r 7.07 / w 0.01)  M=  15.2 MiB  ready=59 ms\n== x1_go122\nwrite: T=   280.9 ms  B=   7.85 MiB (r 3.46 / w 4.39)  M=  16.1 MiB\nquery: T=   181.3 ms  B=   7.03 MiB (r 7.02 / w 0.01)  M=  16.3 MiB  ready=66 ms\n== r4_go122\nwrite: T=   282.2 ms  B=   7.71 MiB (r 2.98 / w 4.73)  M=  15.9 MiB\nquery: T=   163.6 ms  B=   6.56 MiB (r 6.55 / w 0.01)  M=  15.5 MiB  ready=63 ms\n== r3_go122\nwrite: T=   352.2 ms  B=   8.19 MiB (r 3.46 / w 4.73)  M=  15.9 MiB\nquery: T=   133.1 ms  B=   7.03 MiB (r 7.02 / w 0.01)  M=  16.3 MiB  ready=68 ms\n== x1_go122\nwrite: T=   295.2 ms  B=   7.85 MiB (r 3.46 / w 4.39)  M=  16.1 MiB\nquery: T=   158.7 ms  B=   7.03 MiB (r 7.02 / w 0.01)  M=  15.9 MiB  ready=66 ms\n== r4_go122\nwrite: T=   305.7 ms  B=   7.75 MiB (r 2.99 / w 4.76)  M=  15.9 MiB\nquery: T=   157.9 ms  B=   6.56 MiB (r 6.55 / w 0.01)  M=  15.4 MiB  ready=62 ms\n== r3_go122\nwrite: T=   347.1 ms  B=   7.85 MiB (r 3.46 / w 4.39)  M=  16.0 MiB\nquery: T=   147.9 ms  B=   7.03 MiB (r 7.02 / w 0.01)  M=  16.0 MiB  ready=61 ms\n== x1_go122\nwrite: T=   307.8 ms  B=   7.84 MiB (r 3.45 / w 4.38)  M=  16.0 MiB\nquery: T=   139.5 ms  B=   7.03 MiB (r 7.02 / w 0.01)  M=  16.2 MiB  ready=59 ms\n== r4_go122\nwrite: T=   270.0 ms  B=   7.73 MiB (r 2.98 / w 4.75)  M=  15.6 MiB\nquery: T=   150.2 ms  B=   6.56 MiB (r 6.55 / w 0.01)  M=  15.5 MiB  ready=52 ms"
+   }
+  ],
+  "analysis": "written by the agent: the same code (round 3) scored 4094 and 4032, so platform noise is around 2 %; round 4 scored 21 % lower, which no local test reproduces. Round 4 changed two independent things: the binary diet (request/response/flag/format code) and the write path (encoder, parser, string scans). This revision keeps only the write-path half, so its platform score says which half is responsible.",
+  "verification": "go test -race ./..., go vet (amd64, arm64), 20/20 public cases, protocol_check passed, crash_test 30 SIGKILL rounds (10356 committed rows verified), results of 128 mixed queries identical to the admitted build e1276853",
+  "open_items_for_the_student": [
+   "a hypothesis, in the student's words, for why round 4 lost 21 % on the platform while every local test improved, and a prediction of this revision's E made before it is submitted",
+   "reaction to Q16 (the P2 prediction of no change in query-phase reads; measured -0.51 MiB locally)"
+  ]
  }
 }

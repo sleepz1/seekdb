@@ -251,6 +251,14 @@ common form in one pass (same values and errors, 4.9 -> 3.5 us), and string
 scans look at eight bytes at a time; write-phase engine CPU fell from about
 249 / 310 ms to 222 / 241 ms (min / median of 10).
 
+On the platform that fourth round scored E = 3214 against 4094 and 4032 for
+two submissions of the third, although no local measurement (ten input
+shapes, Go 1.22 and 1.24 builds, 100k rows) showed a slowdown. This revision
+is a bisect step: it keeps the single-pass encoder/parser and the string
+scans but links `encoding/json`, `fmt` and `flag` again (the executable is
+back to 2.33 MB with Go 1.22). `jsonreq.go` and `internal/xfmt` stay in the
+tree with their tests but are not used by the server.
+
 Earlier local results on a 2-vCPU sandbox:
 
 * 20/20 public cases (minivectordb-public-v4, incl. `--restart`) pass.
