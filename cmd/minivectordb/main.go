@@ -7,18 +7,18 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"errors"
+	"encoding/json"
+	"flag"
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 
 	"minivectordb/internal/engine"
 	"minivectordb/internal/sqlparse"
-	"minivectordb/internal/xfmt"
 )
 
 func main() {
@@ -33,19 +33,19 @@ func envOr(key, def string) string {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	opts := cmdOptions{
-		dataDir: envOr("MVDB_DATA_DIR", "/data"),
-		mode:    envOr("MVDB_SEARCH_MODE", "exact"),
-		format:  envOr("MVDB_FORMAT", "jsonl"),
-		ready:   os.Getenv("MVDB_READY_LINE"),
-	}
-	if err := parseFlags(args, &opts); err != nil {
-		io.WriteString(stderr, err.Error()+"\n"+usage)
+	fs := flag.NewFlagSet("minivectordb", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dataDir := fs.String("data-dir", envOr("MVDB_DATA_DIR", "/data"), "data directory")
+	fs.StringVar(dataDir, "data", *dataDir, "alias of --data-dir")
+	mode := fs.String("mode", envOr("MVDB_SEARCH_MODE", "exact"), "default vector search mode: exact or ann")
+	format := fs.String("format", envOr("MVDB_FORMAT", "jsonl"), "output format: jsonl (official protocol, default), tsv, or json (legacy SQL stdin)")
+	ready := fs.String("ready-line", os.Getenv("MVDB_READY_LINE"), "legacy SQL mode only: line printed to stdout after recovery")
+	cacheMB := fs.Int64("cache-mb", 0, "row cache budget in MiB (0 = derive from cgroup limit)")
+	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	dataDir, mode, format, ready, cacheMB := &opts.dataDir, &opts.mode, &opts.format, &opts.ready, &opts.cacheMB
 	if *mode != "exact" && *mode != "ann" {
-		io.WriteString(stderr, xfmt.Sprintf("minivectordb: invalid --mode %q\n", *mode))
+		fmt.Fprintf(stderr, "minivectordb: invalid --mode %q\n", *mode)
 		return 2
 	}
 
@@ -59,14 +59,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "tsv":
 		out = tsvFormatter{}
 	default:
-		io.WriteString(stderr, xfmt.Sprintf("minivectordb: invalid --format %q\n", *format))
+		fmt.Fprintf(stderr, "minivectordb: invalid --format %q\n", *format)
 		return 2
 	}
 
 	engine.ConfigureCPU()
 	eng, err := engine.Open(engine.Options{Dir: *dataDir, CacheBudget: *cacheMB << 20})
 	if err != nil {
-		io.WriteString(stderr, "minivectordb: startup failed: "+err.Error()+"\n")
+		fmt.Fprintf(stderr, "minivectordb: startup failed: %v\n", err)
 		return 1
 	}
 	sess := eng.NewSession(*mode)
@@ -84,25 +84,25 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	go func() {
 		s := <-sigs
 		mu.Lock()
-		io.WriteString(stderr, "minivectordb: "+s.String()+" received, shutting down\n")
+		fmt.Fprintf(stderr, "minivectordb: %v received, shutting down\n", s)
 		shutdown(0)
 	}()
 
-	io.WriteString(stderr, "minivectordb: ready\n")
+	fmt.Fprintln(stderr, "minivectordb: ready")
 	if protocolMode {
 		if _, err := w.WriteString("{\"type\":\"ready\"}\n"); err != nil {
-			io.WriteString(stderr, "minivectordb: output error: "+err.Error()+"\n")
+			fmt.Fprintf(stderr, "minivectordb: output error: %v\n", err)
 			return 1
 		}
 		if err := w.Flush(); err != nil {
-			io.WriteString(stderr, "minivectordb: output error: "+err.Error()+"\n")
+			fmt.Fprintf(stderr, "minivectordb: output error: %v\n", err)
 			return 1
 		}
 		return serveJSONL(sess, eng, stdin, w, stderr, &mu)
 	}
 
 	if *ready != "" {
-		w.WriteString(*ready + "\n")
+		fmt.Fprintln(w, *ready)
 		if err := w.Flush(); err != nil {
 			return 1
 		}
@@ -112,7 +112,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	for {
 		stmt, ok, err := sc.next()
 		if err != nil {
-			io.WriteString(stderr, "minivectordb: input error: "+err.Error()+"\n")
+			fmt.Fprintf(stderr, "minivectordb: input error: %v\n", err)
 			mu.Lock()
 			shutdown(1)
 		}
@@ -123,7 +123,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		exit := execOne(sess, stmt, out, w)
 		ferr := w.Flush()
 		if ferr != nil {
-			io.WriteString(stderr, "minivectordb: output error: "+ferr.Error()+"\n")
+			fmt.Fprintf(stderr, "minivectordb: output error: %v\n", ferr)
 			shutdown(1)
 		}
 		if exit {
@@ -139,10 +139,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 }
 
 type protoRequest struct {
-	ID         []byte // raw JSON value of "id"
-	Op         string
-	SQL        string
-	SearchMode string
+	ID         json.RawMessage `json:"id"`
+	Op         string          `json:"op"`
+	SQL        string          `json:"sql"`
+	SearchMode string          `json:"search_mode"`
 
 	fast bool // decoded by fastDecode: id is a scalar copied verbatim
 }
@@ -163,7 +163,7 @@ func serveJSONL(sess *engine.Session, eng *engine.Engine, stdin io.Reader, w *bu
 			line = append(long, rest...)
 		}
 		if err != nil && err != io.EOF {
-			io.WriteString(stderr, "minivectordb: input error: "+err.Error()+"\n")
+			fmt.Fprintf(stderr, "minivectordb: input error: %v\n", err)
 			mu.Lock()
 			sess.Close()
 			_ = eng.Close()
@@ -182,7 +182,7 @@ func serveJSONL(sess *engine.Session, eng *engine.Engine, stdin io.Reader, w *bu
 		mu.Lock()
 		exit, code := handleJSONL(sess, eng, line, w, stderr)
 		if ferr := w.Flush(); ferr != nil {
-			io.WriteString(stderr, "minivectordb: output error: "+ferr.Error()+"\n")
+			fmt.Fprintf(stderr, "minivectordb: output error: %v\n", ferr)
 			sess.Close()
 			_ = eng.Close()
 			mu.Unlock()
@@ -205,22 +205,22 @@ func serveJSONL(sess *engine.Session, eng *engine.Engine, stdin io.Reader, w *bu
 func handleJSONL(sess *engine.Session, eng *engine.Engine, line []byte, w *bufio.Writer, stderr io.Writer) (exit bool, code int) {
 	var req protoRequest
 	if err := decodeRequest(line, &req); err != nil {
-		io.WriteString(stderr, "minivectordb: invalid JSON request: "+err.Error()+"\n")
-		writeProtoError(w, []byte("null"), "invalid_request", err.Error())
+		fmt.Fprintf(stderr, "minivectordb: invalid JSON request: %v\n", err)
+		writeProtoError(w, json.RawMessage("null"), "invalid_request", err.Error())
 		return false, 0
 	}
 	id := req.ID
 	if len(bytes.TrimSpace(id)) == 0 || string(id) == "null" {
 		// Still echo whatever arrived; missing id becomes null.
 		if len(bytes.TrimSpace(id)) == 0 {
-			id = []byte("null")
+			id = json.RawMessage("null")
 		}
 	}
 	switch req.Op {
 	case "shutdown":
 		sess.Close()
 		if err := eng.Close(); err != nil {
-			io.WriteString(stderr, "minivectordb: close error: "+err.Error()+"\n")
+			fmt.Fprintf(stderr, "minivectordb: close error: %v\n", err)
 			writeProtoError(w, id, "internal_error", err.Error())
 			return true, 1
 		}
@@ -383,83 +383,4 @@ func (s *splitter) next() (string, bool, error) {
 		return t, true, nil
 	}
 	return "", false, nil
-}
-
-type cmdOptions struct {
-	dataDir, mode, format, ready string
-	cacheMB                      int64
-}
-
-const usage = `Usage of minivectordb:
-  -cache-mb int
-    	row cache budget in MiB (0 = derive from cgroup limit)
-  -data string
-    	alias of --data-dir
-  -data-dir string
-    	data directory (default "/data")
-  -format string
-    	output format: jsonl (official protocol, default), tsv, or json (legacy SQL stdin)
-  -mode string
-    	default vector search mode: exact or ann
-  -ready-line string
-    	legacy SQL mode only: line printed to stdout after recovery
-`
-
-// parseFlags reads the options with the syntax of package flag: -name value,
-// -name=value, one or two leading dashes, stopping at the first non-flag
-// argument or after "--".
-func parseFlags(args []string, o *cmdOptions) error {
-	for len(args) > 0 {
-		a := args[0]
-		if len(a) < 2 || a[0] != '-' {
-			return nil
-		}
-		args = args[1:]
-		name := a[1:]
-		if name[0] == '-' {
-			name = name[1:]
-			if name == "" { // "--" ends the flags
-				return nil
-			}
-		}
-		if name == "" || name[0] == '-' || name[0] == '=' {
-			return errors.New("bad flag syntax: " + a)
-		}
-		value, hasValue := "", false
-		if eq := strings.IndexByte(name, '='); eq >= 0 {
-			name, value, hasValue = name[:eq], name[eq+1:], true
-		}
-		var dst *string
-		switch name {
-		case "data-dir", "data":
-			dst = &o.dataDir
-		case "mode":
-			dst = &o.mode
-		case "format":
-			dst = &o.format
-		case "ready-line":
-			dst = &o.ready
-		case "cache-mb":
-		case "h", "help":
-			return errors.New("flag: help requested")
-		default:
-			return errors.New("flag provided but not defined: -" + name)
-		}
-		if !hasValue {
-			if len(args) == 0 {
-				return errors.New("flag needs an argument: -" + name)
-			}
-			value, args = args[0], args[1:]
-		}
-		if dst != nil {
-			*dst = value
-			continue
-		}
-		n, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return errors.New("invalid value \"" + value + "\" for flag -" + name + ": parse error")
-		}
-		o.cacheMB = n
-	}
-	return nil
 }

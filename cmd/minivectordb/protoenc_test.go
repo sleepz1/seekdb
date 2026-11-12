@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
-	"io"
 	"math"
 	"math/rand"
 	"testing"
@@ -98,67 +98,12 @@ func TestFastResultMatchesJSON(t *testing.T) {
 		}
 		id := ids[rng.Intn(len(ids))]
 		var want bytes.Buffer
-		refWriteProtoResult(&want, json.RawMessage(id), r)
+		bw := bufio.NewWriter(&want)
+		writeProtoResult(bw, json.RawMessage(id), r)
+		bw.Flush()
 		got := appendProtoResult(nil, []byte(id), r)
 		if !bytes.Equal(got, want.Bytes()) {
 			t.Fatalf("it %d:\n got %q\nwant %q", it, got, want.Bytes())
 		}
 	}
-}
-
-// refWriteProtoResult is the encoding/json writer the server used before.
-func refWriteProtoResult(w io.Writer, id json.RawMessage, r *engine.Result) {
-	if r.IsQuery {
-		cols := r.Columns
-		if cols == nil {
-			cols = []string{}
-		}
-		rows := make([][]any, len(r.Rows))
-		for i, row := range r.Rows {
-			out := make([]any, len(row))
-			for j, v := range row {
-				out[j] = refValue(v)
-			}
-			rows[i] = out
-		}
-		refEncode(w, struct {
-			ID      json.RawMessage `json:"id"`
-			OK      bool            `json:"ok"`
-			Columns []string        `json:"columns"`
-			Rows    [][]any         `json:"rows"`
-		}{ID: id, OK: true, Columns: cols, Rows: rows})
-		return
-	}
-	refEncode(w, struct {
-		ID           json.RawMessage `json:"id"`
-		OK           bool            `json:"ok"`
-		AffectedRows int64           `json:"affected_rows"`
-	}{ID: id, OK: true, AffectedRows: r.Affected})
-}
-
-func refValue(v engine.Value) any {
-	switch v.K {
-	case engine.KInt:
-		return v.I
-	case engine.KBool:
-		return v.I != 0
-	case engine.KFloat:
-		if math.IsNaN(v.F) || math.IsInf(v.F, 0) {
-			return nil
-		}
-		return v.F
-	case engine.KStr:
-		return v.S
-	case engine.KVec:
-		arr := make([]float64, len(v.V))
-		for i, f := range v.V {
-			x := float64(f)
-			if math.IsNaN(x) || math.IsInf(x, 0) {
-				x = 0
-			}
-			arr[i] = x
-		}
-		return arr
-	}
-	return nil
 }

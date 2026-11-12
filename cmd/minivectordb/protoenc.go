@@ -9,10 +9,12 @@ import (
 	"minivectordb/internal/engine"
 )
 
-// Direct encoder for successful responses. It produces exactly the bytes
-// encoding/json's Encoder (HTML escaping off) produced for the same structs,
-// without reflection or per-value allocations; protoenc_test.go checks the
-// two against each other. id must be compact JSON.
+// Direct encoder for successful responses. It produces exactly the bytes of
+// the encoding/json path in format.go (writeProtoResult with HTML escaping
+// off) without reflection or per-value allocations; protoenc_test.go checks
+// the two against each other. It is used when the request id is a scalar
+// taken verbatim from the request (the fastDecode path), so no compaction of
+// the id is needed.
 
 var protoBuf []byte
 
@@ -89,24 +91,19 @@ func appendJSONValue(b []byte, v *engine.Value) []byte {
 	return append(b, "null"...)
 }
 
-// appendJSONFloat formats a finite float64 the way encoding/json does.
-func appendJSONFloat(b []byte, f float64) []byte { return appendJSONFloatBits(b, f, 64) }
-
-// appendJSONFloatBits is encoding/json's float encoder for a finite value of
-// the given bit size: shortest representation, exponent form below 1e-6 and
-// from 1e21, "e-07" shortened to "e-7".
-func appendJSONFloatBits(b []byte, f float64, bits int) []byte {
+// appendJSONFloat formats a finite float64 the way encoding/json does:
+// shortest representation, exponent form below 1e-6 and from 1e21, with a
+// two-digit exponent reduced to one digit when it starts with 0.
+func appendJSONFloat(b []byte, f float64) []byte {
 	abs := math.Abs(f)
 	format := byte('f')
-	if abs != 0 {
-		if bits == 64 && (abs < 1e-6 || abs >= 1e21) || bits == 32 && (float32(abs) < 1e-6 || float32(abs) >= 1e21) {
-			format = 'e'
-		}
+	if abs != 0 && (abs < 1e-6 || abs >= 1e21) {
+		format = 'e'
 	}
-	b = strconv.AppendFloat(b, f, format, -1, bits)
+	b = strconv.AppendFloat(b, f, format, -1, 64)
 	if format == 'e' {
 		n := len(b)
-		if n >= 4 && b[n-4] == 'e' && b[n-3] == '-' && b[n-2] == '0' {
+		if n >= 4 && b[n-4] == 'e' && (b[n-3] == '-' || b[n-3] == '+') && b[n-2] == '0' {
 			b[n-2] = b[n-1]
 			b = b[:n-1]
 		}

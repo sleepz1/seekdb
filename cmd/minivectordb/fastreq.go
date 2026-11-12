@@ -2,21 +2,22 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"unicode/utf8"
 )
 
 // decodeRequest decodes one protocol request. The common shape (a flat
 // object whose keys are exactly id/op/sql/search_mode, string values without
 // escapes, a scalar id) is scanned directly; anything else, including every
-// malformed line, goes through parseRequest (json.Unmarshal semantics, see
-// jsonreq.go).
+// malformed line, goes through encoding/json, so behaviour (and error text)
+// is that of json.Unmarshal.
 func decodeRequest(line []byte, req *protoRequest) error {
 	if fastDecode(line, req) {
 		req.fast = true
 		return nil
 	}
 	*req = protoRequest{}
-	return parseRequest(line, req)
+	return json.Unmarshal(line, req)
 }
 
 func isWS(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
@@ -115,10 +116,10 @@ func fastDecode(b []byte, req *protoRequest) bool {
 					}
 				}
 				raw := b[start:i]
-				if !validJSONScalar(raw) {
+				if len(raw) == 0 || raw[0] == '{' || raw[0] == '[' || !json.Valid(raw) {
 					return false
 				}
-				req.ID = append([]byte(nil), raw...)
+				req.ID = append(json.RawMessage(nil), raw...)
 			} else {
 				v, ok := str()
 				if !ok {
