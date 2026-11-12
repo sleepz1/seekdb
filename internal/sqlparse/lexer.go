@@ -2,7 +2,7 @@
 package sqlparse
 
 import (
-	"minivectordb/internal/xfmt"
+	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -33,7 +33,7 @@ type SyntaxError struct{ Msg string }
 func (e *SyntaxError) Error() string { return e.Msg }
 
 func syntaxErr(format string, a ...any) error {
-	return &SyntaxError{Msg: xfmt.Sprintf(format, a...)}
+	return &SyntaxError{Msg: fmt.Sprintf(format, a...)}
 }
 
 func lex(src string) ([]token, error) {
