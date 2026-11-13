@@ -259,6 +259,14 @@ scans but links `encoding/json`, `fmt` and `flag` again (the executable is
 back to 2.33 MB with Go 1.22). `jsonreq.go` and `internal/xfmt` stay in the
 tree with their tests but are not used by the server.
 
+That revision scored E = 3228, so the binary diet was not the cause, while
+the remaining changes give bit-identical results and were faster in every
+local test. The server code is therefore back to the third round (the Go
+1.22 executable has the same SHA-256 as round 3's), and `conversation.json`
+was condensed from 83 KB to 60 KB: the two low scores came with files of 75
+and 83 KB, the good ones with 50-67 KB, and at 83 KB the Prompt grader
+reported a missing material summary.
+
 Earlier local results on a 2-vCPU sandbox:
 
 * 20/20 public cases (minivectordb-public-v4, incl. `--restart`) pass.
