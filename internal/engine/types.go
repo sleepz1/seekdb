@@ -115,40 +115,65 @@ func encodeRow(buf []byte, s *Schema, r Row) []byte {
 // float32 values. Typical data with a few decimal digits (e.g. "0.123456")
 // shrinks from 4 to 3 bytes per element, cutting log size and disk I/O.
 func appendVector(buf []byte, v []float32) []byte {
-	if p, ok := decimalScale(v); ok {
-		// Bit-packed scaled integers: tag 16+p, width byte w, then the
-		// values k + 2^(w-1) as w-bit little-endian fields. "0.123456"-style
-		// data needs 21 bits instead of 24 (or 32 for raw float32).
-		sc := exactPow10[p]
-		var maxAbs uint32
-		for _, f := range v {
-			k := int32(math.Round(float64(f) * sc))
-			if k < 0 {
-				k = -k
-			}
-			if uint32(k) > maxAbs {
-				maxAbs = uint32(k)
-			}
+	// Bit-packed scaled integers: tag 16+p, width byte w, then the values
+	// k + 2^(w-1) as w-bit little-endian fields. "0.123456"-style data needs
+	// 21 bits instead of 24 (or 32 for raw float32). p is the smallest
+	// scale at which every element round-trips (as decimalScale finds it);
+	// the scaled integers are computed once, in the same pass that checks
+	// them.
+	if len(v) > 0 {
+		var arr [1024]int32
+		ks := arr[:0]
+		if len(v) > len(arr) {
+			ks = make([]int32, 0, len(v))
 		}
-		w := uint(bits.Len32(maxAbs)) + 1
-		buf = append(buf, byte(16+p), byte(w))
-		off := uint64(1) << (w - 1)
-		var acc uint64
-		var nacc uint
-		for _, f := range v {
-			k := int64(math.Round(float64(f) * sc))
-			acc |= uint64(k+int64(off)) << nacc
-			nacc += w
-			for nacc >= 8 {
+		p := 0
+		for p <= 7 && !scaledExact(v[0], p) {
+			p++
+		}
+		for ; p <= 7; p++ {
+			sc := exactPow10[p]
+			ks = ks[:0]
+			var maxAbs uint32
+			for _, f := range v {
+				if math.Float32bits(f) == 1<<31 {
+					break // -0 has no integer representation
+				}
+				k := math.Round(float64(f) * sc)
+				if !(k < 1<<23 && k > -(1<<23)) || math.Float32bits(float32(k/sc)) != math.Float32bits(f) {
+					break // out of range, NaN, or not exact at this scale
+				}
+				ki := int32(k)
+				ks = append(ks, ki)
+				if ki < 0 {
+					ki = -ki
+				}
+				if uint32(ki) > maxAbs {
+					maxAbs = uint32(ki)
+				}
+			}
+			if len(ks) < len(v) {
+				continue
+			}
+			w := uint(bits.Len32(maxAbs)) + 1
+			buf = append(buf, byte(16+p), byte(w))
+			off := int64(1) << (w - 1)
+			var acc uint64
+			var nacc uint
+			for _, k := range ks {
+				acc |= uint64(int64(k)+off) << nacc
+				nacc += w
+				for nacc >= 8 {
+					buf = append(buf, byte(acc))
+					acc >>= 8
+					nacc -= 8
+				}
+			}
+			if nacc > 0 {
 				buf = append(buf, byte(acc))
-				acc >>= 8
-				nacc -= 8
 			}
+			return buf
 		}
-		if nacc > 0 {
-			buf = append(buf, byte(acc))
-		}
-		return buf
 	}
 	buf = append(buf, 0)
 	for _, f := range v {
@@ -157,8 +182,6 @@ func appendVector(buf []byte, v []float32) []byte {
 	return buf
 }
 
-// decimalScale finds the smallest p (0..7) such that every element equals
-// float32(k/10^p) bit-for-bit for an integer |k| < 2^23.
 func decimalScale(v []float32) (int, bool) {
 	if len(v) == 0 {
 		return 0, false
@@ -445,8 +468,12 @@ func parseVectorText(s string, dim int) ([]float32, error) {
 		return parseVectorElems(nil, dim)
 	}
 	if dim > 0 {
-		// Common case: parse in place without splitting into substrings.
-		out := make([]float32, 0, dim)
+		out := make([]float32, dim)
+		if parseDecimalList(inner, out) {
+			return out, nil
+		}
+		out = out[:0]
+		// Parse in place without splitting into substrings.
 		for rest := inner; ; {
 			e := rest
 			j := strings.IndexByte(rest, ',')
@@ -470,6 +497,60 @@ func parseVectorText(s string, dim int) ([]float32, error) {
 		}
 	}
 	return parseVectorElems(strings.Split(inner, ","), dim)
+}
+
+// parseDecimalList is the single-pass form of the loop above for the
+// common input: exactly len(out) comma-separated plain decimals (optional
+// sign, at most 15 digits, optional '.'), with only ASCII blanks around
+// them. Each element is computed as in fastDecimal. Anything else returns
+// false and is left to the general path, which also produces the errors.
+func parseDecimalList(s string, out []float32) bool {
+	i, n := 0, 0
+	for {
+		for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
+			i++
+		}
+		neg := false
+		if i < len(s) && (s[i] == '-' || s[i] == '+') {
+			neg = s[i] == '-'
+			i++
+		}
+		var m uint64
+		digits, frac, dot := 0, 0, false
+		for ; i < len(s); i++ {
+			c := s[i]
+			if c-'0' <= 9 {
+				m = m*10 + uint64(c-'0')
+				digits++
+				if dot {
+					frac++
+				}
+			} else if c == '.' && !dot {
+				dot = true
+			} else {
+				break
+			}
+		}
+		if digits == 0 || digits > 15 || n == len(out) {
+			return false
+		}
+		f := float64(m) / exactPow10[frac]
+		if neg {
+			f = -f
+		}
+		out[n] = float32(f)
+		n++
+		for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
+			i++
+		}
+		if i == len(s) {
+			return n == len(out)
+		}
+		if s[i] != ',' {
+			return false
+		}
+		i++
+	}
 }
 
 // FormatVector renders a vector in literal form, e.g. [1,2.5].

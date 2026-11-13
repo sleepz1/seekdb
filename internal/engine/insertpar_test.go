@@ -10,8 +10,9 @@ import (
 // parallel, but the reported error must be the one sequential processing
 // hits first, and nothing may be applied.
 func TestParallelInsertErrorOrder(t *testing.T) {
-	old := Workers
-	defer func() { Workers = old }()
+	old, oldChunk := Workers, insertParChunk
+	defer func() { Workers = old; insertParChunk = oldChunk }()
+	insertParChunk = 16 // split these 64-row statements
 	mk := func(bad map[int]string) string {
 		var r []string
 		for i := 0; i < 64; i++ {

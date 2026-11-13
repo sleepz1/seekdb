@@ -331,9 +331,9 @@ func (s *Session) insert(t *Table, x *sqlparse.Insert, sc map[int64]change) (int
 		ok  bool
 	}
 	var pre [][]cell
-	if Workers > 1 && len(x.Rows) >= 32 {
+	if Workers > 1 && len(x.Rows) >= 2*insertParChunk {
 		pre = make([][]cell, len(x.Rows))
-		parallelFor(len(x.Rows), func(lo, hi int) {
+		parallelFor(len(x.Rows), insertParChunk, func(lo, hi int) {
 			for ri := lo; ri < hi; ri++ {
 				vals := x.Rows[ri]
 				if len(vals) != len(sch.Columns) {

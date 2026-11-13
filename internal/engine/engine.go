@@ -501,11 +501,7 @@ func (e *Engine) commitChanges(changes map[string]map[int64]change) error {
 				}
 			}
 		}
-		if Workers > 1 && len(pks) >= 32 {
-			parallelFor(len(pks), encode)
-		} else {
-			encode(0, len(pks))
-		}
+		parallelFor(len(pks), insertParChunk, encode)
 		for pi, pk := range pks {
 			c := m[pk]
 			if c.deleted {

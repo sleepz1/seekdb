@@ -12,22 +12,48 @@ import (
 	"minivectordb/internal/sqlparse"
 )
 
-// Workers is the number of goroutines used for large exact scans. It is set
-// from the cgroup CPU quota at startup (Go 1.22 does not do this itself).
+// Workers is the largest number of goroutines used for one parallel section
+// (exact scans of large tables, conversion of very large INSERTs). It is set
+// from the CPUs and the cgroup CPU quota at startup.
 var Workers = 1
 
-// ConfigureCPU sets GOMAXPROCS and Workers from the container CPU quota and
-// starts the GC pacing (see gctune.go). GOGC in the environment still wins.
+// The protocol is a single request stream, so apart from those sections only
+// the garbage collector uses a second P. Every further P costs memory (its
+// allocation cache) and is another thread the runtime wakes for a few
+// microseconds of mark work, which under a CPU quota is paid for with
+// throttling. The process therefore starts with baseProcs and raises
+// GOMAXPROCS to Workers the first time a parallel section really runs.
+const (
+	baseProcs  = 2
+	maxWorkers = 8
+)
+
+var (
+	procsFromEnv bool
+	procsOnce    sync.Once
+)
+
+// ConfigureCPU sets GOMAXPROCS and Workers from the CPUs and the container
+// CPU quota (cgroup v2 or v1) and starts the GC pacing (see gctune.go).
+// GOMAXPROCS and GOGC in the environment still win.
 func ConfigureCPU() {
 	startGCTuning()
 	n := runtime.NumCPU()
 	if q := cgroupCPUQuota(); q > 0 && q < n {
 		n = q
 	}
+	if n > maxWorkers {
+		n = maxWorkers
+	}
 	if n < 1 {
 		n = 1
 	}
-	runtime.GOMAXPROCS(n)
+	if os.Getenv("GOMAXPROCS") != "" {
+		procsFromEnv = true
+		n = runtime.GOMAXPROCS(0)
+	} else {
+		runtime.GOMAXPROCS(min(n, baseProcs))
+	}
 	Workers = n
 	if w, err := strconv.Atoi(os.Getenv("MVDB_WORKERS")); err == nil && w >= 1 {
 		Workers = w // experiments only
@@ -37,24 +63,53 @@ func ConfigureCPU() {
 	}
 }
 
+// raiseProcs gives the scheduler one P per worker before the first parallel
+// section runs.
+func raiseProcs() {
+	procsOnce.Do(func() {
+		if !procsFromEnv && Workers > runtime.GOMAXPROCS(0) {
+			runtime.GOMAXPROCS(Workers)
+		}
+	})
+}
+
+// cgroupCPUQuota returns the CPU quota of the container rounded up to whole
+// CPUs, or 0 when there is none. Go 1.22 does not look at it.
 func cgroupCPUQuota() int {
-	b, err := os.ReadFile("/sys/fs/cgroup/cpu.max")
-	if err != nil {
+	if b, err := os.ReadFile("/sys/fs/cgroup/cpu.max"); err == nil { // v2
+		f := strings.Fields(string(b))
+		if len(f) == 2 {
+			return quotaCPUs(f[0], f[1])
+		}
 		return 0
 	}
-	f := strings.Fields(string(b))
-	if len(f) != 2 || f[0] == "max" {
-		return 0
+	for _, dir := range []string{"/sys/fs/cgroup/cpu", "/sys/fs/cgroup/cpu,cpuacct"} { // v1
+		q, err1 := os.ReadFile(dir + "/cpu.cfs_quota_us")
+		p, err2 := os.ReadFile(dir + "/cpu.cfs_period_us")
+		if err1 == nil && err2 == nil {
+			return quotaCPUs(strings.TrimSpace(string(q)), strings.TrimSpace(string(p)))
+		}
 	}
-	quota, err1 := strconv.ParseFloat(f[0], 64)
-	period, err2 := strconv.ParseFloat(f[1], 64)
-	if err1 != nil || err2 != nil || period <= 0 {
-		return 0
+	return 0
+}
+
+func quotaCPUs(quota, period string) int {
+	q, err1 := strconv.ParseFloat(quota, 64)
+	p, err2 := strconv.ParseFloat(period, 64)
+	if err1 != nil || err2 != nil || q <= 0 || p <= 0 {
+		return 0 // "max" (v2) or -1 (v1): no quota
 	}
-	return int(math.Ceil(quota / period))
+	return int(math.Ceil(q / p))
 }
 
 const parallelMinRows = 4096
+
+// insertParChunk is the smallest number of rows of one INSERT or commit
+// that is worth a worker of its own. Converting and encoding a row of 128
+// dimensions takes a few microseconds, and with the 100-row batches of the
+// benchmark two workers measured no faster than one (and many workers
+// clearly slower), so only statements of several hundred rows are split.
+var insertParChunk = 256
 
 // parallelMinWork is the number of code bytes (rows x dimensions) from which
 // the arena scan is split across workers.
@@ -86,6 +141,7 @@ func (s *Session) parallelTopKL2(t *Table, where sqlparse.Expr, key l2E, k int) 
 		}
 	}
 	nw := Workers
+	raiseProcs()
 	chunk := (len(t.slots) + nw - 1) / nw
 	results := make([][]l2Hit, nw)
 	errs := make([]error, nw)
@@ -170,17 +226,20 @@ func scanTopK(slots []slot, filter cexpr, key l2E, k int) ([]l2Hit, error) {
 	return h, nil
 }
 
-// parallelFor splits [0,n) into Workers contiguous ranges and runs fn on them
-// concurrently, returning when all are done.
-func parallelFor(n int, fn func(lo, hi int)) {
+// parallelFor splits [0,n) into at most Workers contiguous ranges of at
+// least minChunk items and runs fn on them concurrently, returning when all
+// are done. Waking a worker costs tens of microseconds, so minChunk should
+// be worth clearly more than that; smaller inputs run on the caller.
+func parallelFor(n, minChunk int, fn func(lo, hi int)) {
 	nw := Workers
-	if nw > n {
-		nw = n
+	if minChunk > 0 && nw > n/minChunk {
+		nw = n / minChunk
 	}
 	if nw <= 1 {
 		fn(0, n)
 		return
 	}
+	raiseProcs()
 	chunk := (n + nw - 1) / nw
 	var wg sync.WaitGroup
 	for lo := chunk; lo < n; lo += chunk {

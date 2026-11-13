@@ -65,6 +65,8 @@ func (s *Session) fastTopKL2(t *Table, where sqlparse.Expr, key l2E, k int) ([]c
 	nw := Workers
 	if n*t.vdim < parallelMinWork {
 		nw = 1
+	} else if nw > 1 {
+		raiseProcs()
 	}
 	chunk := (n + nw - 1) / nw
 	results := make([][]arenaHit, nw)
