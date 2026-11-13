@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"encoding/json"
 	"unicode/utf8"
 )
@@ -35,18 +34,6 @@ func fastDecode(b []byte, req *protoRequest) bool {
 			return "", false
 		}
 		j := i + 1
-		// eight bytes at a time while none of them is '"', '\\' or a
-		// control character
-		for j+8 <= len(b) {
-			x := binary.LittleEndian.Uint64(b[j:])
-			ctl := (x - 0x2020202020202020) &^ x
-			q := x ^ 0x2222222222222222
-			bs := x ^ 0x5c5c5c5c5c5c5c5c
-			if (ctl|(q-0x0101010101010101)&^q|(bs-0x0101010101010101)&^bs)&0x8080808080808080 != 0 {
-				break
-			}
-			j += 8
-		}
 		for j < len(b) {
 			c := b[j]
 			if c == '"' {
