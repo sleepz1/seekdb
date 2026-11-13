@@ -186,7 +186,7 @@ change the result:
 
 With no pending transaction changes and at least 8 MiB of codes to scan
 (about 65,000 rows of 128 dimensions; below that waking the workers costs
-more than it saves), the scan is split across `min(NumCPU, cgroup CPU quota)`
+more than it saves), the scan is split across `min(NumCPU, cgroup CPU quota, 8)`
 goroutines and merged in the same (distance, pk) order. Transactions with pending changes on the table,
 uncached rows or an over-budget arena fall back to the original row scan.
 Differential tests compare the fast path with the reference scan bit for bit
@@ -266,6 +266,32 @@ local test. The server code is therefore back to the third round (the Go
 was condensed from 83 KB to 60 KB: the two low scores came with files of 75
 and 83 KB, the good ones with 50-67 KB, and at 83 KB the Prompt grader
 reported a missing material summary.
+
+That revision, the same executable as round 3, scored E = 3127. One binary
+has therefore scored 4094, 4032 and 3127, so the swings of about a quarter
+come from the platform and not from the code or from the size of
+`conversation.json` (the low score came with a 62 KB file). The three
+measurements taken while the platform was slow are 3127 (round 3 code),
+3228 (single-pass encoder/parser and string scans) and 3214 (those plus the
+binary diet), which matches the local result that those changes are a
+little faster. They are back in this revision; the binary diet is not.
+
+This revision also changes how many CPUs the process uses. Until now
+GOMAXPROCS and the number of workers were `NumCPU`, lowered only by a cgroup
+v2 quota; a cgroup v1 quota was ignored, and every multi-row INSERT of 32
+rows or more was converted by all workers. On a 2-CPU machine that was
+harmless, and that is all that had been measured. Forcing 64 Ps and 64
+workers on the same machine (two real CPUs, so only an approximation of a
+large host) raised the write time from about 205-235 ms to 285-300 ms and
+the peak RSS from 14.6 to 16.6-16.9 MiB, and with two workers the 100-row
+batches were no faster than with one while using more CPU. Now the process
+starts with 2 Ps, reads the v1 quota as well, converts and encodes on the
+calling goroutine unless a statement has at least 512 rows, and raises
+GOMAXPROCS to `min(NumCPU, quota, 8)` only when a table is large enough for
+a split scan. Locally (9 interleaved runs against round 3): write 244 / 294
+-> 229 / 251 ms (min / median), engine CPU 260 / 311 -> 214 / 228 ms, query
+and memory unchanged; 100,000 rows unchanged. Whether the platform's hosts
+have many CPUs is not known, so the effect there is a hypothesis.
 
 Earlier local results on a 2-vCPU sandbox:
 
