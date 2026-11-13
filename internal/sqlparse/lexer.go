@@ -175,9 +175,15 @@ func lexString(src string, i int) (string, int, error) {
 	// a long vector literal) -> one memmove instead of a byte-by-byte
 	// builder. The copy matters: a substring would keep the whole statement
 	// alive in any row that stores the value.
-	if k := strings.IndexByte(src[i+1:], q); k >= 0 {
-		k += i + 1
-		if strings.IndexByte(src[i+1:k], '\\') < 0 && !(k+1 < len(src) && src[k+1] == q) {
+	for k := i + 1; k < len(src); k++ {
+		c := src[k]
+		if c == '\\' {
+			break
+		}
+		if c == q {
+			if k+1 < len(src) && src[k+1] == q {
+				break // doubled quote: needs unescaping
+			}
 			return strings.Clone(src[i+1 : k]), k + 1, nil
 		}
 	}
