@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"minivectordb/internal/engine"
 	"minivectordb/internal/sqlparse"
@@ -178,6 +179,9 @@ func serveJSONL(sess *engine.Session, eng *engine.Engine, stdin io.Reader, w *bu
 				return 0
 			}
 			continue
+		}
+		if d := engine.ProbeDelay; d > 0 { // diagnostic build, see engine/probe.go
+			time.Sleep(d)
 		}
 		mu.Lock()
 		exit, code := handleJSONL(sess, eng, line, w, stderr)
