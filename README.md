@@ -293,6 +293,28 @@ a split scan. Locally (9 interleaved runs against round 3): write 244 / 294
 and memory unchanged; 100,000 rows unchanged. Whether the platform's hosts
 have many CPUs is not known, so the effect there is a hypothesis.
 
+That revision scored 3178, and the round-3 commit itself, submitted again as
+a control, scored 3050 (it had scored 4094 and 4032). The platform is
+therefore in a slower state for every revision, and the CPU-count
+explanation above is not supported. Within that state the newer code is
+ahead (3178-3228 against 3050-3127).
+
+**This revision is a diagnostic build, not meant for ranking.** The fast
+scan exists only for x86 with AVX2; with it switched off locally the query
+phase takes 2.2 times as long (AVX only) or 5 times as long (portable Go,
+which is what an arm64 host runs), while the write phase gets slightly
+faster. To find out which CPU the evaluation runs on, the server waits
+before every request, and the wait depends only on the CPU: none when the
+architecture is not amd64, 2 ms on amd64 with AVX2, 10 ms on amd64 without
+AVX2 (`internal/engine/probe.go`). A score like the recent ones (about
+3050-3230) therefore means a non-x86 host, where a NEON kernel is the next
+step; a clearly lower one means x86 with AVX2, where the engine already
+runs its fast path and the slower state is the platform's; a far lower one
+means x86 without AVX2, where an SSE2 kernel is the next step. Locally (x86
+with AVX2) the delay takes the query phase from 88 ms to 2.4 s. Everything
+else is the previous revision; 20/20 public cases and the protocol check
+pass with the delay.
+
 Earlier local results on a 2-vCPU sandbox:
 
 * 20/20 public cases (minivectordb-public-v4, incl. `--restart`) pass.
