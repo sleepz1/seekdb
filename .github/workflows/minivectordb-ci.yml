@@ -49,13 +49,19 @@ jobs:
         run: |
           go vet ./...
           go test ./... 2>&1 | tee test.txt
-          { echo '```'; tail -8 test.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          go test ./internal/engine -run 'Arm64|Q8Kernels' -v 2>&1 | grep -E 'asimddp|^(---|ok|PASS|FAIL)' | tee -a test.txt
+          { echo '```'; tail -12 test.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Phase timing
         run: |
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o minivectordb ./cmd/minivectordb
           {
             echo '```'
+            echo "== default"
             for i in 1 2 3; do python3 scripts/ci_bench.py ./minivectordb; done
+            echo "== MVDB_NODOT=1 (arm64: base NEON kernel instead of SDOT)"
+            for i in 1 2; do MVDB_NODOT=1 python3 scripts/ci_bench.py ./minivectordb; done
+            echo "== MVDB_NOQ8=1 (no int8 scan: what a CPU without a kernel runs)"
+            for i in 1 2; do MVDB_NOQ8=1 python3 scripts/ci_bench.py ./minivectordb; done
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Kernel benchmarks
