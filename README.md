@@ -299,7 +299,7 @@ therefore in a slower state for every revision, and the CPU-count
 explanation above is not supported. Within that state the newer code is
 ahead (3178-3228 against 3050-3127).
 
-**This revision is a diagnostic build, not meant for ranking.** The fast
+**The next revision (dcd33845) was a diagnostic build, not meant for ranking.** The fast
 scan exists only for x86 with AVX2; with it switched off locally the query
 phase takes 2.2 times as long (AVX only) or 5 times as long (portable Go,
 which is what an arm64 host runs), while the write phase gets slightly
@@ -314,6 +314,24 @@ means x86 without AVX2, where an SSE2 kernel is the next step. Locally (x86
 with AVX2) the delay takes the query phase from 88 ms to 2.4 s. Everything
 else is the previous revision; 20/20 public cases and the protocol check
 pass with the delay.
+
+**arm64.** This revision removes that delay and gives arm64 its own scan
+kernels (`internal/engine/q8_arm64.s`): a base NEON one (SMULL/SMULL2 +
+SADALP) and an SDOT one used when the CPU reports `asimddp`. The repository
+now runs `go vet`, the tests and a phase timing on GitHub's x86-64 and arm64
+runners (`.github/workflows/minivectordb-ci.yml`, `scripts/ci_bench.py`);
+`q8kernel_test.go` and `q8_arm64_test.go` compare every kernel with the Go
+reference there. On the arm64 runner (Neoverse-N2) the query phase of
+1,000 queries took 394 ms with the code of the previous revisions (no
+kernel, float scan), 148 ms with NEON and 120 ms with SDOT; the x86-64
+runner takes 83 ms, and 183 ms without its kernel. The write phase is
+unchanged (about 160 ms on both). The prune test is still portable Go on
+arm64 (about 63 of the 110 us of an unfiltered scan there). On x86-64 the
+engine is the previous revision: results of 128 mixed queries identical to
+the admitted build, 20/20 public cases, protocol check, 20 SIGKILL rounds.
+Whether the evaluation hosts are arm64 is still not known; if they are,
+this revision should score clearly above the recent 3050-3230, and if they
+are x86-64 it should score the same as before.
 
 Earlier local results on a 2-vCPU sandbox:
 
