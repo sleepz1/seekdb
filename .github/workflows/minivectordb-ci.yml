@@ -1,0 +1,67 @@
+name: MiniVectorDB tests
+
+# Runs the Go tests of the MiniVectorDB entry on x86-64 and arm64 and times
+# the two benchmark phases on each, so the arm64 (NEON) code path is tested
+# on real hardware. Only for the contest branch.
+on:
+  push:
+    branches: ["2026-competition-round2"]
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "go.mod"
+      - "scripts/ci_bench.py"
+      - ".github/workflows/minivectordb-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: minivectordb-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: false
+      - name: Machine
+        run: |
+          {
+            echo "### ${{ matrix.os }}"
+            echo '```'
+            go version
+            uname -m
+            lscpu | grep -E 'Model name|Architecture|^CPU\(s\)|Flags|Features' | cut -c1-400
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Vet and test
+        run: |
+          go vet ./...
+          go test ./... 2>&1 | tee test.txt
+          { echo '```'; tail -8 test.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Phase timing
+        run: |
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o minivectordb ./cmd/minivectordb
+          {
+            echo '```'
+            for i in 1 2 3; do python3 scripts/ci_bench.py ./minivectordb; done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Kernel benchmarks
+        run: |
+          {
+            echo '```'
+            go test ./internal/engine -run xxx -bench 'Scan|DotOnly|TopK' -benchtime 300x | grep -E '^Benchmark|^cpu'
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
