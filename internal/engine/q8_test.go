@@ -7,7 +7,7 @@ import (
 )
 
 func TestQ8KernelAndBound(t *testing.T) {
-	if !hasAVX2 {
+	if !hasQ8Kernel() {
 		t.Skip("no AVX2")
 	}
 	rng := rand.New(rand.NewSource(9))

@@ -29,7 +29,7 @@ type q8meta struct {
 // useQ8 reports whether the table keeps the int8 copy: AVX2 is needed, and
 // the dimension must be a multiple of 16 and at most 512 (kernel step; the
 // int32 sums stay far below 2^31: 512*255*63 < 2^24).
-func (t *Table) useQ8() bool { return hasAVX2 && t.vdim%16 == 0 && t.vdim <= 512 }
+func (t *Table) useQ8() bool { return hasQ8Kernel() && t.vdim%16 == 0 && t.vdim <= 512 }
 
 func roundUp32(x float64) float32 {
 	f := float32(x)

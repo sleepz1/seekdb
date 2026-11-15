@@ -47,6 +47,9 @@ func dotQ8(c []int8, qq *q8query) int32 {
 	return out[0]
 }
 
+// hasQ8Kernel reports whether the int8 scan kernels can be used.
+func hasQ8Kernel() bool { return hasAVX2 }
+
 var hasAVX2 = func() bool {
 	if !hasAVX {
 		return false

@@ -1,10 +1,10 @@
-//go:build !amd64
+//go:build !amd64 && !arm64
 
 package engine
 
 func l2sq32(a, b []float32) float32 { return l2sq32Go(a, b) }
 
-const hasAVX2 = false
+func hasQ8Kernel() bool { return false }
 
 func dotQ8Block(c []int8, qq *q8query, out []int32) { panic("unreachable") }
 
