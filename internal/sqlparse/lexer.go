@@ -172,13 +172,14 @@ func near(src string, i int) string {
 func lexString(src string, i int) (string, int, error) {
 	q := src[i]
 	// Fast path: no escape before the closing quote (the common case, e.g.
-	// a long vector literal) -> one memmove instead of a byte-by-byte
-	// builder. The copy matters: a substring would keep the whole statement
-	// alive in any row that stores the value.
+	// a long vector literal) -> a substring of the statement, no copy. The
+	// engine copies VARCHAR values when it stores them (coerce), so a stored
+	// row never keeps the whole statement alive; a vector literal is parsed
+	// into float32 and then dropped.
 	if k := strings.IndexByte(src[i+1:], q); k >= 0 {
 		k += i + 1
 		if strings.IndexByte(src[i+1:k], '\\') < 0 && !(k+1 < len(src) && src[k+1] == q) {
-			return strings.Clone(src[i+1 : k]), k + 1, nil
+			return src[i+1 : k], k + 1, nil
 		}
 	}
 	j := i + 1
