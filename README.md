@@ -333,6 +333,27 @@ Whether the evaluation hosts are arm64 is still not known; if they are,
 this revision should score clearly above the recent 3050-3230, and if they
 are x86-64 it should score the same as before.
 
+That revision scored 3477. The statement fixes the evaluation environment
+as Linux x86_64, where that revision behaves exactly like the round-6 one
+(3178), so the arm64 explanation does not hold and the spread of the
+platform's E for one x86 build is now 3050-4094.
+
+**Write path allocations.** In the write phase the engine allocated about
+86 MB for 4 MB of data and ran 79 collections (GC about 44 ms of the
+roughly 185 ms of CPU). Three copies were avoidable: string literals were
+cloned by the lexer even when they were vector text that is parsed and
+dropped (VARCHAR values are now copied when stored, in `coerce`); every
+committed row was encoded into its own slice and then appended to the
+payload; and `appendRecord` copied the payload once more to put the header
+in front. Rows are now encoded straight into a payload buffer that starts
+with room for the record header and is reused between commits
+(`appendFramed`); large commits still encode in parallel. Collections in
+the write phase: 79 -> 35. A/B, 9 interleaved runs (min / median): write
+wall 210 / 236 -> 170 / 212 ms, write CPU 184 / 209 -> 123 / 159 ms; query
+and memory unchanged. Results of 128 mixed queries identical to the
+admitted build, 20/20 public cases, protocol check, 30 SIGKILL rounds,
+race detector on the engine tests.
+
 Earlier local results on a 2-vCPU sandbox:
 
 * 20/20 public cases (minivectordb-public-v4, incl. `--restart`) pass.
