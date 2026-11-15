@@ -92,6 +92,7 @@ type Options struct {
 type Engine struct {
 	opts      Options
 	log       *logFile
+	commitBuf []byte            // reused commit payload buffer (see commitChanges)
 	tables    map[string]*Table // lower-cased name
 	cacheUsed int64
 	arenaUsed int64
@@ -480,7 +481,9 @@ func (e *Engine) commitChanges(changes map[string]map[int64]change) error {
 	}
 	var pend []pending
 	var dels []pending
-	p := &payloadBuf{}
+	// The payload is built after recHdrSize reserved bytes (appendFramed)
+	// in a buffer kept between commits.
+	p := &payloadBuf{b: append(e.commitBuf[:0], make([]byte, recHdrSize)...)}
 	for _, name := range names {
 		t := e.tables[name]
 		if t == nil {
@@ -492,16 +495,22 @@ func (e *Engine) commitChanges(changes map[string]map[int64]change) error {
 			pks = append(pks, pk)
 		}
 		sort.Slice(pks, func(i, j int) bool { return pks[i] < pks[j] })
-		// Encode the rows (pure work) in parallel for large commits.
-		encs := make([][]byte, len(pks))
-		encode := func(lo, hi int) {
-			for i := lo; i < hi; i++ {
-				if c := m[pks[i]]; !c.deleted {
-					encs[i] = encodeRow(nil, t.schema, c.row)
+		// Encode the rows (pure work) in parallel for large commits; small
+		// ones are encoded straight into the payload below.
+		var encs [][]byte
+		if Workers > 1 && len(pks) >= 2*insertParChunk {
+			encs = make([][]byte, len(pks))
+			parallelFor(len(pks), insertParChunk, func(lo, hi int) {
+				for i := lo; i < hi; i++ {
+					if c := m[pks[i]]; !c.deleted {
+						encs[i] = encodeRow(nil, t.schema, c.row)
+					}
 				}
-			}
+			})
 		}
-		parallelFor(len(pks), insertParChunk, encode)
+		if pend == nil {
+			pend = make([]pending, 0, len(pks))
+		}
 		for pi, pk := range pks {
 			c := m[pk]
 			if c.deleted {
@@ -517,17 +526,41 @@ func (e *Engine) commitChanges(changes map[string]map[int64]change) error {
 			p.byte(opPut)
 			p.str(t.schema.Name)
 			p.i64(pk)
-			enc := encs[pi]
-			p.uvar(uint64(len(enc)))
-			pos := len(p.b)
-			p.b = append(p.b, enc...)
-			pend = append(pend, pending{t: t, pk: pk, pos: pos, n: len(enc), row: c.row})
+			var pos, n int
+			if encs != nil {
+				enc := encs[pi]
+				p.uvar(uint64(len(enc)))
+				pos, n = len(p.b), len(enc)
+				p.b = append(p.b, enc...)
+			} else {
+				// Reserve a fixed 4-byte uvarint for the length (padded
+				// encoding, accepted by binary.Uvarint), encode in place,
+				// then fill it in.
+				lp := len(p.b)
+				p.b = append(p.b, 0x80, 0x80, 0x80, 0)
+				pos = len(p.b)
+				p.b = encodeRow(p.b, t.schema, c.row)
+				n = len(p.b) - pos
+				if n >= 1<<28 {
+					return newErr(ErrInternal, "row too large")
+				}
+				p.b[lp] = byte(n) | 0x80
+				p.b[lp+1] = byte(n>>7) | 0x80
+				p.b[lp+2] = byte(n>>14) | 0x80
+				p.b[lp+3] = byte(n >> 21)
+			}
+			pend = append(pend, pending{t: t, pk: pk, pos: pos - recHdrSize, n: n, row: c.row})
 		}
 	}
-	if len(p.b) == 0 {
+	if len(p.b) == recHdrSize {
 		return nil
 	}
-	base, err := e.log.appendRecord(p.b)
+	base, err := e.log.appendFramed(p.b)
+	if cap(p.b) <= 1<<20 {
+		e.commitBuf = p.b[:0] // keep it for the next commit, unless large
+	} else {
+		e.commitBuf = nil
+	}
 	if err != nil {
 		return newErr(ErrInternal, "commit failed: %v", err)
 	}

@@ -466,7 +466,9 @@ func coerce(col Column, v Value) (Value, error) {
 			if col.Param > 0 && runeLen(v.S) > col.Param {
 				return Value{}, newErr(ErrDataTooLong, "Data too long for column '%s'", col.Name)
 			}
-			return v, nil
+			// The value may be a substring of the SQL text (see
+			// sqlparse.lexString); a stored row must own its bytes.
+			return StrVal(strings.Clone(v.S)), nil
 		}
 		return Value{}, newErr(ErrTypeMismatch, "Incorrect string value for column '%s'", col.Name)
 	case sqlparse.TypeVector:

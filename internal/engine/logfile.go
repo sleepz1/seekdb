@@ -154,13 +154,21 @@ func scanRecords(f *os.File, start int64, fn func([]byte, int64) error) (int64, 
 // appendRecord writes one record and makes it durable. It returns the file
 // offset of the payload.
 func (l *logFile) appendRecord(payload []byte) (int64, error) {
+	buf := make([]byte, recHdrSize+len(payload))
+	copy(buf[recHdrSize:], payload)
+	return l.appendFramed(buf)
+}
+
+// appendFramed is appendRecord for a buffer whose first recHdrSize bytes
+// are reserved for the record header (the payload follows them), which
+// saves copying a large commit payload.
+func (l *logFile) appendFramed(buf []byte) (int64, error) {
 	if l.failed != nil {
 		return 0, fmt.Errorf("storage unavailable after earlier I/O failure: %w", l.failed)
 	}
-	buf := make([]byte, recHdrSize+len(payload))
+	payload := buf[recHdrSize:]
 	binary.LittleEndian.PutUint32(buf[0:], uint32(len(payload)))
 	binary.LittleEndian.PutUint32(buf[4:], crc32.Checksum(payload, crcTable))
-	copy(buf[recHdrSize:], payload)
 	start := l.size
 	if _, err := l.f.WriteAt(buf, start); err != nil {
 		l.fail(err, start)
