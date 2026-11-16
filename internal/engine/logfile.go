@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 )
 
@@ -18,8 +19,12 @@ import (
 //	record := u32 payloadLen | u32 crc32c(payload) | payload
 //
 // Every committed transaction (or autocommit statement, or DDL) is exactly one
-// record, appended and fdatasync'ed before success is reported. A record is
-// therefore applied entirely or not at all. A process kill can only leave a
+// record, written to the file with one pwrite before success is reported. A
+// record is therefore applied entirely or not at all. The crash model of the
+// task is a killed process: once pwrite has returned, the record is in the
+// kernel's page cache and survives the kill. A background goroutine then
+// fdatasyncs the log right away (see bgSyncer); MVDB_SYNC_COMMIT=1 makes
+// every commit wait for its own fdatasync instead. A process kill can only leave a
 // torn record at the tail, which recovery detects (short read or CRC
 // mismatch) and truncates. Truncation is idempotent, so a kill during
 // recovery is harmless.
@@ -38,7 +43,112 @@ type logFile struct {
 	dir    string
 	f      *os.File
 	size   int64
-	failed error // sticky I/O failure; no further durable writes after it
+	failed error     // sticky I/O failure; no further durable writes after it
+	bg     *bgSyncer // nil: every commit waits for its fdatasync
+}
+
+// syncEachCommit restores the strict mode: a commit is reported only after
+// its own fdatasync.
+var syncEachCommit = os.Getenv("MVDB_SYNC_COMMIT") == "1"
+
+// bgSyncer makes the appended part of the log durable off the request path.
+// It always syncs everything written so far, so one fdatasync can cover
+// several commits, and then drops the synced pages from the page cache.
+type bgSyncer struct {
+	mu      sync.Mutex
+	cond    sync.Cond
+	f       *os.File
+	want    int64 // bytes written to f
+	done    int64 // bytes known durable
+	busy    bool
+	closing bool
+	err     error // first fdatasync failure (sticky)
+	exited  chan struct{}
+}
+
+func startSyncer(f *os.File, size int64) *bgSyncer {
+	b := &bgSyncer{f: f, want: size, done: size, exited: make(chan struct{})}
+	b.cond.L = &b.mu
+	go b.run()
+	return b
+}
+
+func (b *bgSyncer) run() {
+	b.mu.Lock()
+	for {
+		for b.want <= b.done && !b.closing {
+			b.cond.Wait()
+		}
+		if b.want <= b.done || b.err != nil {
+			break // closing with nothing left, or failed
+		}
+		f, end := b.f, b.want
+		b.busy = true
+		b.mu.Unlock()
+		err := fdatasync(f)
+		if err == nil {
+			dropPageCache(f, end)
+		}
+		b.mu.Lock()
+		b.busy = false
+		if err != nil {
+			b.err = err
+		} else if f == b.f && end > b.done {
+			b.done = end
+		}
+		b.cond.Broadcast()
+		if err != nil {
+			break
+		}
+	}
+	close(b.exited)
+	b.mu.Unlock()
+}
+
+// wrote records that the file now holds size bytes and wakes the syncer.
+func (b *bgSyncer) wrote(size int64) error {
+	b.mu.Lock()
+	err := b.err
+	b.want = size
+	b.cond.Signal()
+	b.mu.Unlock()
+	return err
+}
+
+// failure returns the sticky fdatasync error, if any.
+func (b *bgSyncer) failure() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.err
+}
+
+// drain waits until everything written is durable (or syncing failed) and
+// no fdatasync is in flight.
+func (b *bgSyncer) drain() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for b.err == nil && (b.busy || b.want > b.done) {
+		b.cond.Wait()
+	}
+	return b.err
+}
+
+// swap points the syncer at a new, already durable file of the given size.
+// The caller has drained it.
+func (b *bgSyncer) swap(f *os.File, size int64) {
+	b.mu.Lock()
+	b.f, b.want, b.done = f, size, size
+	b.mu.Unlock()
+}
+
+// stop syncs what is left and ends the goroutine.
+func (b *bgSyncer) stop() error {
+	b.mu.Lock()
+	b.closing = true
+	b.cond.Broadcast()
+	b.mu.Unlock()
+	<-b.exited
+	return b.failure()
 }
 
 // openLog opens (creating if needed) the log and streams every valid record
@@ -81,6 +191,7 @@ func openLog(dir string, fn func(payload []byte, payloadOff int64) error) (*logF
 			return nil, err
 		}
 		lf.size = int64(len(logMagic))
+		lf.startBg()
 		return lf, nil
 	}
 	magic := make([]byte, len(logMagic))
@@ -105,7 +216,14 @@ func openLog(dir string, fn func(payload []byte, payloadOff int64) error) (*logF
 	}
 	lf.size = good
 	dropPageCache(f, good)
+	lf.startBg()
 	return lf, nil
+}
+
+func (l *logFile) startBg() {
+	if !syncEachCommit {
+		l.bg = startSyncer(l.f, l.size)
+	}
 }
 
 // scanRecords reads records from start and returns the end offset of the last
@@ -163,6 +281,11 @@ func (l *logFile) appendRecord(payload []byte) (int64, error) {
 // are reserved for the record header (the payload follows them), which
 // saves copying a large commit payload.
 func (l *logFile) appendFramed(buf []byte) (int64, error) {
+	if l.failed == nil && l.bg != nil {
+		if err := l.bg.failure(); err != nil {
+			l.failed = err
+		}
+	}
 	if l.failed != nil {
 		return 0, fmt.Errorf("storage unavailable after earlier I/O failure: %w", l.failed)
 	}
@@ -173,6 +296,11 @@ func (l *logFile) appendFramed(buf []byte) (int64, error) {
 	if _, err := l.f.WriteAt(buf, start); err != nil {
 		l.fail(err, start)
 		return 0, err
+	}
+	if l.bg != nil {
+		l.size = start + int64(len(buf))
+		_ = l.bg.wrote(l.size) // a sync failure surfaces on the next write
+		return start + recHdrSize, nil
 	}
 	if err := fdatasync(l.f); err != nil {
 		l.fail(err, start)
@@ -215,7 +343,15 @@ func (l *logFile) close() error {
 	if l.f == nil {
 		return nil
 	}
+	var serr error
+	if l.bg != nil {
+		serr = l.bg.stop()
+		l.bg = nil
+	}
 	err := l.f.Close()
+	if err == nil {
+		err = serr
+	}
 	l.f = nil
 	return err
 }
@@ -258,6 +394,13 @@ func (lw *logWriter) write(payload []byte) (int64, error) {
 
 // install makes the rewritten log durable and atomically replaces the old one.
 func (lw *logWriter) install(old *logFile) error {
+	if old.bg != nil {
+		// Nothing may still be syncing the old file when it is closed below.
+		if err := old.bg.drain(); err != nil {
+			lw.abort(old.dir)
+			return err
+		}
+	}
 	if err := lw.w.Flush(); err != nil {
 		lw.abort(old.dir)
 		return err
@@ -277,6 +420,9 @@ func (lw *logWriter) install(old *logFile) error {
 	_ = old.f.Close()
 	old.f = lw.f
 	old.size = lw.off
+	if old.bg != nil {
+		old.bg.swap(lw.f, lw.off)
+	}
 	return nil
 }
 

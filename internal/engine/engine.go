@@ -155,7 +155,7 @@ func cgroupMemoryLimit() int64 {
 	return 0
 }
 
-// Close releases the log file. Committed data is already durable.
+// Close waits for the background fdatasync to finish and releases the log.
 func (e *Engine) Close() error { return e.log.close() }
 
 func (e *Engine) table(name string) (*Table, error) {

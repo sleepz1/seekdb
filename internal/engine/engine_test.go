@@ -46,7 +46,7 @@ func (d *tdb) restart() {
 
 // crash drops the engine without any shutdown work, like SIGKILL.
 func (d *tdb) crash() {
-	d.e.log.f.Close()
+	d.e.log.kill()
 	d.open()
 }
 
@@ -166,7 +166,7 @@ func TestTornTailIsTruncated(t *testing.T) {
 	size := d.e.log.size
 	d.exec("INSERT INTO docs VALUES (2,'a','two','[1,0]')")
 	full := d.e.log.size
-	d.e.log.f.Close()
+	d.e.log.kill()
 	path := filepath.Join(d.dir, logName)
 	// Simulate a kill in the middle of writing the second record.
 	for cut := size + 1; cut < full; cut += 7 {
@@ -178,7 +178,7 @@ func TestTornTailIsTruncated(t *testing.T) {
 		if d.e.log.size != size {
 			t.Fatalf("cut %d: log size %d, want %d", cut, d.e.log.size, size)
 		}
-		d.e.log.f.Close()
+		d.e.log.kill()
 	}
 	// Garbage after a valid record is also discarded, and recovery is repeatable.
 	f, _ := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)

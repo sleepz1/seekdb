@@ -29,6 +29,18 @@ func dotU8Rows(c []int8, idx []int32, e []int8, bias int32, out []int32)
 // dotQ8Block sets out[r] to the exact dot product of code row r of c with
 // the query codes (see q8.go for the stored form).
 func dotQ8Block(c []int8, qq *q8query, out []int32) {
+	if len(qq.e) == 128 && len(out) >= 8 && !no128x8 {
+		n := len(out) &^ 7
+		if hasVNNI {
+			dotU8Block128x8VNNI(c, qq.e, qq.bias, out[:n])
+		} else {
+			dotU8Block128x8(c, qq.e, qq.bias, out[:n])
+		}
+		if n == len(out) {
+			return
+		}
+		c, out = c[n*128:], out[n:]
+	}
 	if hasVNNI {
 		dotU8BlockVNNI(c, qq.e, qq.bias, out)
 		return
@@ -69,6 +81,15 @@ var hasAVX2 = func() bool {
 	_, b, _, _ := cpuid(7, 0)
 	return b&(1<<5) != 0
 }()
+
+//go:noescape
+func dotU8Block128x8VNNI(c []int8, e []int8, bias int32, out []int32)
+
+//go:noescape
+func dotU8Block128x8(c []int8, e []int8, bias int32, out []int32)
+
+// no128x8 turns the 128-dimension kernels off (experiments, tests).
+var no128x8 = os.Getenv("MVDB_NO128X8") != ""
 
 //go:noescape
 func dotU8BlockVNNI(c []int8, e []int8, bias int32, out []int32)
