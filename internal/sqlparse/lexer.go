@@ -36,8 +36,10 @@ func syntaxErr(format string, a ...any) error {
 	return &SyntaxError{Msg: fmt.Sprintf(format, a...)}
 }
 
-func lex(src string) ([]token, error) {
-	var toks []token
+func lex(src string) ([]token, error) { return lexInto(src, nil) }
+
+// lexInto is lex appending to toks (normally an empty slice with capacity).
+func lexInto(src string, toks []token) ([]token, error) {
 	i := 0
 	n := len(src)
 	for i < n {

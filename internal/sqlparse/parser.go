@@ -3,6 +3,7 @@ package sqlparse
 import (
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type parser struct {
@@ -11,9 +12,30 @@ type parser struct {
 	i    int
 }
 
+// tokBuf keeps one token slice between statements: the parser only reads
+// the tokens while it runs (the AST holds strings, never the slice), and
+// statements are parsed one at a time, so reusing it saves the slice's
+// growth on every request.
+var tokBuf struct {
+	sync.Mutex
+	toks []token
+}
+
 // Parse parses exactly one statement. A trailing semicolon is allowed.
 func Parse(src string) (Stmt, error) {
-	toks, err := lex(src)
+	var buf []token
+	if tokBuf.TryLock() {
+		buf, tokBuf.toks = tokBuf.toks, nil
+		defer func() {
+			if cap(buf) <= 4096 {
+				clear(buf[:cap(buf)]) // drop references to the statement text
+				tokBuf.toks = buf[:0]
+			}
+			tokBuf.Unlock()
+		}()
+	}
+	toks, err := lexInto(src, buf[:0])
+	buf = toks
 	if err != nil {
 		return nil, err
 	}
