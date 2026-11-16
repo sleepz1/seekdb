@@ -64,7 +64,8 @@ local scripts (`scripts/run_public_cases.py`, `scripts/crash_test.py`,
 `scripts/bench.py`). They are not the official contest protocol.
 
 * **Exact / ANN**: official requests set `search_mode` per statement. `SET search_mode = ann` / `exact` still works in SQL, `--mode ann` sets the session default, and `ORDER BY ... APPROXIMATE` is accepted. ANN currently runs the same exact search (recall 1.0).
-* **Signals**: SIGTERM, SIGINT or SIGHUP roll back an open transaction and exit. Committed data is already durable and does not depend on a graceful shutdown.
+* **Signals**: SIGTERM, SIGINT or SIGHUP roll back an open transaction, wait for the background `fdatasync` and exit. Committed data survives a kill without any shutdown work.
+* **Commit durability**: a COMMIT is acknowledged once its log record has been written to the file (one `pwrite`), which survives the task's crash model (the process is killed); a background goroutine `fdatasync`s it immediately afterwards. `MVDB_SYNC_COMMIT=1` makes every COMMIT wait for its own `fdatasync` before replying (the behaviour up to round 11).
 
 ## Example (empty data directory)
 
@@ -79,7 +80,7 @@ DELETE FROM docs WHERE id = 3;
 ROLLBACK;                       -- both changes are undone
 BEGIN;
 INSERT INTO docs VALUES (4, '乙', '四', '[2, 2]');
-COMMIT;                         -- durable before this response is written
+COMMIT;                         -- written to the log before this response
 CREATE VECTOR INDEX idx_emb ON docs(embedding);
 ```
 
@@ -126,9 +127,12 @@ use a compact binary encoding (8-byte BIGINT, varint-prefixed UTF-8; a vector
 is a tag byte followed either by raw little-endian float32 values or, when
 every element round-trips bit-exactly through `float32(k / 10^p)`, by 24-bit
 integers `k`, which shrinks typical "0.123456"-style data from 4 to 3 bytes
-per element). COMMIT writes the record and calls `fdatasync` before the
-response is printed; the clean pages below the last partial page are then
-dropped from the page cache (`POSIX_FADV_DONTNEED`), since the container's
+per element). COMMIT writes the record with one `pwrite` and replies; a
+background goroutine then calls `fdatasync` on everything written so far
+(`MVDB_SYNC_COMMIT=1`: before the reply, as up to round 11). The task's
+crash model is a killed process, and a record that `pwrite` has handed to
+the kernel survives that. After each `fdatasync` the clean pages below the
+last partial page are dropped from the page cache (`POSIX_FADV_DONTNEED`), since the container's
 memory is measured including page cache and every row is already in memory or
 re-read with `pread`.
 
@@ -373,6 +377,35 @@ wall 685 / 796 -> 600 / 772 ms, server user CPU 500 / 564 -> 435 / 531
 ms. Results of 128 mixed queries identical to the admitted build with and
 without VNNI and with the split scan forced; 20/20 public cases; protocol
 check; 30 SIGKILL rounds; race detector on the engine and parser tests.
+
+**Commit path and scan kernel (round 12).** Round 11 scored lower on the
+platform (E 3225 against 4037), within the 3050-4094 spread of one
+unchanged build, so the change was kept and the next one aimed at the
+largest fixed cost left in the timed write phase: 100 `fdatasync` calls,
+one per 100-row batch, each waited for before the reply. The statement's
+crash model is a killed process ("进程被强制终止，不模拟断电"), and the
+platform syncs and counts write-back itself before it stops measuring, so
+a COMMIT now replies once its record is written to the file, and a
+background goroutine (`bgSyncer` in `logfile.go`) runs `fdatasync` right
+after and then drops the synced pages from the page cache. When a sync is
+still running, the next one covers all commits written meanwhile. A sync
+failure is sticky: the next write reports it. Compaction waits for the
+syncer before it swaps the file, and shutdown waits for the last sync.
+`MVDB_SYNC_COMMIT=1` restores the waiting commit. Second, for 128-dimension
+vectors the int8 scan now uses an eight-row kernel (`dotU8Block128x8VNNI`,
+AVX2 form `dotU8Block128x8`): the query stays in four registers and eight
+independent accumulators hide the multiply-add latency;
+`MVDB_NO128X8=1` turns it off. Local harness, 5 interleaved runs
+(min / median): write T 253 / 267 -> 155 / 173 ms, query T 134 / 161 ->
+123 / 155 ms; bytes written (4.40 MiB), query-phase reads and peak memory
+(16.0-16.3 MiB) unchanged. Scan benchmark: 58-73 -> 55-60 us per
+unfiltered query. On this machine an `fdatasync` takes about 0.3 ms; on
+the platform's disk it may take longer, which this change removes from
+T as well. Results of 128 mixed queries identical to the admitted build
+(default, `MVDB_SYNC_COMMIT=1`, `MVDB_NOVNNI=1`, `MVDB_NO128X8=1`, split
+scan forced); new kernel test against the portable reference; 20/20
+public cases; protocol check; 30 SIGKILL rounds (24,712 committed rows
+verified); race detector on the engine tests.
 
 Earlier local results on a 2-vCPU sandbox:
 
