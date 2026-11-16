@@ -681,8 +681,13 @@ func (s *Session) selectStmt(x *sqlparse.Select) (*Result, error) {
 	if limit > 0 && start+limit < end {
 		end = start + limit
 	}
-	for _, c := range picked[start:end] {
-		out := make([]Value, len(cols))
+	// One backing array for all result values (each row capped, so an
+	// append to one row cannot reach the next).
+	nc := len(cols)
+	vals := make([]Value, int(end-start)*nc)
+	res.Rows = make([][]Value, 0, end-start)
+	for ri, c := range picked[start:end] {
+		out := vals[ri*nc : (ri+1)*nc : (ri+1)*nc]
 		for i, oc := range cols {
 			v, err := oc.ex.eval(c.row)
 			if err != nil {

@@ -262,6 +262,183 @@ rdone:
 	VZEROUPPER
 	RET
 
+// func dotU8BlockVNNI(c []int8, e []int8, bias int32, out []int32)
+// dotU8Block with VPDPBUSD (AVX512-VNNI, 256-bit form, needs AVX512VL):
+// one instruction per 32 bytes instead of VPMADDUBSW+VPMADDWD+VPADDD. The
+// sums are exact in both (no saturation, see dotU8Block), so the results
+// are identical; the 16-byte tails use the AVX2 sequence.
+TEXT ·dotU8BlockVNNI(SB), NOSPLIT, $0-80
+	MOVQ         c_base+0(FP), SI
+	MOVQ         e_base+24(FP), R8
+	MOVQ         e_len+32(FP), R9
+	MOVL         bias+48(FP), AX
+	MOVQ         out_base+56(FP), R10
+	MOVQ         out_len+64(FP), R11
+	VPCMPEQW     Y15, Y15, Y15
+	VPSRLW       $15, Y15, Y15
+	VMOVD        AX, X14
+	VPBROADCASTD X14, X14
+	MOVQ         R9, CX
+	ANDQ         $-32, CX
+
+b4:
+	CMPQ  R11, $4
+	JL    b1
+	LEAQ  (SI)(R9*1), R12
+	LEAQ  (R12)(R9*1), R13
+	LEAQ  (R13)(R9*1), BX
+	VPXOR Y0, Y0, Y0
+	VPXOR Y1, Y1, Y1
+	VPXOR Y2, Y2, Y2
+	VPXOR Y3, Y3, Y3
+	XORQ  DX, DX
+
+b4loop:
+	CMPQ       DX, CX
+	JGE        b4tail
+	VMOVDQU    (R8)(DX*1), Y8
+	VMOVDQU    (SI)(DX*1), Y4
+	VMOVDQU    (R12)(DX*1), Y5
+	VMOVDQU    (R13)(DX*1), Y6
+	VMOVDQU    (BX)(DX*1), Y7
+	VPDPBUSD   Y8, Y4, Y0
+	VPDPBUSD   Y8, Y5, Y1
+	VPDPBUSD   Y8, Y6, Y2
+	VPDPBUSD   Y8, Y7, Y3
+	ADDQ       $32, DX
+	JMP        b4loop
+
+b4tail:
+	CMPQ       DX, R9
+	JGE        b4red
+	VMOVDQU    (R8)(DX*1), X8
+	VMOVDQU    (SI)(DX*1), X4
+	VMOVDQU    (R12)(DX*1), X5
+	VMOVDQU    (R13)(DX*1), X6
+	VMOVDQU    (BX)(DX*1), X7
+	VPMADDUBSW X8, X4, X4
+	VPMADDUBSW X8, X5, X5
+	VPMADDUBSW X8, X6, X6
+	VPMADDUBSW X8, X7, X7
+	VPMADDWD   X15, X4, X4
+	VPMADDWD   X15, X5, X5
+	VPMADDWD   X15, X6, X6
+	VPMADDWD   X15, X7, X7
+	VPADDD     Y4, Y0, Y0
+	VPADDD     Y5, Y1, Y1
+	VPADDD     Y6, Y2, Y2
+	VPADDD     Y7, Y3, Y3
+
+b4red:
+	VPHADDD      Y1, Y0, Y0
+	VPHADDD      Y3, Y2, Y2
+	VPHADDD      Y2, Y0, Y0
+	VEXTRACTI128 $1, Y0, X1
+	VPADDD       X1, X0, X0
+	VPSUBD       X14, X0, X0
+	VMOVDQU      X0, (R10)
+	ADDQ         $16, R10
+	LEAQ         (BX)(R9*1), SI
+	SUBQ         $4, R11
+	JMP          b4
+
+b1:
+	CMPQ  R11, $0
+	JE    bdone
+	VPXOR Y0, Y0, Y0
+	XORQ  DX, DX
+
+b1loop:
+	CMPQ       DX, CX
+	JGE        b1tail
+	VMOVDQU    (SI)(DX*1), Y4
+	VPDPBUSD   (R8)(DX*1), Y4, Y0
+	ADDQ       $32, DX
+	JMP        b1loop
+
+b1tail:
+	CMPQ       DX, R9
+	JGE        b1red
+	VMOVDQU    (SI)(DX*1), X4
+	VPMADDUBSW (R8)(DX*1), X4, X4
+	VPMADDWD   X15, X4, X4
+	VPADDD     Y4, Y0, Y0
+
+b1red:
+	VEXTRACTI128 $1, Y0, X1
+	VPADDD       X1, X0, X0
+	VPHADDD      X0, X0, X0
+	VPHADDD      X0, X0, X0
+	VPSUBD       X14, X0, X0
+	VMOVD        X0, (R10)
+	ADDQ         $4, R10
+	ADDQ         R9, SI
+	DECQ         R11
+	JMP          b1
+
+bdone:
+	VZEROUPPER
+	RET
+
+// func dotU8RowsVNNI(c []int8, idx []int32, e []int8, bias int32, out []int32)
+// out[i] = the dotU8Block value of row idx[i] of c.
+TEXT ·dotU8RowsVNNI(SB), NOSPLIT, $0-104
+	MOVQ         c_base+0(FP), R12
+	MOVQ         idx_base+24(FP), R13
+	MOVQ         idx_len+32(FP), R11
+	MOVQ         e_base+48(FP), R8
+	MOVQ         e_len+56(FP), R9
+	MOVL         bias+72(FP), AX
+	MOVQ         out_base+80(FP), R10
+	VPCMPEQW     Y15, Y15, Y15
+	VPSRLW       $15, Y15, Y15
+	VMOVD        AX, X14
+	VPBROADCASTD X14, X14
+	MOVQ         R9, CX
+	ANDQ         $-32, CX
+
+rrow:
+	CMPQ    R11, $0
+	JE      rdone
+	MOVLQSX (R13), SI
+	IMULQ   R9, SI
+	ADDQ    R12, SI
+	VPXOR   Y0, Y0, Y0
+	XORQ    DX, DX
+
+rloop:
+	CMPQ       DX, CX
+	JGE        rtail
+	VMOVDQU    (SI)(DX*1), Y4
+	VPDPBUSD   (R8)(DX*1), Y4, Y0
+	ADDQ       $32, DX
+	JMP        rloop
+
+rtail:
+	CMPQ       DX, R9
+	JGE        rred
+	VMOVDQU    (SI)(DX*1), X4
+	VPMADDUBSW (R8)(DX*1), X4, X4
+	VPMADDWD   X15, X4, X4
+	VPADDD     Y4, Y0, Y0
+
+rred:
+	VEXTRACTI128 $1, Y0, X1
+	VPADDD       X1, X0, X0
+	VPHADDD      X0, X0, X0
+	VPHADDD      X0, X0, X0
+	VPSUBD       X14, X0, X0
+	VMOVD        X0, (R10)
+	ADDQ         $4, R10
+	ADDQ         $4, R13
+	DECQ         R11
+	JMP          rrow
+
+rdone:
+	VZEROUPPER
+	RET
+
+
 // func pruneMask(s []float32, c2 []int32, r []float32, d []int32, k *pruneK, out []byte)
 // Per row (float64, same operation order as q8query.prune):
 //   a = (s*s)*c2; b = ((s+s)*t)*d; val = ((a-b)+c) - ((a+|b|)+c)*K

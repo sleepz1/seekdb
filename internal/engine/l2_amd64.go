@@ -2,6 +2,8 @@
 
 package engine
 
+import "os"
+
 // l2sqAVX returns the float32 sum of squared differences of a and b[:len(a)]
 // using 256-bit AVX lanes. It is only an estimate used for pruning; every
 // accepted candidate is recomputed exactly in float64 (l2sqBounded).
@@ -26,10 +28,20 @@ func dotU8Rows(c []int8, idx []int32, e []int8, bias int32, out []int32)
 
 // dotQ8Block sets out[r] to the exact dot product of code row r of c with
 // the query codes (see q8.go for the stored form).
-func dotQ8Block(c []int8, qq *q8query, out []int32) { dotU8Block(c, qq.e, qq.bias, out) }
+func dotQ8Block(c []int8, qq *q8query, out []int32) {
+	if hasVNNI {
+		dotU8BlockVNNI(c, qq.e, qq.bias, out)
+		return
+	}
+	dotU8Block(c, qq.e, qq.bias, out)
+}
 
 // dotQ8Rows is dotQ8Block for the rows idx[i] of the chunk c.
 func dotQ8Rows(c []int8, idx []int32, qq *q8query, out []int32) {
+	if hasVNNI {
+		dotU8RowsVNNI(c, idx, qq.e, qq.bias, out)
+		return
+	}
 	dotU8Rows(c, idx, qq.e, qq.bias, out)
 }
 
@@ -43,7 +55,7 @@ func pruneMask(s []float32, c2 []int32, r []float32, d []int32, k *pruneK, out [
 
 func dotQ8(c []int8, qq *q8query) int32 {
 	var out [1]int32
-	dotU8Block(c, qq.e, qq.bias, out[:])
+	dotQ8Block(c, qq, out[:])
 	return out[0]
 }
 
@@ -56,6 +68,29 @@ var hasAVX2 = func() bool {
 	}
 	_, b, _, _ := cpuid(7, 0)
 	return b&(1<<5) != 0
+}()
+
+//go:noescape
+func dotU8BlockVNNI(c []int8, e []int8, bias int32, out []int32)
+
+//go:noescape
+func dotU8RowsVNNI(c []int8, idx []int32, e []int8, bias int32, out []int32)
+
+// hasVNNI reports AVX512-VNNI with AVX512VL and AVX512F, and an OS that
+// saves the AVX-512 state (XCR0 bits 1, 2, 5, 6, 7): the EVEX-encoded
+// 256-bit VPDPBUSD needs all of them. MVDB_NOVNNI turns it off for
+// experiments.
+var hasVNNI = func() bool {
+	if !hasAVX2 || os.Getenv("MVDB_NOVNNI") != "" {
+		return false
+	}
+	_, b, c, _ := cpuid(7, 0)
+	const avx512f, avx512vl, avx512vnni = 1 << 16, 1 << 31, 1 << 11
+	if b&avx512f == 0 || b&avx512vl == 0 || c&avx512vnni == 0 {
+		return false
+	}
+	a, _ := xgetbv()
+	return a&0xe6 == 0xe6
 }()
 
 var hasAVX = func() bool {
