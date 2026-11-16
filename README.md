@@ -354,6 +354,26 @@ and memory unchanged. Results of 128 mixed queries identical to the
 admitted build, 20/20 public cases, protocol check, 30 SIGKILL rounds,
 race detector on the engine tests.
 
+**Query path (round 11).** The platform reports only E, so this round
+follows the statement's weights: query time carries 40 % of E (two thirds
+of the score times 60 %), write time 20 %, each phase's I/O and memory
+13.3 % and 6.7 %. Driven one request at a time like the platform's driver,
+a query costs about 110 us of server CPU here against a 5-40 us round
+trip for a server that only echoes, and about 60 % of it is the scan (the
+int8 dot over 10,000 x 128 codes alone 39 us of a 71 us unfiltered scan).
+On CPUs with AVX512-VNNI and AVX512VL (Intel Xeon since Ice Lake, AMD
+since Zen 4) the int8 dot now uses VPDPBUSD, one instruction per 32 bytes
+instead of three, with identical results (`dotU8BlockVNNI`,
+`dotU8RowsVNNI`; detected with CPUID and XCR0, `MVDB_NOVNNI` turns it
+off; other CPUs keep the AVX2 kernels). The parser reuses its token slice
+between statements and result rows share one allocation, which removes
+about a sixth of the collections in the query phase (51 -> 43 per 5,000
+queries). 5,000 sequential queries, 8 interleaved runs (min / median):
+wall 685 / 796 -> 600 / 772 ms, server user CPU 500 / 564 -> 435 / 531
+ms. Results of 128 mixed queries identical to the admitted build with and
+without VNNI and with the split scan forced; 20/20 public cases; protocol
+check; 30 SIGKILL rounds; race detector on the engine and parser tests.
+
 Earlier local results on a 2-vCPU sandbox:
 
 * 20/20 public cases (minivectordb-public-v4, incl. `--restart`) pass.
