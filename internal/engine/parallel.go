@@ -61,6 +61,7 @@ func ConfigureCPU() {
 	if w, err := strconv.Atoi(os.Getenv("MVDB_PARMIN")); err == nil && w >= 1 {
 		parallelMinWork = w // experiments only
 	}
+	startHelper()
 }
 
 // raiseProcs gives the scheduler one P per worker before the first parallel

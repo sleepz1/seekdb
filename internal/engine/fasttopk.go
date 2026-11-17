@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"minivectordb/internal/sqlparse"
 )
@@ -71,7 +72,9 @@ func (s *Session) fastTopKL2(t *Table, where sqlparse.Expr, key l2E, k int) ([]c
 	chunk := (n + nw - 1) / nw
 	results := make([][]arenaHit, nw)
 	errs := make([]error, nw)
-	if nw == 1 {
+	if nw == 1 && filter == nil && n*t.vdim >= helperMinWork && helperScan(t, list, n, key.q, k, &results, &errs) {
+		// split with the pre-woken helper thread (helper.go)
+	} else if nw == 1 {
 		results[0], errs[0] = arenaScan(t, list, 0, n, filter, key.q, k)
 	} else {
 		var wg sync.WaitGroup
@@ -133,9 +136,18 @@ func pruneMargin(n int) float64 { return 1e-5 + float64(n)*4e-9 }
 
 // arenaScan scans slots lo..hi-1, or list[lo:hi] when list is non-nil.
 func arenaScan(t *Table, list []int32, lo, hi int, filter func(Row) (bool, error), q []float32, k int) ([]arenaHit, error) {
+	return arenaScanPeer(t, list, lo, hi, filter, q, k, nil, nil)
+}
+
+// arenaScanPeer is arenaScan for one part of a split scan. peerIn holds the
+// k-th distance bound published by the scan of the other part (float64
+// bits): a row farther than that has k closer rows elsewhere and cannot be
+// in the result, so the prune test uses the smaller of the two bounds.
+// peerOut receives this part's bound.
+func arenaScanPeer(t *Table, list []int32, lo, hi int, filter func(Row) (bool, error), q []float32, k int, peerIn, peerOut *atomic.Uint64) ([]arenaHit, error) {
 	sc := scanState{t: t, filter: filter, q: q, k: k,
 		h: make([]arenaHit, 0, k), bound: math.Inf(1), approxBound: math.Inf(1), kth: math.Inf(1),
-		rel: 1 + pruneMargin(len(q)), q8: t.useQ8()}
+		rel: 1 + pruneMargin(len(q)), q8: t.useQ8(), peerIn: peerIn, peerOut: peerOut}
 	if sc.q8 {
 		sc.qq = prepQ8(q)
 	}
@@ -173,6 +185,7 @@ func arenaScan(t *Table, list []int32, lo, hi int, filter func(Row) (bool, error
 					}
 				}
 			}
+			sc.exchange()
 			m4 := 0
 			if !math.IsInf(sc.kth, 1) {
 				m4 = m &^ 3
@@ -226,6 +239,7 @@ func arenaScan(t *Table, list []int32, lo, hi int, filter func(Row) (bool, error
 				m++
 			}
 			dotQ8Rows(t.qchunks[ci], idx[:m], &sc.qq, dots[:m])
+			sc.exchange()
 			ms, mc, mr := t.msc[ci], t.mc2[ci], t.mre[ci]
 			var seeded [256]bool
 			first := j == lo && k <= 32 && m >= 8*k
@@ -277,6 +291,22 @@ type scanState struct {
 	rel         float64
 	q8          bool
 	qq          q8query
+	peerIn      *atomic.Uint64 // see arenaScanPeer
+	peerOut     *atomic.Uint64
+}
+
+// exchange publishes this scan's k-th bound and adopts the other part's
+// when it is smaller (only the prune test uses kth; the exact checks keep
+// their own heap's bound).
+func (sc *scanState) exchange() {
+	if sc.peerOut != nil && !math.IsInf(sc.kth, 1) && math.Float64frombits(sc.peerOut.Load()) > sc.kth {
+		sc.peerOut.Store(math.Float64bits(sc.kth))
+	}
+	if sc.peerIn != nil {
+		if p := math.Float64frombits(sc.peerIn.Load()); p < sc.kth {
+			sc.kth = p
+		}
+	}
 }
 
 // visit considers slot i; prune=true applies the per-row estimate first.
@@ -330,7 +360,7 @@ func (sc *scanState) visit(i int, prune bool) error {
 	if len(h) == sc.k {
 		sc.bound = h[0].d * h[0].d * (1 + 1e-9)
 		sc.approxBound = sc.bound*sc.rel + 1e-36
-		sc.kth = h[0].d*(1+1e-9) + 1e-30
+		sc.kth = math.Min(h[0].d*(1+1e-9)+1e-30, sc.kth)
 	}
 	return nil
 }
