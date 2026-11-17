@@ -15,3 +15,5 @@ func dotQ8Rows(c []int8, idx []int32, qq *q8query, out []int32) { dotQ8RowsGo(c,
 func pruneMask(s []float32, c2 []int32, r []float32, d []int32, k *pruneK, out []byte) {
 	pruneMaskGo(s, c2, r, d, k, out)
 }
+
+func cpuRelax() {}

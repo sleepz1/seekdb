@@ -130,3 +130,6 @@ func l2sq32(a, b []float32) float32 {
 	}
 	return l2sq32Go(a, b)
 }
+
+// cpuRelax is one spin-wait hint (PAUSE / YIELD), used by the helper.
+func cpuRelax()

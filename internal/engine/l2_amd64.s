@@ -807,3 +807,11 @@ dotU8Block128x8_loop:
 dotU8Block128x8_done:
 	VZEROUPPER
 	RET
+
+// func cpuRelax()
+// One PAUSE: tells the core that this is a spin-wait, so a hyperthread
+// sibling keeps its execution resources and the loop does not flood the
+// memory pipeline.
+TEXT ·cpuRelax(SB), NOSPLIT, $0-0
+	PAUSE
+	RET

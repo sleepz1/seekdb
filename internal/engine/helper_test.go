@@ -53,9 +53,8 @@ func TestHelperSplitMatchesSequential(t *testing.T) {
 			helper = nil
 			seq := rowsString(d.exec(sql))
 			helper = h
-			Prewake()
-			for w := 0; w < 1000 && h.state.Load() != helperSpin; w++ {
-				time.Sleep(50 * time.Microsecond)
+			deadline := time.Now().Add(100 * time.Millisecond)
+			for Prewake(); h.state.Load() != helperSpin && time.Now().Before(deadline); Prewake() {
 			}
 			if h.state.Load() == helperSpin {
 				used++
@@ -65,6 +64,28 @@ func TestHelperSplitMatchesSequential(t *testing.T) {
 				t.Fatalf("ties=%v split differs for %s:\n seq %s\n par %s", ties, sql, seq, par)
 			}
 		}
+		// A helper whose thread never runs: every split is taken back by
+		// the query goroutine after its own half.
+		ghost := &scanHelper{wake: make(chan struct{}, 1)}
+		ghost.state.Store(helperSpin)
+		for q := 0; q < 20; q++ {
+			where := ""
+			if q%2 == 1 {
+				where = fmt.Sprintf(" WHERE cat = 'c%d'", q%3)
+			}
+			sql := fmt.Sprintf("SELECT id, L2_DISTANCE(emb, '%s') AS dist FROM v%s ORDER BY dist LIMIT %d", vec(), where, 1+q%25)
+			helper = nil
+			seq := rowsString(d.exec(sql))
+			helper = ghost
+			par := rowsString(d.exec(sql))
+			if seq != par {
+				t.Fatalf("ties=%v taken-back split differs for %s:\n seq %s\n par %s", ties, sql, seq, par)
+			}
+			if s := ghost.state.Load(); s != helperSpin {
+				t.Fatalf("state %d after a taken-back split", s)
+			}
+		}
+		helper = h
 		if used < 30 {
 			t.Fatalf("helper was awake for only %d of 60 queries", used)
 		}

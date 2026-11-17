@@ -17,6 +17,11 @@ import (
 // line that looks like a SELECT, so the helper wakes while the request is
 // still being decoded and parsed. It then spins for helperSpin waiting for
 // a task: the second half of the scan, handed over with two atomic stores.
+// Both spin loops execute PAUSE (YIELD on arm64) on every turn, so that on
+// a host whose two vCPUs are hyperthreads of one core the waiting thread
+// does not slow down the working one. If the helper has not started the
+// task by the time the query goroutine has finished its own half (its
+// thread was descheduled), the query goroutine takes the task back.
 // The two halves exchange their k-th distance bounds while they run (see
 // arenaScanPeer) and the merge is the same as for the goroutine split, so
 // results are identical to the sequential scan.
@@ -31,14 +36,16 @@ const (
 	helperClaimed = 2 // the query thread is filling in a task
 	helperTask    = 3 // task ready
 	helperDone    = 4 // result ready
+	helperRunning = 5 // the helper is scanning
 )
 
 // helperMinWork is the number of code bytes (rows x dimensions) from which
 // a scan is split with the helper.
 var helperMinWork = 512 * 128
 
-// helperWindow is how long the helper spins after the latest Prewake.
-var helperWindow = int64(300 * time.Microsecond)
+// helperWindow is how long the helper spins after the latest Prewake: it
+// covers parsing and the scan of one query; a later query wakes it again.
+var helperWindow = int64(200 * time.Microsecond)
 
 type scanHelper struct {
 	state atomic.Int32
@@ -94,10 +101,13 @@ func (h *scanHelper) run() {
 		for spins := 0; ; spins++ {
 			switch h.state.Load() {
 			case helperTask:
-				h.res, h.err = arenaScanPeer(h.t, h.list, h.lo, h.hi, nil, h.q, h.k, &h.toHelp, &h.toMain)
-				h.state.Store(helperDone)
+				if h.state.CompareAndSwap(helperTask, helperRunning) {
+					h.res, h.err = arenaScanPeer(h.t, h.list, h.lo, h.hi, nil, h.q, h.k, &h.toHelp, &h.toMain)
+					h.state.Store(helperDone)
+				}
 				continue
 			case helperSpin:
+				cpuRelax()
 				if spins&63 == 0 && clock()-h.last.Load() > helperWindow {
 					if h.state.CompareAndSwap(helperSpin, helperIdle) {
 						// A Prewake that saw helperSpin just before the
@@ -108,6 +118,8 @@ func (h *scanHelper) run() {
 						goto parked
 					}
 				}
+			default:
+				cpuRelax()
 			}
 		}
 	parked:
@@ -134,9 +146,19 @@ func helperScan(t *Table, list []int32, n int, q []float32, k int, results *[][]
 	h.res, h.err = nil, nil
 	h.state.Store(helperTask)
 	r0, e0 := arenaScanPeer(t, list, 0, mid, nil, q, k, &h.toMain, &h.toHelp)
-	for h.state.Load() != helperDone {
+	var r1 []arenaHit
+	var e1 error
+	if h.state.CompareAndSwap(helperTask, helperClaimed) {
+		// The helper has not picked the task up (its thread was not
+		// running): scan the second half here rather than wait for it,
+		// pruning with the bound of the first half.
+		r1, e1 = arenaScanPeer(t, list, mid, n, nil, q, k, &h.toHelp, nil)
+	} else {
+		for h.state.Load() != helperDone {
+			cpuRelax()
+		}
+		r1, e1 = h.res, h.err
 	}
-	r1, e1 := h.res, h.err
 	h.t, h.list, h.q, h.res, h.err = nil, nil, nil, nil, nil
 	h.state.Store(helperSpin)
 	*results = [][]arenaHit{r0, r1}

@@ -242,3 +242,8 @@ dsum:
 	BNE drow
 ddone:
 	RET
+
+// func cpuRelax()
+TEXT ·cpuRelax(SB), NOSPLIT, $0-0
+	YIELD
+	RET

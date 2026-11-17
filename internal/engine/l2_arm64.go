@@ -94,3 +94,6 @@ func dotQ8(c []int8, qq *q8query) int32 {
 func pruneMask(s []float32, c2 []int32, r []float32, d []int32, k *pruneK, out []byte) {
 	pruneMaskGo(s, c2, r, d, k, out)
 }
+
+// cpuRelax is one spin-wait hint (PAUSE / YIELD), used by the helper.
+func cpuRelax()
