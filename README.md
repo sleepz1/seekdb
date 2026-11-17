@@ -407,6 +407,29 @@ scan forced); new kernel test against the portable reference; 20/20
 public cases; protocol check; 30 SIGKILL rounds (24,712 committed rows
 verified); race detector on the engine tests.
 
+**Helper thread for the scan (round 13).** Round 12 scored E 3596. The
+unfiltered scan of 10,000 rows takes about 60 us, half of the server time
+per query, and the container has two CPUs, but the one-request-at-a-time
+protocol left the second idle: splitting with fresh goroutines lost more
+to the wake-up than it saved (round 3). Now a helper goroutine (`helper.go`)
+is woken by the server as soon as it reads a line that contains SELECT,
+so the wake-up overlaps the JSON and SQL parsing; it then spins for at most
+300 us after the latest request, waiting for a task. A TopK scan of at
+least 512 rows of 128 dimensions without a residual filter is split in
+two: the query goroutine scans the first half, the helper the second, and
+both publish their current k-th distance bound so that each prunes with
+the smaller one (a row farther than the other half's k-th distance has k
+closer rows and cannot be in the result). The merge is the one of the
+goroutine split, so results are identical (new test against the sequential
+scan on tied and continuous data, with posting lists and free slots, also
+under the race detector). An idle server parks the helper; with one CPU of
+quota it is not started; `MVDB_NOHELPER=1` turns it off. Local harness, 5
+interleaved runs (min / median): query T 146 / 151 -> 78 / 93 ms; write T,
+bytes and peak memory unchanged (15.9-16.0 MiB). Under a 2-CPU CFS quota
+the server was never throttled. 128 mixed queries identical to the
+admitted build (default and with each switch); 20/20 public cases; protocol
+check; 30 SIGKILL rounds.
+
 Earlier local results on a 2-vCPU sandbox:
 
 * 20/20 public cases (minivectordb-public-v4, incl. `--restart`) pass.
