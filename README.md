@@ -430,6 +430,21 @@ the server was never throttled. 128 mixed queries identical to the
 admitted build (default and with each switch); 20/20 public cases; protocol
 check; 30 SIGKILL rounds.
 
+**Helper hardening (round 14).** Round 13 scored E 3285 against 3596 for
+round 12; both lie inside the spread of one unchanged build, so the helper
+stays, made safer for hosts unlike this one. Both spin loops now execute
+PAUSE (YIELD on arm64) on every turn, so that a waiting thread does not
+take execution resources from a hyperthread sibling; if the helper has not
+started its half by the time the query goroutine finishes the first one
+(its thread was descheduled), the query goroutine takes the task back and
+scans the second half itself, pruning with the first half's bound, instead
+of waiting; the spin window after a request is 200 us. Locally the query
+time is unchanged (10 interleaved runs, total min / median: 503 / 571 ms
+round 13, 434 / 568 ms now). A test drives a helper whose thread never
+runs, so every split is taken back. A split of the INSERT value conversion
+with the helper was tried and dropped: on this 2-CPU machine the spinning
+thread competes with the client, and the gain could not be shown.
+
 Earlier local results on a 2-vCPU sandbox:
 
 * 20/20 public cases (minivectordb-public-v4, incl. `--restart`) pass.
