@@ -149,6 +149,11 @@ type protoRequest struct {
 
 // serveJSONL implements the official stdin/stdout protocol. Ready has already
 // been written and flushed. On shutdown it returns the process exit code.
+// looksLikeSelect is a cheap guess (a false answer only costs a wake-up).
+func looksLikeSelect(line []byte) bool {
+	return bytes.Contains(line, []byte("SELECT")) || bytes.Contains(line, []byte("select"))
+}
+
 func serveJSONL(sess *engine.Session, eng *engine.Engine, stdin io.Reader, w *bufio.Writer, stderr io.Writer, mu *sync.Mutex) int {
 	br := bufio.NewReaderSize(stdin, 1<<20)
 	for {
@@ -168,6 +173,9 @@ func serveJSONL(sess *engine.Session, eng *engine.Engine, stdin io.Reader, w *bu
 			sess.Close()
 			_ = eng.Close()
 			return 1
+		}
+		if looksLikeSelect(line) {
+			engine.Prewake() // wake the scan helper while the request is parsed
 		}
 		line = bytes.TrimRight(line, "\r\n")
 		if len(bytes.TrimSpace(line)) == 0 {
