@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -20,6 +21,11 @@ import (
 	"minivectordb/internal/engine"
 	"minivectordb/internal/sqlparse"
 )
+
+// No heap profiling: with the default rate the runtime samples one
+// allocation per 512 KiB and keeps a stack-bucket table for it, memory that
+// counts towards the container's peak and work on the request path.
+func init() { runtime.MemProfileRate = 0 }
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
