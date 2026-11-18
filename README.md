@@ -445,6 +445,23 @@ runs, so every split is taken back. A split of the INSERT value conversion
 with the helper was tried and dropped: on this 2-CPU machine the spinning
 thread competes with the client, and the gain could not be shown.
 
+**Number parsing (round 15).** Round 14 scored E 4269. Parsing vector text
+was 28 % of the server's CPU in the write phase (3.6 us per row of 128
+values) and about 4 us of every query. `parseDecimalList` now reads an
+element of the shape `D.DDDDDD` (the benchmark's six-decimal values) eight
+bytes at a time (`oneDotSix`: SWAR digit test and conversion, as in
+simdjson) and computes the same integer, digit count and scale as the byte
+loop, which still handles every other shape; a test compares it bit for
+bit with the previous parser on 200,000 random values, the extremes, signs,
+blanks and every single-byte corruption of a value. 128 values: 2.32 ->
+1.73 us. The binary also turns heap profiling off (`MemProfileRate = 0`).
+Harness, 5 interleaved runs (min / median): write T 175 / 203 -> 161 /
+172 ms, query T 75 / 90 -> 74 / 81 ms; server CPU of the write phase about
+-7 %; bytes and memory unchanged. Tried and dropped: splitting INSERT
+conversion with the helper (server time 115 -> 150 ms on this 2-CPU
+machine, worse tails) and spinning on standard input after each response
+(no gain here).
+
 Earlier local results on a 2-vCPU sandbox:
 
 * 20/20 public cases (minivectordb-public-v4, incl. `--restart`) pass.
