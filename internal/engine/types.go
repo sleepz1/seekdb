@@ -517,6 +517,15 @@ func parseDecimalList(s string, out []float32) bool {
 		}
 		var m uint64
 		digits, frac, dot := 0, 0, false
+		if i+8 <= len(s) && (i+8 == len(s) || s[i+8]-'0' > 9) {
+			// Fast path for the shape "D.DDDDDD" (one digit, six decimals),
+			// eight bytes at a time; it computes the same m, digits, frac
+			// and dot as the loop below (which then sees no more digits).
+			if u, ok := oneDotSix(s[i : i+8]); ok {
+				m, digits, frac, dot = u, 7, 6, true
+				i += 8
+			}
+		}
 		for ; i < len(s); i++ {
 			c := s[i]
 			if c-'0' <= 9 {
@@ -551,6 +560,26 @@ func parseDecimalList(s string, out []float32) bool {
 		}
 		i++
 	}
+}
+
+// oneDotSix parses b, which must be 8 bytes, if it has the form
+// "D.DDDDDD": it returns D*10^6 + DDDDDD. The digit test and the conversion
+// are SWAR (all eight bytes at once, as in simdjson).
+func oneDotSix(b string) (uint64, bool) {
+	if b[1] != '.' {
+		return 0, false
+	}
+	u := uint64(b[0]) | uint64('0')<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
+		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
+	if (u&0xF0F0F0F0F0F0F0F0)|(((u+0x0606060606060606)&0xF0F0F0F0F0F0F0F0)>>4) != 0x3333333333333333 {
+		return 0, false // a byte that is not an ASCII digit
+	}
+	// u now holds the digits D,0,D1..D6, first digit in the low byte.
+	u = (u & 0x0F0F0F0F0F0F0F0F) * 2561 >> 8
+	u = (u & 0x00FF00FF00FF00FF) * 6553601 >> 16
+	n := (u & 0x0000FFFF0000FFFF) * 42949672960001 >> 32 // D*10^7 + DDDDDD
+	d := uint64(b[0] - '0')
+	return n - d*9000000, true
 }
 
 // FormatVector renders a vector in literal form, e.g. [1,2.5].
